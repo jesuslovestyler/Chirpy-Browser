@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.13.1 (Swift)
+//  Turtle Browser — prototype 0.13.2 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.13.1 (Swift) — forms, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.13.2 (Swift) — forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -111,7 +111,7 @@ final class BrowserModel: ObservableObject {
                 self.columnTextWidth = columnW
                 self.pageForms = forms
                 self.pageFields = fields
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.1 (Swift) — forms, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.2 (Swift) — forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -230,6 +230,7 @@ struct PageTextView: NSViewRepresentable {
             if textView.textContainerInset != newInset {
                 textView.textContainerInset = newInset
             }
+            settleFormViews()
         }
 
         func detach() {
@@ -289,11 +290,29 @@ struct PageTextView: NSViewRepresentable {
                 }
             }
             repositionFormViews()
+            // The seating is measured again once this update
+            // cycle has fully settled — window size, insets,
+            // and layout all final — because a measurement
+            // taken mid-update seats every control at the
+            // line's start (0.13.1's overlapping pile).
+            DispatchQueue.main.async { [weak self] in
+                self?.settleFormViews()
+            }
+        }
+
+        // Force the layout complete, then seat the controls.
+        func settleFormViews() {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer else { return }
+            layoutManager.ensureLayout(for: container)
+            repositionFormViews()
         }
 
         // Set each control over its attachment: the glyph's
         // line rect, with the control's own height centered
-        // in the line.
+        // in the line. This pass only reads finished layout,
+        // so the layout-completion callback may use it.
         func repositionFormViews() {
             guard let textView = textView,
                   let layoutManager = textView.layoutManager,
