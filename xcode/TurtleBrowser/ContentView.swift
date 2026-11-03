@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.12 (Swift)
+//  Turtle Browser — prototype 0.12.1 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.12 (Swift) — background photos, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.12.1 (Swift) — background photos, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -74,7 +74,7 @@ final class BrowserModel: ObservableObject {
                 self.pageText = body
                 self.pageBackground = pageBG
                 self.columnTextWidth = columnW
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.12 (Swift) — background photos, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.12.1 (Swift) — background photos, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -462,8 +462,8 @@ final class TBBandLayoutManager: NSLayoutManager {
                                      context: NSGraphicsContext.current,
                                      hints: nil) else { return }
         context.saveGState()
-        context.translateBy(x: 0, yBy: dest.minY + dest.maxY)
-        context.scaleBy(x: 1, yBy: -1)
+        context.translateBy(x: 0, y: dest.minY + dest.maxY)
+        context.scaleBy(x: 1, y: -1)
         context.draw(cg, in: dest)
         context.restoreGState()
     }
