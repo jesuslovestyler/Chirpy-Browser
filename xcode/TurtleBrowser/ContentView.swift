@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.4 (Swift)
+//  Turtle Browser — prototype 0.5 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,10 +15,11 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.4 (Swift) — CSS step three, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.5 (Swift) — CSS step four, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
+    @Published var pageBackground: NSColor? = nil
 
     private var currentURL = ""
     private var backStack: [String] = []
@@ -65,12 +66,13 @@ final class BrowserModel: ObservableObject {
         Task {
             do {
                 let (finalURL, html) = try await tbFetch(urlString: target)
-                let (title, body) = await tbRenderPage(html: html, base: finalURL)
+                let (title, body, pageBG) = await tbRenderPage(html: html, base: finalURL)
                 self.currentURL = finalURL
                 self.addressText = finalURL
                 self.pageTitle = title
                 self.pageText = body
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.4 (Swift) — CSS step three, no JavaScript yet"
+                self.pageBackground = pageBG
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.5 (Swift) — CSS step four, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -83,6 +85,7 @@ final class BrowserModel: ObservableObject {
                     string: "\(target)\n\nReason: \(error.localizedDescription)",
                     attributes: [.font: NSFont.systemFont(ofSize: 14)]))
                 self.pageText = msg
+                self.pageBackground = nil
                 self.statusLine = "Load failed"
             }
             self.canGoBack = !self.backStack.isEmpty
@@ -114,6 +117,7 @@ struct PageTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
+        textView.backgroundColor = model.pageBackground ?? NSColor.textBackgroundColor
         if context.coordinator.lastPageID != model.pageID {
             context.coordinator.lastPageID = model.pageID
             textView.textStorage?.setAttributedString(model.pageText)

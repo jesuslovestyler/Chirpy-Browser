@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.4 (Swift)
+//  Turtle Browser — engine 0.5 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -29,10 +29,16 @@
 //      Mac is in dark mode, variables (and any other rules)
 //      inside @media (prefers-color-scheme: dark) join the
 //      cascade, exactly as a real browser would apply them.
+//    * Step four (0.5): box backgrounds. A container's
+//      background-color now paints behind everything inside it
+//      (nearest background wins; a nearer element's own
+//      background is never painted over), the color layer of
+//      the `background:` shorthand is honored, and the page's
+//      own background color becomes the window's canvas color.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
-//  color-mix(), the font:/background: shorthands, box layout
-//  (margins, positioning, columns), images (labelled
-//  placeholders), JavaScript (the mountain).
+//  color-mix(), the font: shorthand, real box layout (margins,
+//  positioning, columns), images (labelled placeholders),
+//  JavaScript (the mountain).
 //
 
 import Foundation
@@ -134,7 +140,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.4 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.5 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -148,7 +154,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.4 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.5 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -824,6 +830,41 @@ func tbParseColor(_ raw: String?) -> NSColor? {
     return nil
 }
 
+// The background color an element's declarations call for:
+// background-color itself, or the color layer of the
+// `background:` shorthand. In the shorthand, only the final
+// layer may carry a color (it paints beneath any images or
+// gradients in the earlier layers), so the color is looked
+// for there — or in a lone single-layer value.
+func tbBackgroundColor(_ decls: [String: String]) -> NSColor? {
+    if let color = tbParseColor(decls["background-color"]) {
+        return color
+    }
+    guard let shorthand = decls["background"] else { return nil }
+    // Split into layers at commas that sit outside parentheses.
+    var layers: [String] = []
+    var depth = 0
+    var current = ""
+    for c in shorthand {
+        if c == "(" { depth += 1 }
+        else if c == ")" { depth -= 1 }
+        if c == "," && depth == 0 {
+            layers.append(current)
+            current = ""
+        } else {
+            current.append(c)
+        }
+    }
+    layers.append(current)
+    guard let last = layers.last else { return nil }
+    let trimmed = last.trimmingCharacters(in: .whitespaces)
+    if let color = tbParseColor(trimmed) { return color }
+    for token in trimmed.split(whereSeparator: { tbIsSpace($0) }) {
+        if let color = tbParseColor(String(token)) { return color }
+    }
+    return nil
+}
+
 // MARK: - Font helpers
 
 func tbFontSizeValue(_ raw: String, relativeTo base: CGFloat) -> CGFloat? {
@@ -930,6 +971,7 @@ final class TBRenderer {
     let base: String
     var links: [String] = []
     var rules: [TBCSSRule] = []
+    var pageBackground: NSColor? = nil
     let out = NSMutableAttributedString()
 
     init(base: String) { self.base = base }
@@ -977,8 +1019,19 @@ final class TBRenderer {
             }
         }
         walkBlock(node: root, style: "p", baseFont: tbFont(for: "p"),
-                  color: nil, align: .left)
+                  color: nil, align: .left, inheritedBackground: nil)
+        if let body = findTag(root, "body") ?? findTag(root, "html") {
+            pageBackground = tbBackgroundColor(resolvedStyle(node: body))
+        }
         return out
+    }
+
+    private func findTag(_ node: TBNode, _ tag: String) -> TBNode? {
+        if node.tag == tag { return node }
+        for child in node.children {
+            if let found = findTag(child, tag) { return found }
+        }
+        return nil
     }
 
     private func hasBlock(_ node: TBNode) -> Bool {
@@ -1016,45 +1069,68 @@ final class TBRenderer {
                 buffer.addAttribute(.paragraphStyle, value: paragraph, range: blockRange)
             }
             if let background = background {
-                buffer.addAttribute(.backgroundColor, value: background, range: blockRange)
+                // Paint behind only the runs not already carrying
+                // a nearer element's own background.
+                var unpainted: [NSRange] = []
+                buffer.enumerateAttribute(.backgroundColor, in: blockRange,
+                                           options: []) { value, range, _ in
+                    if value == nil { unpainted.append(range) }
+                }
+                for range in unpainted {
+                    buffer.addAttribute(.backgroundColor, value: background, range: range)
+                }
             }
             out.append(buffer)
-            out.append(NSAttributedString(string: "\n\n"))
+            // The gap between blocks belongs to the same box:
+            // paint it too, so a background reads as one band.
+            if let background = background {
+                out.append(NSAttributedString(
+                    string: "\n\n", attributes: [.backgroundColor: background]))
+            } else {
+                out.append(NSAttributedString(string: "\n\n"))
+            }
         }
         buffer = NSMutableAttributedString()
     }
 
     private func walkBlock(node: TBNode, style: String, baseFont: NSFont,
-                           color: NSColor?, align: NSTextAlignment) {
+                           color: NSColor?, align: NSTextAlignment,
+                           inheritedBackground: NSColor?) {
         let own = resolvedStyle(node: node)
         if node.tag != "document" && tbIsHidden(own) { return }
         let effFont = tbFontApplying(own, to: baseFont)
         let effColor = tbParseColor(own["color"]) ?? color
         let effAlign = tbAlignment(own, fallback: align)
-        let blockBackground = tbParseColor(own["background-color"])
+        // The background showing through this whole subtree: this
+        // element's own background if it declares one, else the
+        // nearest ancestor's. (CSS backgrounds are not inherited
+        // as values — they show through, which amounts to this.)
+        let effBackground = tbBackgroundColor(own) ?? inheritedBackground
 
         var buffer = NSMutableAttributedString()
         for child in node.children {
             if TBRenderSkipTags.contains(child.tag) { continue }
             if TBBlockTags.contains(child.tag) {
                 flush(buffer: &buffer, style: style, font: effFont,
-                      align: effAlign, background: blockBackground)
+                      align: effAlign, background: effBackground)
                 let childStyle = tbStyle(for: child.tag)
                 let childBase = TBHeadingTags.contains(child.tag)
                     ? tbFont(for: child.tag) : effFont
                 walkBlock(node: child, style: childStyle, baseFont: childBase,
-                          color: effColor, align: effAlign)
+                          color: effColor, align: effAlign,
+                          inheritedBackground: effBackground)
             } else if child.tag == "html" || child.tag == "body" || child.tag == "document" || hasBlock(child) {
                 flush(buffer: &buffer, style: style, font: effFont,
-                      align: effAlign, background: blockBackground)
+                      align: effAlign, background: effBackground)
                 walkBlock(node: child, style: style, baseFont: effFont,
-                          color: effColor, align: effAlign)
+                          color: effColor, align: effAlign,
+                          inheritedBackground: effBackground)
             } else {
                 buffer.append(inline(child, font: effFont, color: effColor))
             }
         }
         flush(buffer: &buffer, style: style, font: effFont,
-              align: effAlign, background: blockBackground)
+              align: effAlign, background: effBackground)
     }
 
     private func inline(_ node: TBNode, font: NSFont, color: NSColor?) -> NSAttributedString {
@@ -1126,7 +1202,7 @@ final class TBRenderer {
         // Span-level dressing: background, underline, strikethrough.
         if result.length > 0 {
             let full = NSRange(location: 0, length: result.length)
-            if let bg = tbParseColor(own["background-color"]) {
+            if let bg = tbBackgroundColor(own) {
                 result.addAttribute(.backgroundColor, value: bg, range: full)
             }
             let decoration = (own["text-decoration"] ?? "").lowercased()
@@ -1144,10 +1220,11 @@ final class TBRenderer {
     }
 }
 
-func tbRenderPage(html: String, base: String) async -> (title: String, body: NSAttributedString) {
+func tbRenderPage(html: String, base: String) async
+    -> (title: String, body: NSAttributedString, pageBackground: NSColor?) {
     let title = tbExtractTitle(html: html)
     let tree = tbParse(html: html)
     let renderer = TBRenderer(base: base)
     let body = await renderer.render(root: tree)
-    return (title.isEmpty ? base : title, body)
+    return (title.isEmpty ? base : title, body, renderer.pageBackground)
 }
