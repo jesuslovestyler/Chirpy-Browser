@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.5 (Swift)
+//  Turtle Browser — engine 0.6 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -35,9 +35,18 @@
 //      background is never painted over), the color layer of
 //      the `background:` shorthand is honored, and the page's
 //      own background color becomes the window's canvas color.
+//    * Layout step one (0.6): the flow starts listening to
+//      `display` — an element styled block, flex, or grid
+//      becomes its own block (link cards finally stand apart
+//      instead of running together), and one styled inline
+//      flows inline; margins and padding become paragraph
+//      spacing and indents; line-height is honored; lengths
+//      understand clamp(), min(), and max().
 //  Not yet: other pseudo-classes (:hover) and @-rules,
-//  color-mix(), the font: shorthand, real box layout (margins,
-//  positioning, columns), images (labelled placeholders),
+//  color-mix(), the font: shorthand, true box positioning
+//  (columns, floats, centered fixed-width columns, full-width
+//  background bands — those want a richer paint surface than
+//  a text view), images (labelled placeholders),
 //  JavaScript (the mountain).
 //
 
@@ -140,7 +149,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.5 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.6 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -154,7 +163,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.5 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.6 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -937,6 +946,136 @@ func tbAlignment(_ decls: [String: String], fallback: NSTextAlignment) -> NSText
     }
 }
 
+// MARK: - Layout (step one)
+
+// Expand a box shorthand (margin / padding) into top, right,
+// bottom, left raw values; longhand properties win over the
+// shorthand. Tokens split on whitespace outside parentheses,
+// so a value like clamp(54px, 9vw, 100px) stays in one piece.
+func tbBoxValues(_ decls: [String: String], _ base: String) -> [String] {
+    var sides = ["", "", "", ""]
+    if let shorthand = decls[base] {
+        var tokens: [String] = []
+        var depth = 0
+        var current = ""
+        for c in shorthand {
+            if c == "(" { depth += 1 }
+            else if c == ")" { depth -= 1 }
+            if tbIsSpace(c) && depth == 0 {
+                if !current.isEmpty { tokens.append(current); current = "" }
+            } else {
+                current.append(c)
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        switch tokens.count {
+        case 1: sides = [tokens[0], tokens[0], tokens[0], tokens[0]]
+        case 2: sides = [tokens[0], tokens[1], tokens[0], tokens[1]]
+        case 3: sides = [tokens[0], tokens[1], tokens[2], tokens[1]]
+        default:
+            if tokens.count >= 4 {
+                sides = [tokens[0], tokens[1], tokens[2], tokens[3]]
+            }
+        }
+    }
+    let names = ["\(base)-top", "\(base)-right", "\(base)-bottom", "\(base)-left"]
+    for i in 0..<4 {
+        if let longhand = decls[names[i]] { sides[i] = longhand }
+    }
+    return sides
+}
+
+// One CSS length in points. px and pt are taken at face value;
+// em is relative to the element's font size, rem to the root
+// 14; % and vw resolve against a nominal 1000pt-wide page.
+// clamp(), min(), and max() combine their arguments (clamp
+// yields the middle of its three). "auto" and anything
+// unparseable yield nil.
+func tbLengthValue(_ raw: String?, fontSize: CGFloat) -> CGFloat? {
+    guard let raw = raw else { return nil }
+    let v = raw.trimmingCharacters(in: .whitespaces).lowercased()
+    if v.isEmpty || v == "auto" { return nil }
+    for fn in ["clamp", "min", "max"] {
+        if v.hasPrefix(fn + "(") && v.hasSuffix(")") {
+            let inner = String(v.dropFirst(fn.count + 1).dropLast())
+            var parts: [String] = []
+            var depth = 0
+            var current = ""
+            for c in inner {
+                if c == "(" { depth += 1 }
+                else if c == ")" { depth -= 1 }
+                if c == "," && depth == 0 {
+                    parts.append(current)
+                    current = ""
+                } else {
+                    current.append(c)
+                }
+            }
+            parts.append(current)
+            var args: [CGFloat] = []
+            for part in parts {
+                if let value = tbLengthValue(part, fontSize: fontSize) {
+                    args.append(value)
+                }
+            }
+            if args.isEmpty { return nil }
+            switch fn {
+            case "min": return args.min()
+            case "max": return args.max()
+            default: return args.sorted()[args.count / 2]   // clamp: middle value
+            }
+        }
+    }
+    if v.hasSuffix("rem"), let d = Double(String(v.dropLast(3))) { return CGFloat(14 * d) }
+    if v.hasSuffix("px"), let d = Double(String(v.dropLast(2))) { return CGFloat(d) }
+    if v.hasSuffix("pt"), let d = Double(String(v.dropLast(2))) { return CGFloat(d) }
+    if v.hasSuffix("em"), let d = Double(String(v.dropLast(2))) { return fontSize * CGFloat(d) }
+    if v.hasSuffix("vw"), let d = Double(String(v.dropLast(2))) { return 1000 * CGFloat(d) / 100 }
+    if v.hasSuffix("%"), let d = Double(String(v.dropLast(1))) { return 1000 * CGFloat(d) / 100 }
+    if let d = Double(v) { return CGFloat(d) }
+    return nil
+}
+
+struct TBBlockMetrics {
+    var before: CGFloat = 0
+    var after: CGFloat = 0
+    var lineMultiple: CGFloat = 0
+    var extraLineSpacing: CGFloat = 0
+    var indent: CGFloat = 0
+    var tailIndent: CGFloat = 0
+    var hasAny: Bool {
+        before > 0 || after > 0 || lineMultiple > 0
+            || extraLineSpacing > 0 || indent > 0 || tailIndent > 0
+    }
+}
+
+// A block's spacing in the text flow: margin + padding above
+// and below become paragraph spacing, left/right become
+// indents, and line-height becomes line spacing. Real box
+// layout positions boxes on a surface; in a text flow these
+// are the honest equivalents.
+func tbBlockMetrics(_ decls: [String: String], fontSize: CGFloat) -> TBBlockMetrics {
+    var m = TBBlockMetrics()
+    let margin = tbBoxValues(decls, "margin")
+    let padding = tbBoxValues(decls, "padding")
+    func len(_ s: String) -> CGFloat { tbLengthValue(s, fontSize: fontSize) ?? 0 }
+    m.before = min(max(len(margin[0]) + len(padding[0]), 0), 240)
+    m.after = min(max(len(margin[2]) + len(padding[2]), 0), 240)
+    m.indent = min(max(len(margin[3]) + len(padding[3]), 0), 400)
+    m.tailIndent = min(max(len(margin[1]) + len(padding[1]), 0), 400)
+    if let lh = decls["line-height"] {
+        let v = lh.trimmingCharacters(in: .whitespaces).lowercased()
+        if let multiple = Double(v) {
+            m.lineMultiple = CGFloat(multiple)
+        } else if v.hasSuffix("%"), let p = Double(String(v.dropLast(1))) {
+            m.lineMultiple = CGFloat(p) / 100
+        } else if let length = tbLengthValue(v, fontSize: fontSize) {
+            m.extraLineSpacing = max(length - fontSize, 0)
+        }
+    }
+    return m
+}
+
 // MARK: - Render
 
 let TBBlockTags: Set<String> = ["p", "div", "section", "article", "main",
@@ -1042,7 +1181,8 @@ final class TBRenderer {
     }
 
     private func flush(buffer: inout NSMutableAttributedString, style: String,
-                       font: NSFont, align: NSTextAlignment, background: NSColor?) {
+                       font: NSFont, align: NSTextAlignment, background: NSColor?,
+                       metrics: TBBlockMetrics) {
         func isWS(_ s: String) -> Bool {
             s == " " || s == "\n" || s == "\t" || s == "\r"
         }
@@ -1063,9 +1203,18 @@ final class TBRenderer {
                 buffer.insert(NSAttributedString(string: "\u{2022} ", attributes: [.font: font]), at: 0)
             }
             let blockRange = NSRange(location: 0, length: buffer.length)
-            if align != .left {
+            if align != .left || metrics.hasAny {
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.alignment = align
+                if metrics.before > 0 { paragraph.paragraphSpacingBefore = metrics.before }
+                if metrics.after > 0 { paragraph.paragraphSpacing = metrics.after }
+                if metrics.lineMultiple > 0 { paragraph.lineHeightMultiple = metrics.lineMultiple }
+                if metrics.extraLineSpacing > 0 { paragraph.lineSpacing = metrics.extraLineSpacing }
+                if metrics.indent > 0 {
+                    paragraph.headIndent = metrics.indent
+                    paragraph.firstLineHeadIndent = metrics.indent
+                }
+                if metrics.tailIndent > 0 { paragraph.tailIndent = -metrics.tailIndent }
                 buffer.addAttribute(.paragraphStyle, value: paragraph, range: blockRange)
             }
             if let background = background {
@@ -1106,13 +1255,24 @@ final class TBRenderer {
         // nearest ancestor's. (CSS backgrounds are not inherited
         // as values — they show through, which amounts to this.)
         let effBackground = tbBackgroundColor(own) ?? inheritedBackground
+        let metrics = tbBlockMetrics(own, fontSize: effFont.pointSize)
 
         var buffer = NSMutableAttributedString()
         for child in node.children {
             if TBRenderSkipTags.contains(child.tag) { continue }
-            if TBBlockTags.contains(child.tag) {
+            // Layout step one: the child's computed display decides
+            // whether it stands as its own block or flows inline —
+            // a link styled display:grid is a card, not a word.
+            let childOwn = child.tag == "#text" ? [:] : resolvedStyle(node: child)
+            if child.tag != "#text" && tbIsHidden(childOwn) { continue }
+            let display = (childOwn["display"] ?? "").lowercased()
+            let forceBlock = ["block", "flex", "grid", "list-item",
+                              "table", "flow-root"].contains(display)
+            let forceInline = ["inline", "inline-block", "inline-flex",
+                               "inline-grid", "contents"].contains(display)
+            if forceBlock || (TBBlockTags.contains(child.tag) && !forceInline) {
                 flush(buffer: &buffer, style: style, font: effFont,
-                      align: effAlign, background: effBackground)
+                      align: effAlign, background: effBackground, metrics: metrics)
                 let childStyle = tbStyle(for: child.tag)
                 let childBase = TBHeadingTags.contains(child.tag)
                     ? tbFont(for: child.tag) : effFont
@@ -1121,7 +1281,7 @@ final class TBRenderer {
                           inheritedBackground: effBackground)
             } else if child.tag == "html" || child.tag == "body" || child.tag == "document" || hasBlock(child) {
                 flush(buffer: &buffer, style: style, font: effFont,
-                      align: effAlign, background: effBackground)
+                      align: effAlign, background: effBackground, metrics: metrics)
                 walkBlock(node: child, style: style, baseFont: effFont,
                           color: effColor, align: effAlign,
                           inheritedBackground: effBackground)
@@ -1130,7 +1290,7 @@ final class TBRenderer {
             }
         }
         flush(buffer: &buffer, style: style, font: effFont,
-              align: effAlign, background: effBackground)
+              align: effAlign, background: effBackground, metrics: metrics)
     }
 
     private func inline(_ node: TBNode, font: NSFont, color: NSColor?) -> NSAttributedString {

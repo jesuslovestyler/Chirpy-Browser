@@ -14,7 +14,7 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.5
+## Status — Engine 0.6
 
 What works today:
 
@@ -36,17 +36,25 @@ What works today:
   everything inside it (nearest background wins), the color
   layer of the `background:` shorthand is honored, and the
   page's own background becomes the window's canvas color.
-  The properties: color, background color, bold, italic, font
-  size, text alignment, underlines, and `display: none`.
+  **Layout step one**: computed `display` steers the flow (an
+  element styled block, flex, or grid stands as its own block —
+  link cards stand apart instead of running together), margins
+  and padding become paragraph spacing and indents, and
+  line-height is honored, with `clamp()`/`min()`/`max()`
+  lengths understood. The properties: color, background color,
+  bold, italic, font size, text alignment, underlines,
+  spacing, and `display`.
 
 Honest limits, for now:
 
 - No JavaScript. (This is the mountain every engine climbs last;
   JavaScript-heavy sites will look bare.)
-- No box layout yet — no margins, floats, or columns; pages are
-  words-first. Layout is next on the road, then images, tabs,
-  and forms. Pseudo-classes (`:hover`), other `@media` queries,
-  and `color-mix()` are not read yet.
+- No true box positioning yet — no columns, floats, or
+  centered fixed-width columns, and background bands still hug
+  the text rather than filling a box's full width; those want
+  a richer paint surface than a text view. Images, tabs, and
+  forms are further down the road. Pseudo-classes (`:hover`),
+  other `@media` queries, and `color-mix()` are not read yet.
 - One window, one page at a time.
 
 ## The two engines
