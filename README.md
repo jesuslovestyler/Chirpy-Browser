@@ -14,7 +14,7 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.8.1
+## Status — Engine 0.9
 
 What works today:
 
@@ -59,7 +59,12 @@ What works today:
   reads as one painted surface rather than separate stripes.
   (0.8.1: a build fix — the band fill uses `NSRect.fill()`;
   the old C `NSRectFill` is not in scope on current SDKs.)
-  The properties:
+  **Images**: `<img>` elements fetch in parallel and render
+  as real pictures in the flow, sized by their CSS or
+  attribute box or their natural size (capped at the page
+  width); a failed image falls back to its labelled
+  placeholder. CSS background images, `srcset`, and inline
+  `<svg>` are not read yet. The properties:
   color, background color, bold,
   italic, font size, text alignment, underlines, spacing,
   and `display`.

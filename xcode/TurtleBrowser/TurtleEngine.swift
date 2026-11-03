@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.8.1 (Swift)
+//  Turtle Browser — engine 0.9 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -52,11 +52,16 @@
 //      view bridges the spacing seams between same-colored
 //      paragraphs, so a colored container reads as one
 //      painted surface instead of separate stripes.
+//    * Images (0.9): <img> elements fetch in parallel and
+//      render as real pictures in the flow, sized by their
+//      CSS/attribute box or their natural size (capped at
+//      the nominal page width); a failed image falls back
+//      to its labelled placeholder. CSS background images,
+//      srcset, and inline <svg> are not read yet.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
 //  color-mix(), the font: shorthand, true box positioning
 //  (columns, floats — those want a richer paint surface
-//  than a text view), images (labelled placeholders),
-//  JavaScript (the mountain).
+//  than a text view), JavaScript (the mountain).
 //
 
 import Foundation
@@ -158,7 +163,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.8.1 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.9 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -167,12 +172,39 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
     return (final, html)
 }
 
+// Fetch a binary resource (an image). Failures return nil:
+// the image falls back to its label.
+func tbFetchData(urlString: String) async -> Data? {
+    guard let url = URL(string: urlString) else { return nil }
+    var request = URLRequest(url: url)
+    request.setValue("TurtleBrowser/0.9 (Swift; our own engine)",
+                     forHTTPHeaderField: "User-Agent")
+    request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
+    request.timeoutInterval = 20
+    guard let (data, response) = try? await URLSession.shared.data(for: request) else {
+        return nil
+    }
+    if let http = response as? HTTPURLResponse, http.statusCode >= 400 { return nil }
+    return data
+}
+
+// Decode a data: URI in place (base64 or plain text payload).
+func tbDecodeDataURI(_ uri: String) -> Data? {
+    guard let comma = uri.firstIndex(of: ",") else { return nil }
+    let header = uri[uri.startIndex..<comma].lowercased()
+    let payload = String(uri[uri.index(after: comma)...])
+    if header.contains(";base64") {
+        return Data(base64Encoded: payload)
+    }
+    return payload.data(using: .utf8)
+}
+
 // Fetch a plain text resource (used for external stylesheets).
 // Failures return nil: a page must still render without its CSS.
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.8.1 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.9 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1154,6 +1186,18 @@ final class TBRenderer {
     var pageBackground: NSColor? = nil
     let out = NSMutableAttributedString()
 
+    // Images (0.9): an <img> seats an attachment in the text
+    // as it renders; the pictures are fetched together at
+    // the end (finishImages), so the page arrives whole.
+    struct TBImageJob {
+        let attachment: NSTextAttachment
+        let url: String
+        let alt: String
+        let preferredWidth: CGFloat?
+        let preferredHeight: CGFloat?
+    }
+    var imageJobs: [TBImageJob] = []
+
     init(base: String) { self.base = base }
 
     // The Mac's own appearance decides prefers-color-scheme,
@@ -1228,6 +1272,74 @@ final class TBRenderer {
         return out
     }
 
+    // Fetch every registered image in parallel and seat it
+    // in its attachment, fitted to its CSS/attribute box, or
+    // its natural size capped at the nominal page width. An
+    // image that cannot be fetched or decoded is replaced in
+    // the text by its labelled placeholder — honest, never
+    // a silent hole.
+    func finishImages() async {
+        if imageJobs.isEmpty { return }
+        var dataByIndex: [Int: Data] = [:]
+        await withTaskGroup(of: (Int, Data?).self) { group in
+            for (index, job) in imageJobs.enumerated() {
+                if job.url.hasPrefix("data:") {
+                    dataByIndex[index] = tbDecodeDataURI(job.url)
+                } else {
+                    let url = job.url
+                    group.addTask { (index, await tbFetchData(urlString: url)) }
+                }
+            }
+            for await (index, data) in group {
+                if let data = data { dataByIndex[index] = data }
+            }
+        }
+        for (index, job) in imageJobs.enumerated() {
+            guard let data = dataByIndex[index], let image = NSImage(data: data) else {
+                continue
+            }
+            let natural = image.size
+            if natural.width < 2 || natural.height < 2 { continue }
+            var width = job.preferredWidth ?? natural.width
+            var height = job.preferredHeight ?? natural.height
+            if job.preferredWidth != nil && job.preferredHeight == nil {
+                height = natural.height * (width / natural.width)
+            } else if job.preferredHeight != nil && job.preferredWidth == nil {
+                width = natural.width * (height / natural.height)
+            }
+            if width > 1000 {
+                height *= 1000 / width
+                width = 1000
+            }
+            job.attachment.image = image
+            job.attachment.bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        }
+        // Replace attachments that never got a picture with
+        // their labels, found by identity, replaced backwards
+        // so earlier ranges stay put.
+        let failedIDs = Set(imageJobs.compactMap { job -> ObjectIdentifier? in
+            job.attachment.image == nil ? ObjectIdentifier(job.attachment) : nil
+        })
+        if !failedIDs.isEmpty {
+            var failed: [(range: NSRange, alt: String)] = []
+            out.enumerateAttribute(.attachment,
+                                   in: NSRange(location: 0, length: out.length)) { value, range, _ in
+                if let attachment = value as? NSTextAttachment,
+                   failedIDs.contains(ObjectIdentifier(attachment)) {
+                    let alt = imageJobs.first { $0.attachment === attachment }?.alt ?? "image"
+                    failed.append((range: range, alt: alt))
+                }
+            }
+            for entry in failed.reversed() {
+                out.replaceCharacters(in: entry.range, with: NSAttributedString(
+                    string: " [Image: \(entry.alt)] ",
+                    attributes: [.font: NSFont.systemFont(ofSize: 12),
+                                 .foregroundColor: NSColor.secondaryLabelColor]))
+            }
+        }
+        imageJobs = []
+    }
+
     func render(root: TBNode) async -> NSAttributedString {
         var sources: [TBStyleSource] = []
         tbCollectStyleSources(root, base: base, into: &sources)
@@ -1253,6 +1365,7 @@ final class TBRenderer {
         if let body = findTag(root, "body") ?? findTag(root, "html") {
             pageBackground = tbBackgroundColor(resolvedStyle(node: body))
         }
+        await finishImages()
         return out
     }
 
@@ -1379,7 +1492,10 @@ final class TBRenderer {
                               "table", "flow-root"].contains(display)
             let forceInline = ["inline", "inline-block", "inline-flex",
                                "inline-grid", "contents"].contains(display)
-            if forceBlock || (TBBlockTags.contains(child.tag) && !forceInline) {
+            // An <img> is a replaced element: it always flows
+            // through inline(), where its attachment is seated,
+            // whatever display its CSS claims.
+            if child.tag != "img" && (forceBlock || (TBBlockTags.contains(child.tag) && !forceInline)) {
                 flush(buffer: &buffer, style: style, font: effFont,
                       align: effAlign, background: effBackground, metrics: metrics)
                 let childStyle = tbStyle(for: child.tag)
@@ -1463,6 +1579,23 @@ final class TBRenderer {
 
         if node.tag == "img" {
             let alt = node.attrs["alt"] ?? "image"
+            let src = (node.attrs["src"] ?? "").trimmingCharacters(in: .whitespaces)
+            // A declared 1x1 is a tracking pixel, not a picture.
+            let isPixel = node.attrs["width"] == "1" || node.attrs["height"] == "1"
+            if !src.isEmpty && !isPixel && imageJobs.count < 24 {
+                let absolute = src.hasPrefix("data:")
+                    ? src
+                    : (URL(string: src, relativeTo: URL(string: base))?.absoluteString ?? src)
+                let attachment = NSTextAttachment()
+                attachment.bounds = CGRect(x: 0, y: 0, width: 24, height: 18)
+                imageJobs.append(TBImageJob(
+                    attachment: attachment, url: absolute, alt: alt,
+                    preferredWidth: tbLengthValue(own["width"] ?? node.attrs["width"],
+                                                  fontSize: f.pointSize),
+                    preferredHeight: tbLengthValue(own["height"] ?? node.attrs["height"],
+                                                   fontSize: f.pointSize)))
+                return NSAttributedString(attachment: attachment)
+            }
             return NSAttributedString(
                 string: " [Image: \(alt)] ",
                 attributes: [.font: f, .foregroundColor: NSColor.secondaryLabelColor])
