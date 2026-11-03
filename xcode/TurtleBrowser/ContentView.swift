@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.9 (Swift)
+//  Turtle Browser — prototype 0.10 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.9 (Swift) — images, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.10 (Swift) — background photos, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -74,7 +74,7 @@ final class BrowserModel: ObservableObject {
                 self.pageText = body
                 self.pageBackground = pageBG
                 self.columnTextWidth = columnW
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.9 (Swift) — images, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.10 (Swift) — background photos, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -264,7 +264,11 @@ final class TBBandLayoutManager: NSLayoutManager {
         let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
         let canvas = textView.backgroundColor
 
-        var bands: [(color: NSColor, top: CGFloat, bottom: CGFloat)] = []
+        // A surface: a run of consecutive paragraphs sharing
+        // a background — its fill color and/or its layer box
+        // (photos and gradients, 0.10).
+        var bands: [(color: NSColor?, box: TBBackgroundBox?,
+                     boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat)] = []
         var previousWasBand = false
         var index = charRange.location
         let end = min(NSMaxRange(charRange), string.length)
@@ -272,8 +276,12 @@ final class TBBandLayoutManager: NSLayoutManager {
             let paragraph = string.paragraphRange(for: NSRange(location: index, length: 0))
             if paragraph.length == 0 { break }
             var merged = false
-            if let color = surfaceColor(storage: storage, paragraph: paragraph),
-               !color.isEqual(canvas) {
+            let lastIndex = paragraph.location + paragraph.length - 1
+            let box = storage.attribute(TBBackgroundKey, at: lastIndex,
+                                        effectiveRange: nil) as? TBBackgroundBox
+            let surface = surfaceColor(storage: storage, paragraph: paragraph)
+            let fill = (surface != nil && !surface!.isEqual(canvas)) ? surface : nil
+            if fill != nil || box != nil {
                 var top: CGFloat? = nil
                 var bottom: CGFloat = 0
                 let pGlyphs = glyphRange(forCharacterRange: paragraph, actualCharacterRange: nil)
@@ -282,10 +290,15 @@ final class TBBandLayoutManager: NSLayoutManager {
                     bottom = rect.maxY
                 }
                 if let top = top {
-                    if previousWasBand, let last = bands.last, last.color.isEqual(color) {
+                    let boxID = box.map { ObjectIdentifier($0) }
+                    if previousWasBand, let last = bands.last,
+                       last.boxID == boxID,
+                       (last.color == nil && fill == nil)
+                        || (last.color != nil && fill != nil && last.color!.isEqual(fill!)) {
                         bands[bands.count - 1].bottom = bottom
                     } else {
-                        bands.append((color: color, top: top, bottom: bottom))
+                        bands.append((color: fill, box: box, boxID: boxID,
+                                      top: top, bottom: bottom))
                     }
                     merged = true
                 }
@@ -297,18 +310,232 @@ final class TBBandLayoutManager: NSLayoutManager {
         if bands.isEmpty { return }
         NSGraphicsContext.saveGraphicsState()
         for band in bands {
-            band.color.setFill()
-            NSRect(x: origin.x, y: origin.y + band.top,
-                   width: container.size.width,
-                   height: band.bottom - band.top).fill()
+            let rect = NSRect(x: origin.x, y: origin.y + band.top,
+                              width: container.size.width,
+                              height: band.bottom - band.top)
+            if let color = band.color {
+                color.setFill()
+                rect.fill()
+            }
+            if let box = band.box {
+                paintBackgroundLayers(box, in: rect)
+            }
         }
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    // A paragraph's surface color: the background carried by
-    // its last character — for every paragraph but the final
-    // one that is its terminating newline, which the renderer
-    // paints with the block's own effective background.
+    // Paint a surface's background layers: CSS lists the
+    // top layer first, so the list paints back to front —
+    // photos first, gradient veils over them.
+    private func paintBackgroundLayers(_ box: TBBackgroundBox, in rect: NSRect) {
+        for layer in box.layers.reversed() {
+            switch layer.kind {
+            case .gradient(let inner):
+                tbDrawLinearGradient(inner: inner, in: rect)
+            case .image:
+                if let image = layer.image {
+                    tbDrawBackgroundImage(image, in: rect, sizeSpec: box.sizeSpec,
+                                          positionSpec: box.positionSpec,
+                                          repeatSpec: box.repeatSpec)
+                }
+            }
+        }
+    }
+
+    // A linear gradient from its specification: an optional
+    // direction (90deg, to right, …; default to bottom),
+    // then color stops with optional % positions.
+    private func tbDrawLinearGradient(inner: String, in rect: NSRect) {
+        let parts = tbSplitLayers(inner).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard parts.count >= 2 else { return }
+        var angle: Double = 180
+        var stopParts = parts
+        let head = parts[0].lowercased()
+        if head.hasSuffix("deg"), let value = Double(head.dropLast(3)) {
+            angle = value
+            stopParts = Array(parts.dropFirst())
+        } else if head.hasPrefix("to ") {
+            var x = 0.0
+            var y = 0.0
+            for word in head.dropFirst(3).split(separator: " ") {
+                switch word {
+                case "top": y = -1
+                case "bottom": y = 1
+                case "left": x = -1
+                case "right": x = 1
+                default: break
+                }
+            }
+            angle = atan2(x, -y) * 180 / .pi
+            stopParts = Array(parts.dropFirst())
+        }
+        var colors: [NSColor] = []
+        var locations: [CGFloat] = []
+        var specified: [Bool] = []
+        for part in stopParts {
+            var colorText = part
+            var positionText: Substring? = nil
+            if part.contains("("), let close = part.firstIndex(of: ")") {
+                colorText = String(part[...close])
+                let rest = part[part.index(after: close)...]
+                    .trimmingCharacters(in: .whitespaces)
+                if !rest.isEmpty { positionText = Substring(rest) }
+            } else if let space = part.firstIndex(of: " ") {
+                colorText = String(part[..<space])
+                positionText = part[part.index(after: space)...]
+            }
+            guard let color = tbParseColor(colorText) else { continue }
+            colors.append(color)
+            if let positionText = positionText, positionText.hasSuffix("%"),
+               let pct = Double(positionText.dropLast()) {
+                locations.append(CGFloat(pct / 100))
+                specified.append(true)
+            } else {
+                locations.append(0)
+                specified.append(false)
+            }
+        }
+        guard colors.count >= 2 else { return }
+        // Unspecified stops: the first sits at 0, the last
+        // at 1, and middles spread evenly between their
+        // specified neighbours (the CSS rule).
+        if !specified.first! { locations[0] = 0; specified[0] = true }
+        if !specified.last! {
+            locations[locations.count - 1] = 1
+            specified[locations.count - 1] = true
+        }
+        var i = 0
+        while i < locations.count {
+            if specified[i] { i += 1; continue }
+            var j = i
+            while j < locations.count && !specified[j] { j += 1 }
+            let from = locations[i - 1], to = locations[j]
+            for k in i..<j {
+                locations[k] = from + (to - from) * CGFloat(k - i + 1) / CGFloat(j - i + 1)
+            }
+            i = j
+        }
+        guard let gradient = CGGradient(
+            colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+            colors: colors.map { $0.cgColor } as CFArray,
+            locations: locations) else { return }
+        let radians = angle * .pi / 180
+        let dx = CGFloat(sin(radians))
+        let dy = CGFloat(-cos(radians))
+        let length = abs(rect.width * dx) + abs(rect.height * dy)
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        let start = NSPoint(x: center.x - dx * length / 2,
+                            y: center.y - dy * length / 2)
+        let end = NSPoint(x: center.x + dx * length / 2,
+                          y: center.y + dy * length / 2)
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.clip(to: rect)
+        context.drawLinearGradient(gradient, start: start, end: end,
+                                   options: [.drawsBeforeStartLocation,
+                                             .drawsAfterEndLocation])
+        context.restoreGState()
+    }
+
+    // A background photo, sized (cover / contain / auto /
+    // lengths), positioned (keywords or % — the % point of
+    // the photo aligns with the % point of the surface),
+    // and tiled unless no-repeat.
+    private func tbDrawBackgroundImage(_ image: NSImage, in rect: NSRect,
+                                       sizeSpec: String, positionSpec: String,
+                                       repeatSpec: String) {
+        let natural = image.size
+        guard natural.width > 0, natural.height > 0 else { return }
+        var drawn = natural
+        let size = sizeSpec.trimmingCharacters(in: .whitespaces).lowercased()
+        if size == "cover" {
+            let scale = max(rect.width / natural.width, rect.height / natural.height)
+            drawn = NSSize(width: natural.width * scale, height: natural.height * scale)
+        } else if size == "contain" {
+            let scale = min(rect.width / natural.width, rect.height / natural.height)
+            drawn = NSSize(width: natural.width * scale, height: natural.height * scale)
+        } else if !size.isEmpty && size != "auto" {
+            let tokens = size.split(separator: " ").map(String.init)
+            func dimension(_ token: String?, extent: CGFloat, natural: CGFloat) -> CGFloat {
+                guard let token = token, token != "auto" else { return natural }
+                if token.hasSuffix("%"), let pct = Double(token.dropLast()) {
+                    return extent * CGFloat(pct) / 100
+                }
+                return tbLengthValue(token, fontSize: 16) ?? natural
+            }
+            let w = dimension(tokens.first, extent: rect.width, natural: natural.width)
+            var h = dimension(tokens.count > 1 ? tokens[1] : nil,
+                              extent: rect.height, natural: natural.height)
+            if tokens.count < 2 || tokens[1] == "auto" {
+                h = natural.height * (w / natural.width)
+            }
+            drawn = NSSize(width: w, height: h)
+        }
+        guard drawn.width > 0, drawn.height > 0 else { return }
+        let (fx, fy) = tbBackgroundFractions(positionSpec)
+        let originX = rect.minX + (rect.width - drawn.width) * fx
+        let originY = rect.minY + (rect.height - drawn.height) * fy
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: rect).addClip()
+        if repeatSpec.lowercased().contains("no-repeat") {
+            image.draw(in: NSRect(x: originX, y: originY,
+                                  width: drawn.width, height: drawn.height),
+                       from: NSRect(origin: .zero, size: natural),
+                       operation: .sourceOver, fraction: 1)
+        } else {
+            var startX = originX
+            while startX > rect.minX { startX -= drawn.width }
+            var startY = originY
+            while startY > rect.minY { startY -= drawn.height }
+            let repeatX = repeatSpec.lowercased() != "repeat-y"
+            let repeatY = repeatSpec.lowercased() != "repeat-x"
+            var x = startX
+            while x < rect.maxX {
+                var y = startY
+                while y < rect.maxY {
+                    image.draw(in: NSRect(x: x, y: y,
+                                          width: drawn.width, height: drawn.height),
+                               from: NSRect(origin: .zero, size: natural),
+                               operation: .sourceOver, fraction: 1)
+                    if !repeatY { break }
+                    y += drawn.height
+                }
+                if !repeatX { break }
+                x += drawn.width
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    // background-position as fractions along each axis:
+    // left/top 0, center 0.5, right/bottom 1, or a %.
+    private func tbBackgroundFractions(_ spec: String) -> (fx: CGFloat, fy: CGFloat) {
+        var fx: CGFloat? = nil
+        var fy: CGFloat? = nil
+        let tokens = spec.lowercased().split(separator: " ").map(String.init)
+        if tokens == ["center"] { return (0.5, 0.5) }
+        func setNext(_ value: CGFloat) {
+            if fx == nil { fx = value }
+            else if fy == nil { fy = value }
+        }
+        for token in tokens {
+            switch token {
+            case "left": fx = 0
+            case "right": fx = 1
+            case "top": fy = 0
+            case "bottom": fy = 1
+            case "center": setNext(0.5)
+            default:
+                if token.hasSuffix("%"), let pct = Double(token.dropLast()) {
+                    setNext(CGFloat(pct) / 100)
+                }
+            }
+        }
+        return (fx ?? 0, fy ?? 0)
+    }
+
     private func surfaceColor(storage: NSTextStorage, paragraph: NSRange) -> NSColor? {
         let lastIndex = paragraph.location + paragraph.length - 1
         if lastIndex < 0 { return nil }

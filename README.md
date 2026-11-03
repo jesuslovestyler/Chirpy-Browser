@@ -14,7 +14,7 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.9
+## Status — Engine 0.10
 
 What works today:
 
@@ -63,8 +63,15 @@ What works today:
   as real pictures in the flow, sized by their CSS or
   attribute box or their natural size (capped at the page
   width); a failed image falls back to its labelled
-  placeholder. CSS background images, `srcset`, and inline
-  `<svg>` are not read yet. The properties:
+  placeholder. `srcset` and inline `<svg>` are not read
+  yet. **Background photos**: `background-image` layers
+  paint on a block's surface over its color — `url()`
+  photos (fetched, or decoded in place from `data:` URIs)
+  drawn per `background-size` (cover/contain/lengths),
+  `background-position`, and `background-repeat`, with
+  `linear-gradient` overlays painted from their color
+  stops. Layers belonging to inline elements, and radial
+  or conic gradients, are not read yet. The properties:
   color, background color, bold,
   italic, font size, text alignment, underlines, spacing,
   and `display`.

@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.9 (Swift)
+//  Turtle Browser — engine 0.10 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -56,8 +56,16 @@
 //      render as real pictures in the flow, sized by their
 //      CSS/attribute box or their natural size (capped at
 //      the nominal page width); a failed image falls back
-//      to its labelled placeholder. CSS background images,
-//      srcset, and inline <svg> are not read yet.
+//      to its labelled placeholder. srcset and inline
+//      <svg> are not read yet.
+//    * Background photos (0.10): background-image layers
+//      paint on a block's surface over its color — url()
+//      photos, fetched or decoded from data: URIs, drawn
+//      per background-size (cover/contain/lengths),
+//      background-position, and background-repeat; and
+//      linear-gradient overlays painted from their color
+//      stops. Layers belonging to inline elements, radial
+//      and conic gradients are not read yet.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
 //  color-mix(), the font: shorthand, true box positioning
 //  (columns, floats — those want a richer paint surface
@@ -163,7 +171,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.9 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.10 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -177,7 +185,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.9 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.10 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -194,9 +202,105 @@ func tbDecodeDataURI(_ uri: String) -> Data? {
     let header = uri[uri.startIndex..<comma].lowercased()
     let payload = String(uri[uri.index(after: comma)...])
     if header.contains(";base64") {
-        return Data(base64Encoded: payload)
+        return Data(base64Encoded: payload, options: [.ignoreUnknownCharacters])
     }
     return payload.data(using: .utf8)
+}
+
+// Background-image layers (0.10): one layer is a photo
+// (url) or a linear gradient (its inner specification).
+// The view paints them over the surface color; photos are
+// fetched by the renderer into `image`, gradients paint
+// straight from their specification.
+final class TBBackgroundLayer {
+    enum Kind {
+        case image(String)     // absolute URL (or a data: URI)
+        case gradient(String)  // the text inside linear-gradient(…)
+    }
+    let kind: Kind
+    var image: NSImage? = nil
+    init(kind: Kind) { self.kind = kind }
+}
+
+// All the layers one element declares, with the sizing,
+// position, and repeat that govern them — one value each,
+// serving every layer (the common authoring; gradients
+// ignore all three anyway).
+final class TBBackgroundBox {
+    let layers: [TBBackgroundLayer]
+    let sizeSpec: String
+    let positionSpec: String
+    let repeatSpec: String
+    init(layers: [TBBackgroundLayer], sizeSpec: String,
+         positionSpec: String, repeatSpec: String) {
+        self.layers = layers
+        self.sizeSpec = sizeSpec
+        self.positionSpec = positionSpec
+        self.repeatSpec = repeatSpec
+    }
+}
+
+// The attribute key that carries a TBBackgroundBox on a
+// paragraph's closing newline, where the layout manager
+// reads a surface's layers.
+let TBBackgroundKey = NSAttributedString.Key("TBBackgroundLayers")
+
+// Parse an element's background-image into a box of
+// layers. The longhand is the primary path; the
+// `background` shorthand is mined for layer chunks that
+// carry a url() or a linear-gradient() (their position
+// and size tokens in the shorthand are not read).
+func tbBackgroundSpec(_ decls: [String: String], base: String)
+    -> (key: String, box: TBBackgroundBox)? {
+    var layerTexts: [String] = []
+    var key = ""
+    if let image = decls["background-image"] {
+        layerTexts = tbSplitLayers(image)
+        key = "img:" + image
+    } else if let shorthand = decls["background"] {
+        for chunk in tbSplitLayers(shorthand) {
+            if chunk.contains("url(") || chunk.contains("linear-gradient(") {
+                layerTexts.append(chunk)
+            }
+        }
+        if layerTexts.isEmpty { return nil }
+        key = "short:" + shorthand
+    } else {
+        return nil
+    }
+    var layers: [TBBackgroundLayer] = []
+    for text in layerTexts {
+        let layer = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if layer.hasPrefix("url(") {
+            guard let open = layer.firstIndex(of: "("),
+                  let close = layer.lastIndex(of: ")"), close > open else { continue }
+            var url = String(layer[layer.index(after: open)..<close])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if (url.hasPrefix("\"") && url.hasSuffix("\""))
+                || (url.hasPrefix("'") && url.hasSuffix("'")) {
+                url = String(url.dropFirst().dropLast())
+            }
+            if url.isEmpty { continue }
+            let absolute = url.hasPrefix("data:")
+                ? url
+                : (URL(string: url, relativeTo: URL(string: base))?.absoluteString ?? url)
+            layers.append(TBBackgroundLayer(kind: .image(absolute)))
+        } else if layer.hasPrefix("linear-gradient(") {
+            guard let open = layer.firstIndex(of: "("),
+                  let close = layer.lastIndex(of: ")"), close > open else { continue }
+            let inner = String(layer[layer.index(after: open)..<close])
+            layers.append(TBBackgroundLayer(kind: .gradient(inner)))
+        }
+        // "none" layers and other gradient kinds (radial,
+        // conic) are not read yet.
+    }
+    if layers.isEmpty { return nil }
+    let size = tbSplitLayers(decls["background-size"] ?? "auto").first ?? "auto"
+    let position = tbSplitLayers(decls["background-position"] ?? "0% 0%").first ?? "0% 0%"
+    let repeatSpec = tbSplitLayers(decls["background-repeat"] ?? "repeat").first ?? "repeat"
+    let box = TBBackgroundBox(layers: layers, sizeSpec: size,
+                              positionSpec: position, repeatSpec: repeatSpec)
+    return (key + "|" + size + "|" + position + "|" + repeatSpec, box)
 }
 
 // Fetch a plain text resource (used for external stylesheets).
@@ -204,7 +308,7 @@ func tbDecodeDataURI(_ uri: String) -> Data? {
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.9 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.10 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -583,9 +687,31 @@ func tbSelectorMatches(_ selector: TBSelector, node: TBNode) -> Bool {
     return matchFrom(selector.compounds.count - 1, node)
 }
 
+// Split a declaration block at semicolons that sit outside
+// parentheses. A naive split corrupts values like
+// url("data:image/jpeg;base64,…") — the data URI's own
+// semicolon lives inside the url(...) parentheses.
+func tbSplitDeclarations(_ body: String) -> [String] {
+    var parts: [String] = []
+    var depth = 0
+    var current = ""
+    for c in body {
+        if c == "(" { depth += 1 }
+        else if c == ")" { depth = max(0, depth - 1) }
+        if c == ";" && depth == 0 {
+            parts.append(current)
+            current = ""
+        } else {
+            current.append(c)
+        }
+    }
+    if !current.isEmpty { parts.append(current) }
+    return parts
+}
+
 func tbParseDeclarations(_ body: String) -> [String: String] {
     var out: [String: String] = [:]
-    for part in body.split(separator: ";") {
+    for part in tbSplitDeclarations(body) {
         guard let colon = part.firstIndex(of: ":") else { continue }
         let prop = String(part[part.startIndex..<colon])
             .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -886,6 +1012,26 @@ func tbParseColor(_ raw: String?) -> NSColor? {
 // layer may carry a color (it paints beneath any images or
 // gradients in the earlier layers), so the color is looked
 // for there — or in a lone single-layer value.
+// Split a CSS value at commas that sit outside parentheses
+// (background layers, gradient stops, font stacks).
+func tbSplitLayers(_ value: String) -> [String] {
+    var layers: [String] = []
+    var depth = 0
+    var current = ""
+    for c in value {
+        if c == "(" { depth += 1 }
+        else if c == ")" { depth = max(0, depth - 1) }
+        if c == "," && depth == 0 {
+            layers.append(current)
+            current = ""
+        } else {
+            current.append(c)
+        }
+    }
+    layers.append(current)
+    return layers
+}
+
 func tbBackgroundColor(_ decls: [String: String]) -> NSColor? {
     if let color = tbParseColor(decls["background-color"]) {
         return color
@@ -1198,6 +1344,18 @@ final class TBRenderer {
     }
     var imageJobs: [TBImageJob] = []
 
+    // Background boxes by declaration key, so identical
+    // declarations share one box — and one photo fetch.
+    var backgroundBoxes: [String: TBBackgroundBox] = [:]
+
+    // The background layers this element declares, if any.
+    func backgroundBox(decls: [String: String]) -> TBBackgroundBox? {
+        guard let spec = tbBackgroundSpec(decls, base: base) else { return nil }
+        if let cached = backgroundBoxes[spec.key] { return cached }
+        backgroundBoxes[spec.key] = spec.box
+        return spec.box
+    }
+
     init(base: String) { self.base = base }
 
     // The Mac's own appearance decides prefers-color-scheme,
@@ -1340,6 +1498,41 @@ final class TBRenderer {
         imageJobs = []
     }
 
+    // Fetch the photo layers of every registered background
+    // box (data: URIs decode in place). A photo that fails
+    // simply never paints — the color and gradients remain.
+    func finishBackgrounds() async {
+        var jobs: [(layer: TBBackgroundLayer, url: String)] = []
+        for box in backgroundBoxes.values {
+            for layer in box.layers {
+                if case .image(let url) = layer.kind {
+                    jobs.append((layer: layer, url: url))
+                }
+            }
+        }
+        if jobs.isEmpty { return }
+        let capped = Array(jobs.prefix(8))
+        var dataByIndex: [Int: Data] = [:]
+        await withTaskGroup(of: (Int, Data?).self) { group in
+            for (index, job) in capped.enumerated() {
+                if job.url.hasPrefix("data:") {
+                    dataByIndex[index] = tbDecodeDataURI(job.url)
+                } else {
+                    let url = job.url
+                    group.addTask { (index, await tbFetchData(urlString: url)) }
+                }
+            }
+            for await (index, data) in group {
+                if let data = data { dataByIndex[index] = data }
+            }
+        }
+        for (index, job) in capped.enumerated() {
+            if let data = dataByIndex[index] {
+                job.layer.image = NSImage(data: data)
+            }
+        }
+    }
+
     func render(root: TBNode) async -> NSAttributedString {
         var sources: [TBStyleSource] = []
         tbCollectStyleSources(root, base: base, into: &sources)
@@ -1361,11 +1554,12 @@ final class TBRenderer {
             }
         }
         walkBlock(node: root, style: "p", baseFont: tbFont(for: "p"),
-                  color: nil, align: .left, inheritedBackground: nil)
+                  color: nil, align: .left, inheritedBackground: nil, inheritedBackgroundBox: nil)
         if let body = findTag(root, "body") ?? findTag(root, "html") {
             pageBackground = tbBackgroundColor(resolvedStyle(node: body))
         }
         await finishImages()
+        await finishBackgrounds()
         return out
     }
 
@@ -1386,6 +1580,7 @@ final class TBRenderer {
 
     private func flush(buffer: inout NSMutableAttributedString, style: String,
                        font: NSFont, align: NSTextAlignment, background: NSColor?,
+                       backgroundBox: TBBackgroundBox?,
                        metrics: TBBlockMetrics) {
         func isWS(_ s: String) -> Bool {
             s == " " || s == "\n" || s == "\t" || s == "\r"
@@ -1436,12 +1631,17 @@ final class TBRenderer {
             out.append(buffer)
             // The gap between blocks belongs to the same box:
             // paint it too, so a background reads as one band.
+            // The closing newline also carries the box's
+            // background layers, where the layout manager
+            // reads them when it paints the surface.
+            var separatorAttrs: [NSAttributedString.Key: Any] = [:]
             if let background = background {
-                out.append(NSAttributedString(
-                    string: "\n\n", attributes: [.backgroundColor: background]))
-            } else {
-                out.append(NSAttributedString(string: "\n\n"))
+                separatorAttrs[.backgroundColor] = background
             }
+            if let backgroundBox = backgroundBox {
+                separatorAttrs[TBBackgroundKey] = backgroundBox
+            }
+            out.append(NSAttributedString(string: "\n\n", attributes: separatorAttrs))
         }
         buffer = NSMutableAttributedString()
     }
@@ -1465,7 +1665,8 @@ final class TBRenderer {
 
     private func walkBlock(node: TBNode, style: String, baseFont: NSFont,
                            color: NSColor?, align: NSTextAlignment,
-                           inheritedBackground: NSColor?) {
+                           inheritedBackground: NSColor?,
+                           inheritedBackgroundBox: TBBackgroundBox?) {
         let own = resolvedStyle(node: node)
         if node.tag != "document" && tbIsHidden(own) { return }
         let effFont = tbFontApplying(own, to: baseFont)
@@ -1476,6 +1677,9 @@ final class TBRenderer {
         // nearest ancestor's. (CSS backgrounds are not inherited
         // as values — they show through, which amounts to this.)
         let effBackground = tbBackgroundColor(own) ?? inheritedBackground
+        // Background layers show through the same way the
+        // color does: the nearest declaring ancestor's box.
+        let effBox = backgroundBox(decls: own) ?? inheritedBackgroundBox
         let metrics = tbBlockMetrics(own, fontSize: effFont.pointSize)
         let linkStart = out.length   // for block-level anchors, below
 
@@ -1497,26 +1701,26 @@ final class TBRenderer {
             // whatever display its CSS claims.
             if child.tag != "img" && (forceBlock || (TBBlockTags.contains(child.tag) && !forceInline)) {
                 flush(buffer: &buffer, style: style, font: effFont,
-                      align: effAlign, background: effBackground, metrics: metrics)
+                      align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics)
                 let childStyle = tbStyle(for: child.tag)
                 let childBase = TBHeadingTags.contains(child.tag)
                     ? tbFont(for: child.tag) : effFont
                 walkBlock(node: child, style: childStyle, baseFont: childBase,
                           color: effColor, align: effAlign,
-                          inheritedBackground: effBackground)
+                          inheritedBackground: effBackground, inheritedBackgroundBox: effBox)
             } else if child.tag == "html" || child.tag == "body" || child.tag == "document" || hasBlock(child) {
                 flush(buffer: &buffer, style: style, font: effFont,
-                      align: effAlign, background: effBackground, metrics: metrics)
+                      align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics)
                 walkBlock(node: child, style: style, baseFont: effFont,
                           color: effColor, align: effAlign,
-                          inheritedBackground: effBackground)
+                          inheritedBackground: effBackground, inheritedBackgroundBox: effBox)
             } else {
                 appendJoined(buffer, inline(child, font: effFont, color: effColor),
                              isElement: child.tag != "#text")
             }
         }
         flush(buffer: &buffer, style: style, font: effFont,
-              align: effAlign, background: effBackground, metrics: metrics)
+              align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics)
 
         // A block-level anchor (a card styled display:grid, say)
         // never passes through inline(), where links are made —
