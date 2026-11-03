@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.13.4 (Swift)
+//  Turtle Browser — engine 0.13.5 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -174,7 +174,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.4 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.5 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -192,7 +192,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("TurtleBrowser/0.13.4 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.5 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -209,7 +209,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.4 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.5 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -332,7 +332,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.4 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.5 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -2121,6 +2121,41 @@ func tbMetaRefreshTarget(root: TBNode, base: String) -> String? {
     return nil
 }
 
+func tbScriptBounceTargets(html: String, base: String) -> [String] {
+    var found: [String] = []
+    func offer(_ raw: String) {
+        let value = raw.trimmingCharacters(in: .whitespaces)
+        guard value.hasPrefix("http") else { return }
+        let absolute = URL(string: value, relativeTo: URL(string: base))?.absoluteString ?? value
+        if !found.contains(absolute) { found.append(absolute) }
+    }
+    if let mark = html.range(of: "uddg=") {
+        let tail = html[mark.upperBound...]
+        var raw = ""
+        for ch in tail {
+            if ch == "&" || ch == "\"" || ch == "'" || ch == "<" || ch.isWhitespace { break }
+            raw.append(ch)
+        }
+        if let decoded = raw.removingPercentEncoding { offer(decoded) }
+    }
+    for marker in ["location.replace(", "location.href =", "location.href=",
+                   "location = ", "location="] {
+        var searchFrom = html.startIndex
+        while let hit = html.range(of: marker, range: searchFrom..<html.endIndex) {
+            let rest = html[hit.upperBound...]
+            if let quote = rest.firstIndex(where: { $0 == "\"" || $0 == "'" }) {
+                let after = rest.index(after: quote)
+                if after < rest.endIndex,
+                   let close = rest[after...].firstIndex(of: rest[quote]) {
+                    offer(String(rest[after..<close]))
+                }
+            }
+            searchFrom = hit.upperBound
+        }
+    }
+    return Array(found.prefix(3))
+}
+
 func tbRenderPage(html: String, base: String) async
     -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
         columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField],
@@ -2142,6 +2177,35 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int) as
     }
     let renderer = TBRenderer(base: base)
     let body = await renderer.render(root: tree)
+    // A script-only send-on (a search engine's click
+    // bounce, say) renders as a black void. When the walk
+    // found no words at all, offer the destinations the
+    // page's own code names, plainly labelled — an honest
+    // door instead of an empty room.
+    let visible = (body.string as NSString)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    if visible.isEmpty {
+        let targets = tbScriptBounceTargets(html: html, base: base)
+        if !targets.isEmpty {
+            let notice = NSMutableAttributedString()
+            notice.append(NSAttributedString(
+                string: "This page needs JavaScript to move on\n\n",
+                attributes: [.font: NSFont.boldSystemFont(ofSize: 17)]))
+            notice.append(NSAttributedString(
+                string: "Turtle doesn't speak JavaScript yet. The destination written in this page's code is:\n\n",
+                attributes: [.font: NSFont.systemFont(ofSize: 14)]))
+            for target in targets {
+                notice.append(NSAttributedString(
+                    string: target + "\n",
+                    attributes: [.font: NSFont.systemFont(ofSize: 14),
+                                 .link: target,
+                                 .foregroundColor: NSColor.linkColor,
+                                 .underlineStyle: NSUnderlineStyle.single.rawValue]))
+            }
+            return (title.isEmpty ? "This page needs JavaScript" : title,
+                    notice, nil, nil, [], [], base)
+        }
+    }
     return (title.isEmpty ? base : title, body, renderer.pageBackground,
             renderer.columnTextWidth(root: tree), renderer.forms, renderer.fields,
             base)

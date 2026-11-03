@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.13.4 (Swift)
+//  Turtle Browser — prototype 0.13.5 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.13.4 (Swift) — forms, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.13.5 (Swift) — forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -124,7 +124,7 @@ final class BrowserModel: ObservableObject {
                 self.columnTextWidth = columnW
                 self.pageForms = forms
                 self.pageFields = fields
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.4 (Swift) — forms, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.5 (Swift) — forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -214,6 +214,7 @@ struct PageTextView: NSViewRepresentable {
         private var formControlViews: [NSView] = []
         private var formAnchors: [(view: NSView, charIndex: Int,
                                    attachment: NSTextAttachment)] = []
+        private var formIDByFieldID: [Int: Int] = [:]
 
         init(model: BrowserModel) {
             self.model = model
@@ -279,6 +280,8 @@ struct PageTextView: NSViewRepresentable {
             formControlViews = []
             formAnchors = []
             fieldViews = [:]
+            formIDByFieldID = Dictionary(
+                uniqueKeysWithValues: model.pageFields.map { ($0.id, $0.formID) })
             guard storage.length > 0 else { return }
             layoutManager.ensureLayout(for: container)
             storage.enumerateAttribute(
@@ -342,22 +345,39 @@ struct PageTextView: NSViewRepresentable {
                   !formAnchors.isEmpty else { return }
             let origin = textView.textContainerOrigin
             let charCount = textView.textStorage?.length ?? 0
+            // Controls seat in text order. A field seats by
+            // its glyph; a submit seats immediately after
+            // the previous control of its own form — the
+            // field's frame is known-good (it has landed
+            // correctly in every build), so the buttons
+            // chain off it instead of trusting a second
+            // glyph measurement that has twice mis-seated
+            // them.
+            var lastInForm: [Int: NSRect] = [:]
             for anchor in formAnchors {
                 guard anchor.charIndex < charCount else { continue }
                 let glyph = layoutManager.glyphIndexForCharacter(at: anchor.charIndex)
                 guard glyph < layoutManager.numberOfGlyphs else { continue }
-                // The glyph's own location within its line
-                // fragment is the ground truth for x —
-                // a whole-range bounding rect seated every
-                // control at the line's start (0.13.1).
                 let fragment = layoutManager.lineFragmentRect(
                     forGlyphAt: glyph, effectiveRange: nil)
                 let spot = layoutManager.location(forGlyphAt: glyph)
                 let size = anchor.attachment.bounds.size
-                anchor.view.frame = NSRect(
+                var frame = NSRect(
                     x: origin.x + fragment.minX + spot.x,
                     y: origin.y + fragment.minY + (fragment.height - size.height) / 2,
                     width: size.width, height: size.height)
+                var formID = -2
+                if let fieldAtt = anchor.attachment as? TBFieldAttachment {
+                    formID = formIDByFieldID[fieldAtt.fieldID] ?? -1
+                } else if let submitAtt = anchor.attachment as? TBSubmitAttachment {
+                    formID = submitAtt.formID
+                    if let prev = lastInForm[formID] {
+                        frame.origin.x = prev.maxX + 8
+                        frame.origin.y = prev.minY + (prev.height - size.height) / 2
+                    }
+                }
+                anchor.view.frame = frame
+                if formID != -2 { lastInForm[formID] = frame }
             }
         }
 
