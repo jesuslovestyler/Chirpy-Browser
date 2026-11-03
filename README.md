@@ -5,7 +5,7 @@ A web browser with **its own engine**, written from scratch.
 Chirpy Browser fetches pages itself, parses the HTML with its own
 parser, works out the styles with its own CSS code, and paints the
 page itself. There is no WebKit, no Chromium, and no Gecko inside —
-when Turtle shows you a page, our engine did every step.
+when Chirpy shows you a page, our engine did every step.
 
 It is a browser **for Catholics, by Catholics**: it opens on a
 Catholic home page (a verse, and doors to a free Catholic Bible,
@@ -89,9 +89,9 @@ Honest limits, for now:
 
 ## The two engines
 
-- **`xcode/`** — the Mac app. The Turtle Engine in Swift
+- **`xcode/`** — the Mac app. The Chirpy Engine in Swift
   (Foundation + AppKit only), with a SwiftUI browser window.
-  Open `TurtleBrowser.xcodeproj`, choose "My Mac", press Run.
+  Open `ChirpyBrowser.xcodeproj`, choose "My Mac", press Run.
   Release builds are Universal (Apple Silicon + Intel).
 - **`python/`** — the original prototype the Swift engine was
   ported from. Pure standard-library Python, no installs:
