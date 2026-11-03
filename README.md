@@ -14,7 +14,7 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.6.3
+## Status — Engine 0.7
 
 What works today:
 
@@ -49,7 +49,12 @@ What works today:
   end, and sibling spans gain the space a layout's gap would
   give them. 0.6.3: a build fix — the span-join helper no
   longer asks for `inout`, which a constant buffer cannot
-  give.) The properties: color, background color, bold,
+  give.) **Layout step two**: the page's own centered column
+  is found (a width or max-width cap with auto side margins)
+  and the window centers its text in a column of that width,
+  and block backgrounds paint as full-width bands across the
+  column instead of hugging their words. The properties:
+  color, background color, bold,
   italic, font size, text alignment, underlines, spacing,
   and `display`.
 
@@ -57,12 +62,11 @@ Honest limits, for now:
 
 - No JavaScript. (This is the mountain every engine climbs last;
   JavaScript-heavy sites will look bare.)
-- No true box positioning yet — no columns, floats, or
-  centered fixed-width columns, and background bands still hug
-  the text rather than filling a box's full width; those want
-  a richer paint surface than a text view. Images, tabs, and
-  forms are further down the road. Pseudo-classes (`:hover`),
-  other `@media` queries, and `color-mix()` are not read yet.
+- No true box positioning yet — no columns or floats; those
+  want a richer paint surface than a text view. Images, tabs,
+  and forms are further down the road. Pseudo-classes
+  (`:hover`), other `@media` queries, and `color-mix()` are
+  not read yet.
 - One window, one page at a time.
 
 ## The two engines

@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.6.3 (Swift)
+//  Turtle Browser — engine 0.7 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -42,11 +42,16 @@
 //      flows inline; margins and padding become paragraph
 //      spacing and indents; line-height is honored; lengths
 //      understand clamp(), min(), and max().
+//    * Layout step two (0.7): the page's own centered column
+//      is found — a width or max-width cap with auto side
+//      margins — and the window centers its text in a column
+//      of that width; and block backgrounds are painted by
+//      the view as full-width bands across the column
+//      instead of hugging their words.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
 //  color-mix(), the font: shorthand, true box positioning
-//  (columns, floats, centered fixed-width columns, full-width
-//  background bands — those want a richer paint surface than
-//  a text view), images (labelled placeholders),
+//  (columns, floats — those want a richer paint surface
+//  than a text view), images (labelled placeholders),
 //  JavaScript (the mountain).
 //
 
@@ -149,7 +154,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.6.3 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.7 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -163,7 +168,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.6.3 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.7 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1036,6 +1041,38 @@ func tbLengthValue(_ raw: String?, fontSize: CGFloat) -> CGFloat? {
     return nil
 }
 
+// The fixed cap inside a width or max-width: the length the
+// box settles at when the window is wide. A plain length is
+// itself; min() is capped by its smallest fixed argument
+// (percentage arguments only shrink it further); max() caps
+// only when every argument is fixed.
+func tbFixedCap(_ raw: String) -> CGFloat? {
+    let v = raw.trimmingCharacters(in: .whitespaces).lowercased()
+    for fn in ["min", "max"] {
+        if v.hasPrefix(fn + "(") && v.hasSuffix(")") {
+            let inner = String(v.dropFirst(fn.count + 1).dropLast())
+            var parts: [String] = []
+            var depth = 0
+            var current = ""
+            for c in inner {
+                if c == "(" { depth += 1 }
+                else if c == ")" { depth -= 1 }
+                if c == "," && depth == 0 {
+                    parts.append(current)
+                    current = ""
+                } else {
+                    current.append(c)
+                }
+            }
+            parts.append(current)
+            let fixed = parts.compactMap { tbLengthValue($0, fontSize: 14) }
+            if fn == "min" { return fixed.min() }
+            return fixed.count == parts.count ? fixed.max() : nil
+        }
+    }
+    return tbLengthValue(v, fontSize: 14)
+}
+
 struct TBBlockMetrics {
     var before: CGFloat = 0
     var after: CGFloat = 0
@@ -1119,6 +1156,56 @@ final class TBRenderer {
     // exactly as it does for a real browser on this machine.
     var darkAppearance: Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    // Layout step two: find the page's own centered column —
+    // the shallowest element capped by width or max-width
+    // whose side margins are auto (the classic
+    // `width: min(100% - 36px, 1120px); margin: 0 auto`), and
+    // return the text width inside it (the cap less its own
+    // horizontal padding, pages here being border-box).
+    // Nil when the page simply flows full-width.
+    func columnTextWidth(root: TBNode) -> CGFloat? {
+        var best: (depth: Int, width: CGFloat)? = nil
+        func visit(_ node: TBNode, depth: Int) {
+            if node.tag != "#text" && node.tag != "document" {
+                let decls = resolvedStyle(node: node)
+                var cap: CGFloat? = nil
+                for prop in ["max-width", "width"] {
+                    if let raw = decls[prop], let value = tbFixedCap(raw) {
+                        cap = value
+                        break
+                    }
+                }
+                if let cap = cap, cap >= 480 {
+                    let margins = tbBoxValues(decls, "margin")
+                    let inlineAuto = (decls["margin-inline"] ?? "")
+                        .lowercased().contains("auto")
+                    if (margins[1].lowercased() == "auto"
+                            && margins[3].lowercased() == "auto") || inlineAuto {
+                        let padding = tbBoxValues(decls, "padding")
+                        let padL = tbLengthValue(padding[3], fontSize: 14) ?? 0
+                        let padR = tbLengthValue(padding[1], fontSize: 14) ?? 0
+                        let textWidth = cap - padL - padR
+                        if textWidth >= 240 {
+                            if let current = best {
+                                if depth < current.depth
+                                    || (depth == current.depth && textWidth > current.width) {
+                                    best = (depth, textWidth)
+                                }
+                            } else {
+                                best = (depth, textWidth)
+                            }
+                        }
+                    }
+                }
+            }
+            for child in node.children {
+                visit(child, depth: depth + 1)
+            }
+        }
+        visit(root, depth: 0)
+        return best?.width
     }
 
     // An element's declarations with var() references resolved
@@ -1431,10 +1518,12 @@ final class TBRenderer {
 }
 
 func tbRenderPage(html: String, base: String) async
-    -> (title: String, body: NSAttributedString, pageBackground: NSColor?) {
+    -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
+        columnWidth: CGFloat?) {
     let title = tbExtractTitle(html: html)
     let tree = tbParse(html: html)
     let renderer = TBRenderer(base: base)
     let body = await renderer.render(root: tree)
-    return (title.isEmpty ? base : title, body, renderer.pageBackground)
+    return (title.isEmpty ? base : title, body, renderer.pageBackground,
+            renderer.columnTextWidth(root: tree))
 }
