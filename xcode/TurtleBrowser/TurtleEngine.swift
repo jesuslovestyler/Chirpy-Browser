@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.13.3 (Swift)
+//  Turtle Browser — engine 0.13.4 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -174,7 +174,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.3 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.4 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -192,7 +192,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("TurtleBrowser/0.13.3 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.4 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -209,7 +209,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.3 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.4 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -332,7 +332,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.3 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.4 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1380,6 +1380,15 @@ final class TBFieldAttachment: NSTextAttachment {
     var fieldID = -1
 }
 
+// An attachment reserves space in the layout only when it
+// carries an image (or a cell) — bounds alone reserve
+// nothing, which is why 0.13's controls all seated at one
+// spot. A clear image the size of the intended box makes
+// the glyph advance exactly that box.
+func tbClearSeat(width: CGFloat, height: CGFloat) -> NSImage {
+    return NSImage(size: NSSize(width: max(width, 1), height: max(height, 1)))
+}
+
 final class TBSubmitAttachment: NSTextAttachment {
     var formID = -1
     var label = "Submit"
@@ -1487,9 +1496,11 @@ final class TBRenderer {
                 let attachment = TBSubmitAttachment()
                 attachment.formID = currentFormID
                 attachment.label = label
-                attachment.bounds = CGRect(x: 0, y: 0,
-                                           width: CGFloat(label.count) * 8 + 30,
-                                           height: 26)
+                let box = CGRect(x: 0, y: 0,
+                                 width: CGFloat(label.count) * 8 + 30,
+                                 height: 26)
+                attachment.bounds = box
+                attachment.image = tbClearSeat(width: box.width, height: box.height)
                 return NSAttributedString(attachment: attachment)
             }
             return NSAttributedString(
@@ -1520,9 +1531,11 @@ final class TBRenderer {
                let size = Double(sizeText) {
                 width = CGFloat(size) * 7.5 + 16
             }
-            attachment.bounds = CGRect(x: 0, y: 0,
-                                       width: min(max(width ?? 240, 90), 560),
-                                       height: 26)
+            let box = CGRect(x: 0, y: 0,
+                             width: min(max(width ?? 240, 90), 560),
+                             height: 26)
+            attachment.bounds = box
+            attachment.image = tbClearSeat(width: box.width, height: box.height)
             return NSAttributedString(attachment: attachment)
         }
         let label = value.isEmpty ? type : value
@@ -2007,9 +2020,11 @@ final class TBRenderer {
                 let attachment = TBSubmitAttachment()
                 attachment.formID = currentFormID
                 attachment.label = label.isEmpty ? "Submit" : label
-                attachment.bounds = CGRect(x: 0, y: 0,
-                                           width: CGFloat(label.count) * 8 + 30,
-                                           height: 26)
+                let box = CGRect(x: 0, y: 0,
+                                 width: CGFloat(label.count) * 8 + 30,
+                                 height: 26)
+                attachment.bounds = box
+                attachment.image = tbClearSeat(width: box.width, height: box.height)
                 return NSAttributedString(attachment: attachment)
             }
             return NSAttributedString(
