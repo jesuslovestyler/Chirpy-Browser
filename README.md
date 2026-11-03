@@ -1,8 +1,8 @@
-# Turtle Browser
+# Chirpy Browser
 
 A web browser with **its own engine**, written from scratch.
 
-Turtle Browser fetches pages itself, parses the HTML with its own
+Chirpy Browser fetches pages itself, parses the HTML with its own
 parser, works out the styles with its own CSS code, and paints the
 page itself. There is no WebKit, no Chromium, and no Gecko inside —
 when Turtle shows you a page, our engine did every step.
@@ -11,11 +11,11 @@ It is a browser **for Catholics, by Catholics**: it opens on a
 Catholic home page (a verse, and doors to a free Catholic Bible,
 a study Bible, and a library of classic Christian books), and it
 is built on three promises — no tracking, no ads, no selling data.
-Turtle Browser is an independent project; it is not affiliated
+Chirpy Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.15.0
-Surfaces now reach their true edges. Until now a colored container's own top and bottom padding never entered the text flow — a wrapper holding only blocks flushes nothing itself, so its spacing vanished and its background began at the first line of text. A block's before-spacing now carries down to the first paragraph flushed beneath it, a pure container's after-spacing carries on to the next, and the renderer stamps each surface's first and last paragraphs with the inside space at that edge (the declaring element's own padding, its inner blocks' spacing; the element's own margin stays outside, as CSS has it) for the layout manager to paint through. The hub banner's photo and veils should now begin at the banner's designed top padding, well above the headline. Forms (0.14) stand complete behind this: fields, submit buttons with true bezels, GET and POST submission, meta-refresh chasing, and an honest notice on JavaScript-only send-on pages.
+## Status — Engine 0.16.0
+Renamed: the browser is Chirpy Browser now (it began life, earlier the same day, as Turtle Browser), and chirpybrowser.com is its future home. Surfaces reach their true edges (0.15): a colored container's own top and bottom padding enters the text flow — a block's before-spacing carries down to the first paragraph beneath it, a pure container's after-spacing carries on, and each surface's first and last paragraphs are stamped with the inside space at that edge for the layout manager to paint through. Forms (0.14) stand complete behind this: fields, submit buttons with true bezels, GET and POST submission, meta-refresh chasing, and an honest notice on JavaScript-only send-on pages.
 What works today:
 
 - Fetching real pages over HTTPS and rendering them as readable,
@@ -107,7 +107,7 @@ ship it, sell it, learn from it — no permission needed, no
 royalties, forever.
 
 One request, in the spirit of honesty rather than law: the code
-belongs to everyone, but the name *Turtle Browser* identifies
+belongs to everyone, but the name *Chirpy Browser* identifies
 this project's own builds. If you make your own browser from
 this code, please give your build its own name, so people are
 never confused about which browser they are running.
@@ -115,6 +115,6 @@ never confused about which browser they are running.
 ## Why
 
 The web's browsers all descend from a handful of engines owned
-by the largest companies on earth. Turtle Browser is a small
+by the largest companies on earth. Chirpy Browser is a small
 proof that an ordinary person can still build one — slowly,
 honestly, and in the open.
