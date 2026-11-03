@@ -14,25 +14,30 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.2
+## Status — Engine 0.3
 
 What works today:
 
 - Fetching real pages over HTTPS and rendering them as readable,
   clickable documents (headings, paragraphs, lists, links that
   navigate, back/forward history).
-- **CSS step one**: `<style>` blocks and inline styles — element,
-  class, and id selectors in proper cascade order — for color,
-  background color, bold, italic, font size, text alignment,
-  underlines, and `display: none`.
+- **CSS steps one and two**: `<style>` blocks, inline styles, and
+  external stylesheets fetched from `<link rel="stylesheet">`,
+  woven into one cascade in document order. Selectors: element,
+  class, id, compound (`a.card`, `.banner.intro`), descendant
+  (`.banner h1`), child (`ul > li`), and universal (`*`), matched
+  against the real ancestor chain with proper specificity. The
+  properties: color, background color, bold, italic, font size,
+  text alignment, underlines, and `display: none`.
 
 Honest limits, for now:
 
 - No JavaScript. (This is the mountain every engine climbs last;
   JavaScript-heavy sites will look bare.)
 - No box layout yet — no margins, floats, or columns; pages are
-  words-first. CSS step two (descendant selectors, external
-  stylesheets) is next on the road, then images, tabs, and forms.
+  words-first. Layout is next on the road, then images, tabs,
+  and forms. Pseudo-classes (`:hover`) and `@media` blocks are
+  not read yet.
 - One window, one page at a time.
 
 ## The two engines

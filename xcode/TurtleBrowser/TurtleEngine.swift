@@ -1,23 +1,29 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.2 (Swift)
+//  Turtle Browser — engine 0.3 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
 //  parses the HTML into a document tree with its own parser,
 //  and renders the tree into readable, clickable text.
 //
-//  NEW in 0.2 — CSS step one:
-//    * Reads <style> blocks and inline style="" attributes.
-//    * Simple selectors: element (p), class (.card), id (#main).
-//    * Cascade: element < class < id < inline, later rule wins ties.
-//    * Properties: color, background-color, font-weight,
-//      font-style, font-size, text-align, text-decoration,
-//      display: none, visibility: hidden.
-//    * Colors and font traits inherit down the tree, as in CSS.
-//  Not yet: external stylesheets (link rel=stylesheet), compound
-//  or descendant selectors, box layout (margins/positioning),
-//  images (labelled placeholders), JavaScript (the mountain).
+//  CSS support so far:
+//    * Step one (0.2): <style> blocks and inline style=""
+//      attributes; element/class/id selectors; the cascade;
+//      color, background-color, font-weight, font-style,
+//      font-size, text-align, text-decoration, display: none,
+//      visibility: hidden; inheritance of colors and font traits.
+//    * Step two (0.3): the full selector grammar this engine
+//      aims at — compound selectors (a.card, .banner.intro),
+//      descendant selectors (.banner h1), child selectors
+//      (ul > li), and the universal selector (*), matched
+//      against a real ancestor chain; plus external stylesheets
+//      fetched from <link rel="stylesheet">, woven into the
+//      cascade in document order alongside <style> blocks.
+//  Not yet: pseudo-classes (:hover) and @-rules such as @media,
+//  the font:/background: shorthands, box layout (margins,
+//  positioning, columns), images (labelled placeholders),
+//  JavaScript (the mountain).
 //
 
 import Foundation
@@ -119,13 +125,27 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.2 (Swift prototype; our own engine)",
+    request.setValue("TurtleBrowser/0.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
     let final = response.url?.absoluteString ?? urlString
     let html = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
     return (final, html)
+}
+
+// Fetch a plain text resource (used for external stylesheets).
+// Failures return nil: a page must still render without its CSS.
+func tbFetchText(urlString: String) async -> String? {
+    guard let url = URL(string: urlString) else { return nil }
+    var request = URLRequest(url: url)
+    request.setValue("TurtleBrowser/0.3 (Swift; our own engine)",
+                     forHTTPHeaderField: "User-Agent")
+    request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
+    guard let (data, _) = try? await URLSession.shared.data(for: request) else {
+        return nil
+    }
+    return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
 }
 
 // MARK: - Parse
@@ -135,6 +155,7 @@ final class TBNode {
     var attrs: [String: String] = [:]
     var children: [TBNode] = []
     var text: String = ""
+    weak var parent: TBNode?   // CSS step two matches ancestors.
     init(tag: String, text: String = "") {
         self.tag = tag
         self.text = text
@@ -255,8 +276,11 @@ func tbParse(html: String) -> TBNode {
                 let closeStart = findCloseTag("style", from: i)
                 let rawEnd = closeStart >= 0 ? closeStart : n
                 let node = TBNode(tag: "style")
+                node.parent = stack[stack.count - 1]
                 if rawEnd > i {
-                    node.children.append(TBNode(tag: "#text", text: String(chars[i..<rawEnd])))
+                    let textNode = TBNode(tag: "#text", text: String(chars[i..<rawEnd]))
+                    textNode.parent = node
+                    node.children.append(textNode)
                 }
                 stack[stack.count - 1].children.append(node)
                 i = closeStart >= 0 ? afterTag(closeStart) : n
@@ -308,6 +332,7 @@ func tbParse(html: String) -> TBNode {
 
             let node = TBNode(tag: lname)
             node.attrs = attrs
+            node.parent = stack[stack.count - 1]
             stack[stack.count - 1].children.append(node)
             if !selfClosing && !TBVoidTags.contains(lname) {
                 stack.append(node)
@@ -318,7 +343,9 @@ func tbParse(html: String) -> TBNode {
             let raw = String(chars[i..<j])
             let decoded = tbDecodeEntities(raw)
             if !decoded.isEmpty {
-                stack[stack.count - 1].children.append(TBNode(tag: "#text", text: decoded))
+                let textNode = TBNode(tag: "#text", text: decoded)
+                textNode.parent = stack[stack.count - 1]
+                stack[stack.count - 1].children.append(textNode)
             }
             i = j
         }
@@ -336,14 +363,152 @@ func tbExtractTitle(html: String) -> String {
     return tbDecodeEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-// MARK: - CSS (step one)
+// MARK: - CSS
+
+// One compound selector: an optional element name plus any number
+// of class and id conditions, e.g. `a.card`, `.banner.intro`,
+// `#main`, or `*` (no conditions at all — matches any element).
+struct TBCompound {
+    var tag: String? = nil
+    var classes: [String] = []
+    var id: String? = nil
+    var specificity: Int {
+        (id != nil ? 100 : 0) + classes.count * 10 + (tag != nil ? 1 : 0)
+    }
+}
+
+enum TBCombinator {
+    case descendant   // .banner h1 — any ancestor
+    case child        // ul > li  — the direct parent
+}
+
+// A full selector: compounds left to right, joined by combinators.
+struct TBSelector {
+    var compounds: [TBCompound]
+    var combinators: [TBCombinator]   // combinators[i] joins compounds[i] and [i+1]
+    var specificity: Int { compounds.reduce(0) { $0 + $1.specificity } }
+}
 
 struct TBCSSRule {
-    var kind: Int          // 0 = element, 1 = class, 2 = id
-    var key: String
-    var specificity: Int   // element 1, class 10, id 100
+    var selector: TBSelector
     var order: Int
     var declarations: [String: String]
+}
+
+func tbIsNameChar(_ c: Character) -> Bool {
+    c.isLetter || c.isNumber || c == "-" || c == "_"
+}
+
+// Parse one compound selector token, e.g. "div", ".card", "a.card",
+// "#main", "div#main.card", "*". Element names are case-insensitive
+// (lowercased here); class and id names keep their case, as CSS
+// requires. Returns nil for anything outside this grammar.
+func tbParseCompound(_ token: String) -> TBCompound? {
+    if token.isEmpty { return nil }
+    var compound = TBCompound()
+    let chars = Array(token)
+    var i = 0
+    if chars[0] == "*" {
+        i = 1   // universal: no element condition
+    } else if tbIsNameChar(chars[0]) {
+        var name = ""
+        while i < chars.count && tbIsNameChar(chars[i]) {
+            name.append(chars[i])
+            i += 1
+        }
+        compound.tag = name.lowercased()
+    }
+    while i < chars.count {
+        let marker = chars[i]
+        guard marker == "." || marker == "#" else { return nil }
+        i += 1
+        var name = ""
+        while i < chars.count && tbIsNameChar(chars[i]) {
+            name.append(chars[i])
+            i += 1
+        }
+        if name.isEmpty { return nil }
+        if marker == "." {
+            compound.classes.append(name)
+        } else {
+            if compound.id != nil { return nil }   // two ids in one compound
+            compound.id = name
+        }
+    }
+    return compound
+}
+
+// Parse a full selector: compounds joined by descendant (space)
+// and child (>) combinators. Pseudo-classes and elements (:hover,
+// ::before), attribute selectors ([href]), and the sibling
+// combinators (+, ~) are still outside the grammar: nil.
+func tbParseSelector(_ raw: String) -> TBSelector? {
+    if raw.isEmpty || raw.contains(":") || raw.contains("[") || raw.contains("]")
+        || raw.contains("+") || raw.contains("~") {
+        return nil
+    }
+    let spaced = raw.replacingOccurrences(of: ">", with: " > ")
+    let tokens = spaced.split(whereSeparator: { tbIsSpace($0) }).map(String.init)
+    if tokens.isEmpty { return nil }
+    var compounds: [TBCompound] = []
+    var combinators: [TBCombinator] = []
+    var pendingChild = false
+    var expectCompound = true
+    for token in tokens {
+        if token == ">" {
+            if expectCompound { return nil }   // '>' with nothing on its left
+            pendingChild = true
+            expectCompound = true
+            continue
+        }
+        guard let compound = tbParseCompound(token) else { return nil }
+        if !compounds.isEmpty {
+            combinators.append(pendingChild ? .child : .descendant)
+        }
+        compounds.append(compound)
+        pendingChild = false
+        expectCompound = false
+    }
+    if expectCompound { return nil }   // trailing '>'
+    return TBSelector(compounds: compounds, combinators: combinators)
+}
+
+func tbCompoundMatches(_ compound: TBCompound, node: TBNode) -> Bool {
+    if node.tag == "#text" || node.tag == "document" { return false }
+    if let tag = compound.tag, tag != node.tag { return false }
+    if let id = compound.id, node.attrs["id"] != id { return false }
+    if !compound.classes.isEmpty {
+        let have = (node.attrs["class"] ?? "")
+            .split(whereSeparator: { tbIsSpace($0) }).map(String.init)
+        for wanted in compound.classes where !have.contains(wanted) {
+            return false
+        }
+    }
+    return true
+}
+
+// Selector matching walks right to left: the element itself must
+// match the last compound; combinators then climb the ancestors.
+func tbSelectorMatches(_ selector: TBSelector, node: TBNode) -> Bool {
+    func matchFrom(_ index: Int, _ current: TBNode) -> Bool {
+        guard tbCompoundMatches(selector.compounds[index], node: current) else {
+            return false
+        }
+        if index == 0 { return true }
+        switch selector.combinators[index - 1] {
+        case .child:
+            guard let parent = current.parent else { return false }
+            return matchFrom(index - 1, parent)
+        case .descendant:
+            var ancestor = current.parent
+            while let candidate = ancestor {
+                if matchFrom(index - 1, candidate) { return true }
+                ancestor = candidate.parent
+            }
+            return false
+        }
+    }
+    return matchFrom(selector.compounds.count - 1, node)
 }
 
 func tbParseDeclarations(_ body: String) -> [String: String] {
@@ -381,64 +546,59 @@ func tbParseCSS(_ css: String, orderStart: Int) -> [TBCSSRule] {
         let declarations = tbParseDeclarations(String(halves[1]))
         if declarations.isEmpty { continue }
         for rawSelector in selectorText.split(separator: ",") {
-            let s = String(rawSelector).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            // Step one: single simple selectors only.
-            if s.isEmpty || s.contains(" ") || s.contains(">") || s.contains("+")
-                || s.contains("~") || s.contains(":") || s.contains("[")
-                || s.contains("*") || s.contains(".") && !s.hasPrefix(".") {
-                continue
-            }
-            if s.hasPrefix(".") {
-                let key = String(s.dropFirst())
-                if key.isEmpty || key.contains(".") || key.contains("#") { continue }
-                rules.append(TBCSSRule(kind: 1, key: key, specificity: 10,
-                                       order: order, declarations: declarations))
-                order += 1
-            } else if s.hasPrefix("#") {
-                let key = String(s.dropFirst())
-                if key.isEmpty || key.contains(".") || key.contains("#") { continue }
-                rules.append(TBCSSRule(kind: 2, key: key, specificity: 100,
-                                       order: order, declarations: declarations))
-                order += 1
-            } else if s.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
-                rules.append(TBCSSRule(kind: 0, key: s, specificity: 1,
-                                       order: order, declarations: declarations))
-                order += 1
-            }
+            let s = String(rawSelector).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let selector = tbParseSelector(s) else { continue }
+            rules.append(TBCSSRule(selector: selector, order: order,
+                                   declarations: declarations))
+            order += 1
         }
     }
     return rules
 }
 
-func tbCollectCSSTexts(_ node: TBNode, into texts: inout [String]) {
+enum TBStyleSource {
+    case inline(String)     // a <style> block's text
+    case external(String)   // absolute URL of a linked stylesheet
+}
+
+// Stylesheet sources in document order — <style> blocks and
+// <link rel="stylesheet"> references interleaved as the page
+// declares them, which is the order the cascade honors.
+func tbCollectStyleSources(_ node: TBNode, base: String,
+                           into sources: inout [TBStyleSource]) {
     if node.tag == "style" {
         for child in node.children where child.tag == "#text" {
-            texts.append(child.text)
+            sources.append(.inline(child.text))
+        }
+        return
+    }
+    if node.tag == "link" {
+        let relTokens = (node.attrs["rel"] ?? "").lowercased()
+            .split(whereSeparator: { tbIsSpace($0) }).map(String.init)
+        let href = node.attrs["href"] ?? ""
+        if relTokens.contains("stylesheet") && !href.isEmpty {
+            let absolute = URL(string: href, relativeTo: URL(string: base))?.absoluteString ?? href
+            sources.append(.external(absolute))
         }
         return
     }
     for child in node.children {
-        tbCollectCSSTexts(child, into: &texts)
+        tbCollectStyleSources(child, base: base, into: &sources)
     }
 }
 
 // The declarations that apply to one element: matching rules in
-// cascade order, with the element's inline style on top.
+// cascade order (specificity first, then source order), with the
+// element's inline style on top.
 func tbResolveStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
     if node.tag == "#text" { return [:] }
     var matched: [TBCSSRule] = []
-    let classes = (node.attrs["class"] ?? "")
-        .split(whereSeparator: { tbIsSpace($0) }).map(String.init)
-    let elementID = node.attrs["id"] ?? ""
-    for rule in rules {
-        switch rule.kind {
-        case 0: if rule.key == node.tag { matched.append(rule) }
-        case 1: if classes.contains(rule.key) { matched.append(rule) }
-        case 2: if !elementID.isEmpty && rule.key == elementID { matched.append(rule) }
-        default: break
-        }
+    for rule in rules where tbSelectorMatches(rule.selector, node: node) {
+        matched.append(rule)
     }
-    matched.sort { ($0.specificity, $0.order) < ($1.specificity, $1.order) }
+    matched.sort {
+        ($0.selector.specificity, $0.order) < ($1.selector.specificity, $1.order)
+    }
     var out: [String: String] = [:]
     for rule in matched {
         for (k, v) in rule.declarations { out[k] = v }
@@ -623,11 +783,17 @@ final class TBRenderer {
 
     init(base: String) { self.base = base }
 
-    func render(root: TBNode) -> NSAttributedString {
-        var cssTexts: [String] = []
-        tbCollectCSSTexts(root, into: &cssTexts)
+    func render(root: TBNode) async -> NSAttributedString {
+        var sources: [TBStyleSource] = []
+        tbCollectStyleSources(root, base: base, into: &sources)
         var order = 0
-        for text in cssTexts {
+        for source in sources {
+            let cssText: String?
+            switch source {
+            case .inline(let text): cssText = text
+            case .external(let url): cssText = await tbFetchText(urlString: url)
+            }
+            guard let text = cssText else { continue }
             let parsed = tbParseCSS(text, orderStart: order)
             rules.append(contentsOf: parsed)
             order += parsed.count
@@ -800,10 +966,10 @@ final class TBRenderer {
     }
 }
 
-func tbRenderPage(html: String, base: String) -> (title: String, body: NSAttributedString) {
+func tbRenderPage(html: String, base: String) async -> (title: String, body: NSAttributedString) {
     let title = tbExtractTitle(html: html)
     let tree = tbParse(html: html)
     let renderer = TBRenderer(base: base)
-    let body = renderer.render(root: tree)
+    let body = await renderer.render(root: tree)
     return (title.isEmpty ? base : title, body)
 }
