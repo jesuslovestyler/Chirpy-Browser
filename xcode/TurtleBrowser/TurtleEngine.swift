@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.13.5 (Swift)
+//  Turtle Browser — engine 0.13.6 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -174,7 +174,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.5 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.6 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -192,7 +192,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("TurtleBrowser/0.13.5 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.6 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -209,7 +209,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.5 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.6 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -332,7 +332,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13.5 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.6 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -2190,10 +2190,12 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int) as
             let notice = NSMutableAttributedString()
             notice.append(NSAttributedString(
                 string: "This page needs JavaScript to move on\n\n",
-                attributes: [.font: NSFont.boldSystemFont(ofSize: 17)]))
+                attributes: [.font: NSFont.boldSystemFont(ofSize: 17),
+                             .foregroundColor: NSColor.labelColor]))
             notice.append(NSAttributedString(
                 string: "Turtle doesn't speak JavaScript yet. The destination written in this page's code is:\n\n",
-                attributes: [.font: NSFont.systemFont(ofSize: 14)]))
+                attributes: [.font: NSFont.systemFont(ofSize: 14),
+                             .foregroundColor: NSColor.labelColor]))
             for target in targets {
                 notice.append(NSAttributedString(
                     string: target + "\n",
