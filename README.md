@@ -14,8 +14,8 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.13.8 (diagnostic)
-Forms are real: text and search inputs render as live, editable fields seated in the page where the markup puts them (each attachment carries a clear seat image, because bounds alone reserve no width in the layout), submit buttons chain immediately after their form's field, and Enter (or a click) submits GET and POST forms the way a browser does — hidden inputs, current values, first named submit. Meta-refresh send-ons are followed up to three hops, and a page whose body is only a JavaScript send-on (a search engine's click bounce, say) shows an honest notice offering the destination written in its code instead of a black void. DuckDuckGo's HTML search works end to end; Google's form submits correctly but Google gates its results behind JavaScript for engines it does not know.
+## Status — Engine 0.14.0
+Forms are complete and verified end to end — by Enter and by click: text and search inputs render as live, editable fields seated in the page where the markup puts them (each attachment carries a clear seat image, because bounds alone reserve no width in the layout), submit buttons chain immediately after their form's field and wear a true control-color bezel (a colorless rounded button renders near-invisible on current macOS), and submitting sends GET and POST forms the way a browser does — hidden inputs, current values, the named submit that was clicked. Meta-refresh send-ons are followed up to three hops, and a page whose body is only a JavaScript send-on (a search engine's click bounce, say) shows an honest notice offering the destination written in its code. DuckDuckGo's HTML search works whole; Google's form submits correctly but Google gates its results behind JavaScript for engines it does not know.
 What works today:
 
 - Fetching real pages over HTTPS and rendering them as readable,

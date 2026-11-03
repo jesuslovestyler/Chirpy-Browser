@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.13.8 (Swift)
+//  Turtle Browser — prototype 0.14.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.13.8 (Swift) — forms, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.14.0 (Swift) — forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -124,7 +124,7 @@ final class BrowserModel: ObservableObject {
                 self.columnTextWidth = columnW
                 self.pageForms = forms
                 self.pageFields = fields
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.8 (Swift) — forms, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.14.0 (Swift) — forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -215,8 +215,6 @@ struct PageTextView: NSViewRepresentable {
         private var formAnchors: [(view: NSView, charIndex: Int,
                                    attachment: NSTextAttachment)] = []
         private var formIDByFieldID: [Int: Int] = [:]
-        private var dbgFields = 0
-        private var dbgSubmits = 0
 
         init(model: BrowserModel) {
             self.model = model
@@ -284,8 +282,6 @@ struct PageTextView: NSViewRepresentable {
             fieldViews = [:]
             formIDByFieldID = Dictionary(
                 uniqueKeysWithValues: model.pageFields.map { ($0.id, $0.formID) })
-            dbgFields = 0
-            dbgSubmits = 0
             guard storage.length > 0 else { return }
             layoutManager.ensureLayout(for: container)
             storage.enumerateAttribute(
@@ -293,8 +289,7 @@ struct PageTextView: NSViewRepresentable {
             ) { value, range, _ in
                 if let fieldAtt = value as? TBFieldAttachment,
                    let spec = self.model.pageFields.first(where: { $0.id == fieldAtt.fieldID }) {
-                    self.dbgFields += 1
-                    let field = NSTextField(frame: NSRect(x: 16, y: 16, width: 200, height: 26))
+                    let field = NSTextField()
                     field.stringValue = spec.defaultValue
                     field.placeholderString = spec.placeholder
                     field.font = NSFont.systemFont(ofSize: 13)
@@ -309,13 +304,10 @@ struct PageTextView: NSViewRepresentable {
                     self.formAnchors.append((view: field, charIndex: range.location,
                                              attachment: fieldAtt))
                 } else if let submitAtt = value as? TBSubmitAttachment {
-                    self.dbgSubmits += 1
-                    let button = NSButton(frame: NSRect(x: 16, y: 48, width: 160, height: 26))
-                    button.title = submitAtt.label
-                    button.target = self
-                    button.action = #selector(Coordinator.submitClicked(_:))
+                    let button = NSButton(title: submitAtt.label, target: self,
+                                          action: #selector(Coordinator.submitClicked(_:)))
                     button.bezelStyle = .rounded
-                    button.bezelColor = .systemRed
+                    button.bezelColor = .controlColor
                     button.tag = submitAtt.formID
                     textView.addSubview(button)
                     self.formControlViews.append(button)
@@ -332,18 +324,6 @@ struct PageTextView: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.settleFormViews()
             }
-            // One build's worth of ground truth in the
-            // status bar: what the page's text holds, what
-            // became controls, and where they landed.
-            let frames = formAnchors.map { anchor in
-                let f = anchor.view.frame
-                let kind = anchor.attachment is TBFieldAttachment ? "F" : "B"
-                let shown = (anchor.view.superview != nil ? "S" : "-")
-                    + (anchor.view.window != nil ? "W" : "-")
-                    + (anchor.view.isHidden ? "H" : "-")
-                return "\(kind)(\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width))x\(Int(f.height))\(shown))"
-            }.joined(separator: " ")
-            model.statusLine = "DBG fields \(dbgFields) submits \(dbgSubmits) anchors \(formAnchors.count) views \(textView.subviews.count) - " + frames
         }
 
         // Force the layout complete, then seat the controls.
