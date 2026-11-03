@@ -14,7 +14,7 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.6.2
+## Status — Engine 0.6.3
 
 What works today:
 
@@ -47,7 +47,9 @@ What works today:
   engine's alone — the text view's default blue no longer
   repaints linked text — each marker sits at its own card's
   end, and sibling spans gain the space a layout's gap would
-  give them.) The properties: color, background color, bold,
+  give them. 0.6.3: a build fix — the span-join helper no
+  longer asks for `inout`, which a constant buffer cannot
+  give.) The properties: color, background color, bold,
   italic, font size, text alignment, underlines, spacing,
   and `display`.
 

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.6.2 (Swift)
+//  Turtle Browser — prototype 0.6.3 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.6.2 (Swift) — layout step one, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.6.3 (Swift) — layout step one, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -72,7 +72,7 @@ final class BrowserModel: ObservableObject {
                 self.pageTitle = title
                 self.pageText = body
                 self.pageBackground = pageBG
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.6.2 (Swift) — layout step one, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.6.3 (Swift) — layout step one, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target

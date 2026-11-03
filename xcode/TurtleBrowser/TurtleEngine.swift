@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.6.2 (Swift)
+//  Turtle Browser — engine 0.6.3 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -149,7 +149,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.6.2 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.6.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -163,7 +163,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.6.2 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.6.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1249,7 +1249,7 @@ final class TBRenderer {
     // space. Only element pieces trigger this, so words split
     // across <b>/<i> stay whole, and a piece opening with
     // punctuation never gains a space before it.
-    private func appendJoined(_ buffer: inout NSMutableAttributedString,
+    private func appendJoined(_ buffer: NSMutableAttributedString,
                               _ piece: NSAttributedString, isElement: Bool) {
         if isElement, piece.length > 0,
            let last = buffer.string.last, let first = piece.string.first,
@@ -1304,7 +1304,7 @@ final class TBRenderer {
                           color: effColor, align: effAlign,
                           inheritedBackground: effBackground)
             } else {
-                appendJoined(&buffer, inline(child, font: effFont, color: effColor),
+                appendJoined(buffer, inline(child, font: effFont, color: effColor),
                              isElement: child.tag != "#text")
             }
         }
@@ -1404,7 +1404,7 @@ final class TBRenderer {
             }
         } else {
             for child in node.children {
-                appendJoined(&result, inline(child, font: f, color: effColor),
+                appendJoined(result, inline(child, font: f, color: effColor),
                              isElement: child.tag != "#text")
             }
         }
