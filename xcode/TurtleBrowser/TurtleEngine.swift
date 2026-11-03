@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.12 (Swift)
+//  Turtle Browser — engine 0.13 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -174,7 +174,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.12 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -188,7 +188,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.12 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -311,7 +311,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.12 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1348,6 +1348,39 @@ func tbFont(for style: String) -> NSFont {
     }
 }
 
+// Forms (0.13): a text or search input seats an attachment
+// in the text, the way an image does — but what belongs
+// there is a real, editable field, which the window lays
+// over the text (PageTextView's Coordinator in
+// ContentView.swift). Pressing Enter submits the form as
+// a browser does: its own fields and hidden inputs,
+// GET-encoded onto its action.
+final class TBFieldAttachment: NSTextAttachment {
+    var fieldID = -1
+}
+
+final class TBSubmitAttachment: NSTextAttachment {
+    var formID = -1
+    var label = "Submit"
+}
+
+struct TBFormField {
+    let id: Int
+    let formID: Int        // -1: an input outside any form
+    let name: String
+    let defaultValue: String
+    let placeholder: String
+}
+
+struct TBFormSpec {
+    let id: Int
+    let action: String     // absolute; the page itself when absent
+    let method: String     // lowercased; GET submits in 0.13
+    var hidden: [(name: String, value: String)] = []
+    var submitName: String? = nil
+    var submitValue: String? = nil
+}
+
 final class TBRenderer {
     let base: String
     var links: [String] = []
@@ -1370,6 +1403,113 @@ final class TBRenderer {
     // Background boxes by declaration key, so identical
     // declarations share one box — and one photo fetch.
     var backgroundBoxes: [String: TBBackgroundBox] = [:]
+
+    // Forms (0.13): every form on the page, every typable
+    // field, and the stack of forms open at this point of
+    // the walk. (HTML forms do not nest, but the walk is
+    // recursive, so a stack keeps the bookkeeping honest.)
+    var forms: [TBFormSpec] = []
+    var fields: [TBFormField] = []
+    private var openForms: [Int] = []
+    private var nextFieldID = 0
+
+    private var currentFormID: Int { openForms.last ?? -1 }
+
+    private func enterForm(_ node: TBNode) {
+        let raw = (node.attrs["action"] ?? "").trimmingCharacters(in: .whitespaces)
+        let action = raw.isEmpty ? base
+            : (URL(string: raw, relativeTo: URL(string: base))?.absoluteString ?? base)
+        let method = (node.attrs["method"] ?? "get").lowercased()
+        forms.append(TBFormSpec(id: forms.count, action: action, method: method))
+        openForms.append(forms.count - 1)
+    }
+
+    private func exitForm() {
+        if !openForms.isEmpty { openForms.removeLast() }
+    }
+
+    // A form remembers its first named submit control: a
+    // browser sends that button's name and value along
+    // when the form is submitted from the keyboard.
+    private func noteSubmit(_ node: TBNode) {
+        guard currentFormID >= 0, forms[currentFormID].submitName == nil,
+              let name = node.attrs["name"], !name.isEmpty else { return }
+        forms[currentFormID].submitName = name
+        forms[currentFormID].submitValue = node.attrs["value"] ?? ""
+    }
+
+    private func descendantText(_ node: TBNode) -> String {
+        if node.tag == "#text" { return node.text }
+        return node.children.map { descendantText($0) }.joined()
+    }
+
+    // One <input>, rendered. Text-like inputs seat a field
+    // attachment; hidden inputs register silently against
+    // their form; submits seat a button attachment;
+    // checkboxes and radios draw their state; the rest
+    // render as their label until a later step.
+    private func formControl(_ node: TBNode, font: NSFont,
+                             own: [String: String]) -> NSAttributedString {
+        let type = (node.attrs["type"] ?? "text").lowercased()
+        let name = node.attrs["name"] ?? ""
+        let value = node.attrs["value"] ?? ""
+        if type == "hidden" {
+            if currentFormID >= 0 && !name.isEmpty {
+                forms[currentFormID].hidden.append((name: name, value: value))
+            }
+            return NSAttributedString(string: "")
+        }
+        if type == "submit" {
+            if currentFormID >= 0 {
+                noteSubmit(node)
+                let label = value.isEmpty ? "Submit" : value
+                let attachment = TBSubmitAttachment()
+                attachment.formID = currentFormID
+                attachment.label = label
+                attachment.bounds = CGRect(x: 0, y: 0,
+                                           width: CGFloat(label.count) * 8 + 30,
+                                           height: 26)
+                return NSAttributedString(attachment: attachment)
+            }
+            return NSAttributedString(
+                string: " [\(value.isEmpty ? "Submit" : value)] ",
+                attributes: [.font: font,
+                             .foregroundColor: NSColor.secondaryLabelColor])
+        }
+        if type == "checkbox" || type == "radio" {
+            let on = node.attrs["checked"] != nil
+            let glyph = type == "checkbox" ? (on ? "\u{2611}" : "\u{2610}")
+                                           : (on ? "\u{25C9}" : "\u{25CB}")
+            return NSAttributedString(string: " \(glyph) ",
+                                      attributes: [.font: font])
+        }
+        if ["text", "search", "password", "email", "url", "tel",
+            "number", ""].contains(type) {
+            let id = nextFieldID
+            nextFieldID += 1
+            fields.append(TBFormField(
+                id: id, formID: currentFormID, name: name,
+                defaultValue: value,
+                placeholder: node.attrs["placeholder"] ?? ""))
+            let attachment = TBFieldAttachment()
+            attachment.fieldID = id
+            var width = tbLengthValue(own["width"] ?? node.attrs["width"],
+                                      fontSize: font.pointSize)
+            if width == nil, let sizeText = node.attrs["size"],
+               let size = Double(sizeText) {
+                width = CGFloat(size) * 7.5 + 16
+            }
+            attachment.bounds = CGRect(x: 0, y: 0,
+                                       width: min(max(width ?? 240, 90), 560),
+                                       height: 26)
+            return NSAttributedString(attachment: attachment)
+        }
+        let label = value.isEmpty ? type : value
+        return NSAttributedString(
+            string: " [\(label)] ",
+            attributes: [.font: font,
+                         .foregroundColor: NSColor.secondaryLabelColor])
+    }
 
     // The background layers this element declares, if any.
     func backgroundBox(decls: [String: String]) -> TBBackgroundBox? {
@@ -1705,6 +1845,8 @@ final class TBRenderer {
         let effBox = backgroundBox(decls: own) ?? inheritedBackgroundBox
         let metrics = tbBlockMetrics(own, fontSize: effFont.pointSize)
         let linkStart = out.length   // for block-level anchors, below
+        let isForm = node.tag == "form"
+        if isForm { enterForm(node) }
 
         var buffer = NSMutableAttributedString()
         for child in node.children {
@@ -1744,6 +1886,7 @@ final class TBRenderer {
         }
         flush(buffer: &buffer, style: style, font: effFont,
               align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics)
+        if isForm { exitForm() }
 
         // A block-level anchor (a card styled display:grid, say)
         // never passes through inline(), where links are made —
@@ -1828,6 +1971,34 @@ final class TBRenderer {
                 attributes: [.font: f, .foregroundColor: NSColor.secondaryLabelColor])
         }
 
+        if node.tag == "input" {
+            return formControl(node, font: f, own: own)
+        }
+        if node.tag == "button" {
+            // A button inside a form submits it, labelled by
+            // its own text; a type="button" button, or one
+            // outside any form, renders as its label.
+            let label = descendantText(node)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let type = (node.attrs["type"] ?? "submit").lowercased()
+            if currentFormID >= 0 && type != "button" && type != "reset" {
+                noteSubmit(node)
+                let attachment = TBSubmitAttachment()
+                attachment.formID = currentFormID
+                attachment.label = label.isEmpty ? "Submit" : label
+                attachment.bounds = CGRect(x: 0, y: 0,
+                                           width: CGFloat(label.count) * 8 + 30,
+                                           height: 26)
+                return NSAttributedString(attachment: attachment)
+            }
+            return NSAttributedString(
+                string: " [\(label)] ",
+                attributes: [.font: f,
+                             .foregroundColor: NSColor.secondaryLabelColor])
+        }
+
+        let isForm = node.tag == "form"
+        if isForm { enterForm(node) }
         let result = NSMutableAttributedString()
         if node.tag == "a" {
             let inner = NSMutableAttributedString()
@@ -1860,6 +2031,8 @@ final class TBRenderer {
             }
         }
 
+        if isForm { exitForm() }
+
         // Span-level dressing: background, underline, strikethrough.
         if result.length > 0 {
             let full = NSRange(location: 0, length: result.length)
@@ -1883,11 +2056,11 @@ final class TBRenderer {
 
 func tbRenderPage(html: String, base: String) async
     -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
-        columnWidth: CGFloat?) {
+        columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField]) {
     let title = tbExtractTitle(html: html)
     let tree = tbParse(html: html)
     let renderer = TBRenderer(base: base)
     let body = await renderer.render(root: tree)
     return (title.isEmpty ? base : title, body, renderer.pageBackground,
-            renderer.columnTextWidth(root: tree))
+            renderer.columnTextWidth(root: tree), renderer.forms, renderer.fields)
 }

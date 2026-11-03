@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.12.1 (Swift)
+//  Turtle Browser — prototype 0.13 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,12 +15,14 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.12.1 (Swift) — background photos, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.13 (Swift) — forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
     @Published var pageBackground: NSColor? = nil
     @Published var columnTextWidth: CGFloat? = nil
+    @Published var pageForms: [TBFormSpec] = []
+    @Published var pageFields: [TBFormField] = []
 
     private var currentURL = ""
     private var backStack: [String] = []
@@ -39,6 +41,38 @@ final class BrowserModel: ObservableObject {
             return "https://html.duckduckgo.com/html/?q=\(q)"
         }
         return "https://" + t
+    }
+
+    // Forms (0.13): submit a GET form the way a browser
+    // does — the action's own query items first, then the
+    // hidden inputs, the fields' current values, and the
+    // first named submit control — and navigate there.
+    func submitForm(_ form: TBFormSpec, values: [Int: String]) {
+        guard form.method == "get" else {
+            statusLine = "That form sends with \(form.method.uppercased()) — Turtle submits GET forms for now"
+            return
+        }
+        var items: [URLQueryItem] = []
+        if let existing = URLComponents(string: form.action)?.queryItems {
+            items.append(contentsOf: existing)
+        }
+        for hidden in form.hidden {
+            items.append(URLQueryItem(name: hidden.name, value: hidden.value))
+        }
+        for field in pageFields where field.formID == form.id && !field.name.isEmpty {
+            items.append(URLQueryItem(name: field.name,
+                                      value: values[field.id] ?? field.defaultValue))
+        }
+        if let name = form.submitName {
+            items.append(URLQueryItem(name: name, value: form.submitValue ?? ""))
+        }
+        guard var components = URLComponents(string: form.action) else { return }
+        components.queryItems = items.isEmpty ? nil : items
+        if let url = components.url { load(url.absoluteString) }
+    }
+
+    func noteUnsubmittableField() {
+        statusLine = "That box answers to the page's JavaScript — Turtle doesn't speak it yet (a form with an action, like Google's, submits)"
     }
 
     func go() { load(addressText) }
@@ -67,14 +101,17 @@ final class BrowserModel: ObservableObject {
         Task {
             do {
                 let (finalURL, html) = try await tbFetch(urlString: target)
-                let (title, body, pageBG, columnW) = await tbRenderPage(html: html, base: finalURL)
+                let (title, body, pageBG, columnW, forms, fields) =
+                    await tbRenderPage(html: html, base: finalURL)
                 self.currentURL = finalURL
                 self.addressText = finalURL
                 self.pageTitle = title
                 self.pageText = body
                 self.pageBackground = pageBG
                 self.columnTextWidth = columnW
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.12.1 (Swift) — background photos, no JavaScript yet"
+                self.pageForms = forms
+                self.pageFields = fields
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13 (Swift) — forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -89,6 +126,8 @@ final class BrowserModel: ObservableObject {
                 self.pageText = msg
                 self.pageBackground = nil
                 self.columnTextWidth = nil
+                self.pageForms = []
+                self.pageFields = []
                 self.statusLine = "Load failed"
             }
             self.canGoBack = !self.backStack.isEmpty
@@ -121,6 +160,7 @@ struct PageTextView: NSViewRepresentable {
         // Layout step two: a layout manager that paints block
         // backgrounds as full-width bands across the column.
         textView.textContainer?.replaceLayoutManager(TBBandLayoutManager())
+        textView.layoutManager?.delegate = context.coordinator
         textView.textContainerInset = NSSize(width: 16, height: 16)
         textView.isAutomaticLinkDetectionEnabled = false
         scrollView.documentView = textView
@@ -135,6 +175,7 @@ struct PageTextView: NSViewRepresentable {
             context.coordinator.lastPageID = model.pageID
             textView.textStorage?.setAttributedString(model.pageText)
             textView.scrollToBeginningOfDocument(nil)
+            context.coordinator.rebuildFormViews()
         }
         context.coordinator.columnWidth = model.columnTextWidth
         context.coordinator.refreshInsets()
@@ -144,13 +185,21 @@ struct PageTextView: NSViewRepresentable {
         coordinator.detach()
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
         let model: BrowserModel
         var lastPageID = -1
         var columnWidth: CGFloat? = nil
         private weak var textView: NSTextView?
         private weak var clipView: NSClipView?
         private var frameObserver: NSObjectProtocol? = nil
+
+        // Forms (0.13): the real controls laid over the
+        // engine's field and button attachments, and where
+        // each one is anchored in the text.
+        private var fieldViews: [Int: NSTextField] = [:]
+        private var formControlViews: [NSView] = []
+        private var formAnchors: [(view: NSView, charIndex: Int,
+                                   attachment: NSTextAttachment)] = []
 
         init(model: BrowserModel) {
             self.model = model
@@ -188,6 +237,112 @@ struct PageTextView: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(frameObserver)
                 self.frameObserver = nil
             }
+            for view in formControlViews { view.removeFromSuperview() }
+            formControlViews = []
+            formAnchors = []
+            fieldViews = [:]
+        }
+
+        // Build this page's controls over their attachments:
+        // an NSTextField for every typable input, an NSButton
+        // for every submit. The attachments reserved the
+        // space in the text; these are the live controls.
+        func rebuildFormViews() {
+            guard let textView = textView,
+                  let storage = textView.textStorage,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer else { return }
+            for view in formControlViews { view.removeFromSuperview() }
+            formControlViews = []
+            formAnchors = []
+            fieldViews = [:]
+            guard storage.length > 0 else { return }
+            layoutManager.ensureLayout(for: container)
+            storage.enumerateAttribute(
+                .attachment, in: NSRange(location: 0, length: storage.length)
+            ) { value, range, _ in
+                if let fieldAtt = value as? TBFieldAttachment,
+                   let spec = self.model.pageFields.first(where: { $0.id == fieldAtt.fieldID }) {
+                    let field = NSTextField()
+                    field.stringValue = spec.defaultValue
+                    field.placeholderString = spec.placeholder
+                    field.font = NSFont.systemFont(ofSize: 13)
+                    field.isBezeled = true
+                    field.bezelStyle = .roundedBezel
+                    field.tag = spec.id
+                    field.target = self
+                    field.action = #selector(Coordinator.fieldSubmitted(_:))
+                    textView.addSubview(field)
+                    self.fieldViews[spec.id] = field
+                    self.formControlViews.append(field)
+                    self.formAnchors.append((view: field, charIndex: range.location,
+                                             attachment: fieldAtt))
+                } else if let submitAtt = value as? TBSubmitAttachment {
+                    let button = NSButton(title: submitAtt.label, target: self,
+                                          action: #selector(Coordinator.submitClicked(_:)))
+                    button.bezelStyle = .rounded
+                    button.tag = submitAtt.formID
+                    textView.addSubview(button)
+                    self.formControlViews.append(button)
+                    self.formAnchors.append((view: button, charIndex: range.location,
+                                             attachment: submitAtt))
+                }
+            }
+            repositionFormViews()
+        }
+
+        // Set each control over its attachment: the glyph's
+        // line rect, with the control's own height centered
+        // in the line.
+        func repositionFormViews() {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer,
+                  !formAnchors.isEmpty else { return }
+            let origin = textView.textContainerOrigin
+            for anchor in formAnchors {
+                let glyph = layoutManager.glyphIndexForCharacter(at: anchor.charIndex)
+                let line = layoutManager.boundingRect(
+                    forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+                let size = anchor.attachment.bounds.size
+                anchor.view.frame = NSRect(
+                    x: origin.x + line.minX,
+                    y: origin.y + line.minY + (line.height - size.height) / 2,
+                    width: size.width, height: size.height)
+            }
+        }
+
+        func layoutManager(_ layoutManager: NSLayoutManager,
+                           didCompleteLayoutFor textContainer: NSTextContainer?,
+                           atEnd layoutFinishedFlag: Bool) {
+            if layoutFinishedFlag { repositionFormViews() }
+        }
+
+        @objc func fieldSubmitted(_ sender: NSTextField) {
+            guard let spec = model.pageFields.first(where: { $0.id == sender.tag })
+            else { return }
+            if spec.formID >= 0,
+               let form = model.pageForms.first(where: { $0.id == spec.formID }) {
+                submit(form)
+            } else {
+                model.noteUnsubmittableField()
+            }
+        }
+
+        @objc func submitClicked(_ sender: NSButton) {
+            if let form = model.pageForms.first(where: { $0.id == sender.tag }) {
+                submit(form)
+            }
+        }
+
+        private func submit(_ form: TBFormSpec) {
+            var values: [Int: String] = [:]
+            for (id, field) in fieldViews {
+                if model.pageFields.first(where: { $0.id == id })?.formID == form.id {
+                    values[id] = field.stringValue
+                }
+            }
+            model.submitForm(form, values: values)
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {

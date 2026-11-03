@@ -14,8 +14,8 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.12
-Background photos paint — cover/contain, positioning, tiling, and photos embedded in stylesheets as data URIs. Two bugs found by Tyler's screenshots are fixed in this step: rgba() colors now honor their alpha (the translucent gradient veils over the hub's banner were painting as opaque near-black), and background photos draw right side up via an explicit Quartz flip instead of inverted.
+## Status — Engine 0.13
+Forms are real: text and search inputs render as live, editable fields seated in the page where the markup puts them, submit buttons are real buttons, and Enter (or a click) submits a GET form the way a browser does — the form's hidden inputs, the fields' current values, and its first named submit control, encoded onto its action. Google's search box works end to end. Checkboxes and radios draw their state; POST forms, textareas, and selects are not handled yet, and a search box whose filtering is JavaScript (like the hub's own) is typable but cannot filter until JavaScript arrives.
 What works today:
 
 - Fetching real pages over HTTPS and rendering them as readable,
