@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.13.6 (Swift)
+//  Turtle Browser — prototype 0.13.7 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.13.6 (Swift) — forms, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.13.7 (Swift) — forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -124,7 +124,7 @@ final class BrowserModel: ObservableObject {
                 self.columnTextWidth = columnW
                 self.pageForms = forms
                 self.pageFields = fields
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.6 (Swift) — forms, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.7 (Swift) — forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -339,7 +339,7 @@ struct PageTextView: NSViewRepresentable {
                 let kind = anchor.attachment is TBFieldAttachment ? "F" : "B"
                 return "\(kind)(\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width)))"
             }.joined(separator: " ")
-            model.statusText = "DBG fields \(dbgFields) submits \(dbgSubmits) anchors \(formAnchors.count) - " + frames
+            model.statusLine = "DBG fields \(dbgFields) submits \(dbgSubmits) anchors \(formAnchors.count) - " + frames
         }
 
         // Force the layout complete, then seat the controls.
