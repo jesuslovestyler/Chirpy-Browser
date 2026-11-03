@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.6.1 (Swift)
+//  Turtle Browser — engine 0.6.2 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -149,7 +149,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.6.1 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.6.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -163,7 +163,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.6.1 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.6.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1242,6 +1242,23 @@ final class TBRenderer {
         buffer = NSMutableAttributedString()
     }
 
+    // Joining two sibling elements whose source carries no
+    // whitespace between them — a card's name span hard against
+    // its description span: a real layout separates them with
+    // gaps and columns; a text flow separates them with a
+    // space. Only element pieces trigger this, so words split
+    // across <b>/<i> stay whole, and a piece opening with
+    // punctuation never gains a space before it.
+    private func appendJoined(_ buffer: inout NSMutableAttributedString,
+                              _ piece: NSAttributedString, isElement: Bool) {
+        if isElement, piece.length > 0,
+           let last = buffer.string.last, let first = piece.string.first,
+           !last.isWhitespace, !first.isWhitespace, !first.isPunctuation {
+            buffer.append(NSAttributedString(string: " "))
+        }
+        buffer.append(piece)
+    }
+
     private func walkBlock(node: TBNode, style: String, baseFont: NSFont,
                            color: NSColor?, align: NSTextAlignment,
                            inheritedBackground: NSColor?) {
@@ -1287,10 +1304,10 @@ final class TBRenderer {
                           color: effColor, align: effAlign,
                           inheritedBackground: effBackground)
             } else {
-                buffer.append(inline(child, font: effFont, color: effColor))
+                appendJoined(&buffer, inline(child, font: effFont, color: effColor),
+                             isElement: child.tag != "#text")
             }
         }
-        let lengthBeforeFinalFlush = out.length
         flush(buffer: &buffer, style: style, font: effFont,
               align: effAlign, background: effBackground, metrics: metrics)
 
@@ -1310,13 +1327,18 @@ final class TBRenderer {
                 attributes: [.font: effFont, .link: absolute,
                              .foregroundColor: NSColor.linkColor,
                              .underlineStyle: NSUnderlineStyle.single.rawValue])
-            if out.length > lengthBeforeFinalFlush {
-                // The final flush ended this block with a "\n\n"
-                // separator; the marker belongs before it.
-                out.insert(marker, at: out.length - 2)
-            } else {
-                out.append(marker)
+            // The marker closes this block's own text. The output
+            // may end with separator newlines — this block's own,
+            // or a trailing child block's — so step back over
+            // them and place the marker at the last real
+            // character; appended blindly, it would surface at
+            // the head of whatever renders next.
+            var insertAt = out.length
+            let outputSoFar = out.string as NSString
+            while insertAt > linkStart && outputSoFar.character(at: insertAt - 1) == 10 {
+                insertAt -= 1
             }
+            out.insert(marker, at: insertAt)
         }
     }
 
@@ -1382,7 +1404,8 @@ final class TBRenderer {
             }
         } else {
             for child in node.children {
-                result.append(inline(child, font: f, color: effColor))
+                appendJoined(&result, inline(child, font: f, color: effColor),
+                             isElement: child.tag != "#text")
             }
         }
 

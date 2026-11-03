@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.6.1 (Swift)
+//  Turtle Browser — prototype 0.6.2 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.6.1 (Swift) — layout step one, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.6.2 (Swift) — layout step one, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -72,7 +72,7 @@ final class BrowserModel: ObservableObject {
                 self.pageTitle = title
                 self.pageText = body
                 self.pageBackground = pageBG
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.6.1 (Swift) — layout step one, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.6.2 (Swift) — layout step one, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -109,6 +109,12 @@ struct PageTextView: NSViewRepresentable {
         textView.isEditable = false
         textView.isSelectable = true
         textView.delegate = context.coordinator
+        // The engine paints link appearance itself — CSS colors,
+        // its own [n] markers. The text view's built-in styling
+        // for anything carrying a link (blue, underlined) would
+        // repaint whole cards, so it is switched off here; the
+        // link attribute itself still makes text clickable.
+        textView.linkTextAttributes = [:]
         textView.textContainerInset = NSSize(width: 16, height: 16)
         textView.isAutomaticLinkDetectionEnabled = false
         scrollView.documentView = textView
