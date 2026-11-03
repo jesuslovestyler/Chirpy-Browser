@@ -14,8 +14,8 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.13
-Forms are real: text and search inputs render as live, editable fields seated in the page where the markup puts them, submit buttons are real buttons, and Enter (or a click) submits a GET form the way a browser does — the form's hidden inputs, the fields' current values, and its first named submit control, encoded onto its action. Google's search box works end to end. Checkboxes and radios draw their state; POST forms, textareas, and selects are not handled yet, and a search box whose filtering is JavaScript (like the hub's own) is typable but cannot filter until JavaScript arrives.
+## Status — Engine 0.13.3
+Forms are real: text and search inputs render as live, editable fields seated in the page where the markup puts them, submit buttons are real buttons, and Enter (or a click) submits GET and POST forms the way a browser does — hidden inputs, the fields' current values, and the first named submit control. Pages that are only a <meta refresh> send-on are followed (up to three hops), so a redirect stub lands on its real destination. DuckDuckGo's HTML search works end to end; Google's form submits correctly but Google gates its results behind JavaScript for engines it does not know. Checkboxes and radios draw their state; textareas and selects are not handled yet.
 What works today:
 
 - Fetching real pages over HTTPS and rendering them as readable,

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.13.2 (Swift)
+//  Turtle Browser — prototype 0.13.3 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.13.2 (Swift) — forms, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.13.3 (Swift) — forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -48,14 +48,11 @@ final class BrowserModel: ObservableObject {
     // hidden inputs, the fields' current values, and the
     // first named submit control — and navigate there.
     func submitForm(_ form: TBFormSpec, values: [Int: String]) {
-        guard form.method == "get" else {
-            statusLine = "That form sends with \(form.method.uppercased()) — Turtle submits GET forms for now"
+        guard form.method == "get" || form.method == "post" else {
+            statusLine = "That form sends with \(form.method.uppercased()) — Turtle submits GET and POST forms for now"
             return
         }
         var items: [URLQueryItem] = []
-        if let existing = URLComponents(string: form.action)?.queryItems {
-            items.append(contentsOf: existing)
-        }
         for hidden in form.hidden {
             items.append(URLQueryItem(name: hidden.name, value: hidden.value))
         }
@@ -66,8 +63,18 @@ final class BrowserModel: ObservableObject {
         if let name = form.submitName {
             items.append(URLQueryItem(name: name, value: form.submitValue ?? ""))
         }
+        if form.method == "post" {
+            // The values travel in the body; the action
+            // keeps only its own query, as a browser sends it.
+            var encoder = URLComponents()
+            encoder.queryItems = items
+            load(form.action, postBody: encoder.percentEncodedQuery ?? "")
+            return
+        }
+        var all = URLComponents(string: form.action)?.queryItems ?? []
+        all.append(contentsOf: items)
         guard var components = URLComponents(string: form.action) else { return }
-        components.queryItems = items.isEmpty ? nil : items
+        components.queryItems = all.isEmpty ? nil : all
         if let url = components.url { load(url.absoluteString) }
     }
 
@@ -91,7 +98,7 @@ final class BrowserModel: ObservableObject {
         load(target, push: false)
     }
 
-    func load(_ raw: String, push: Bool = true) {
+    func load(_ raw: String, push: Bool = true, postBody: String? = nil) {
         let target = normalize(raw)
         if push && !currentURL.isEmpty {
             backStack.append(currentURL)
@@ -100,18 +107,24 @@ final class BrowserModel: ObservableObject {
         statusLine = "Loading \(target) …"
         Task {
             do {
-                let (finalURL, html) = try await tbFetch(urlString: target)
-                let (title, body, pageBG, columnW, forms, fields) =
+                let fetched: (finalURL: String, html: String)
+                if let postBody = postBody {
+                    fetched = try await tbFetchPOST(urlString: target, body: postBody)
+                } else {
+                    fetched = try await tbFetch(urlString: target)
+                }
+                let (finalURL, html) = fetched
+                let (title, body, pageBG, columnW, forms, fields, landedURL) =
                     await tbRenderPage(html: html, base: finalURL)
-                self.currentURL = finalURL
-                self.addressText = finalURL
+                self.currentURL = landedURL
+                self.addressText = landedURL
                 self.pageTitle = title
                 self.pageText = body
                 self.pageBackground = pageBG
                 self.columnTextWidth = columnW
                 self.pageForms = forms
                 self.pageFields = fields
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.2 (Swift) — forms, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.3 (Swift) — forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -321,12 +334,17 @@ struct PageTextView: NSViewRepresentable {
             let origin = textView.textContainerOrigin
             for anchor in formAnchors {
                 let glyph = layoutManager.glyphIndexForCharacter(at: anchor.charIndex)
-                let line = layoutManager.boundingRect(
-                    forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+                // The glyph's own location within its line
+                // fragment is the ground truth for x —
+                // a whole-range bounding rect seated every
+                // control at the line's start (0.13.1).
+                let fragment = layoutManager.lineFragmentRect(
+                    forGlyphAt: glyph, effectiveRange: nil)
+                let spot = layoutManager.location(forGlyphAt: glyph)
                 let size = anchor.attachment.bounds.size
                 anchor.view.frame = NSRect(
-                    x: origin.x + line.minX,
-                    y: origin.y + line.minY + (line.height - size.height) / 2,
+                    x: origin.x + fragment.minX + spot.x,
+                    y: origin.y + fragment.minY + (fragment.height - size.height) / 2,
                     width: size.width, height: size.height)
             }
         }

@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.13 (Swift)
+//  Turtle Browser — engine 0.13.3 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -174,9 +174,30 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+    let (data, response) = try await URLSession.shared.data(for: request)
+    let final = response.url?.absoluteString ?? urlString
+    let html = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+    return (final, html)
+}
+
+// Fetch a page by form POST: the fields travel in the
+// body, form-encoded, as a browser sends them.
+func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: String, html: String) {
+    guard let url = URL(string: urlString) else {
+        throw NSError(domain: "TurtleBrowser", code: 1,
+                      userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
+    }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("TurtleBrowser/0.13.3 (Swift; our own engine)",
+                     forHTTPHeaderField: "User-Agent")
+    request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+    request.setValue("application/x-www-form-urlencoded",
+                     forHTTPHeaderField: "Content-Type")
+    request.httpBody = body.data(using: .utf8)
     let (data, response) = try await URLSession.shared.data(for: request)
     let final = response.url?.absoluteString ?? urlString
     let html = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
@@ -188,7 +209,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -311,7 +332,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.13 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.13.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -2054,13 +2075,59 @@ final class TBRenderer {
     }
 }
 
+// A <meta http-equiv="refresh"> sends the reader onward
+// after a pause — many sites (Google's search stub among
+// them) are nothing but that send-on. Return the resolved
+// target, or nil when the page stays put.
+func tbMetaRefreshTarget(root: TBNode, base: String) -> String? {
+    if root.tag == "meta",
+       (root.attrs["http-equiv"] ?? "").lowercased() == "refresh",
+       let content = root.attrs["content"] {
+        for part in content.split(separator: ";") {
+            let piece = part.trimmingCharacters(in: .whitespaces)
+            if piece.lowercased().hasPrefix("url=") {
+                var target = String(piece.dropFirst(4))
+                    .trimmingCharacters(in: .whitespaces)
+                if (target.hasPrefix("'") && target.hasSuffix("'"))
+                    || (target.hasPrefix("\"") && target.hasSuffix("\"")) {
+                    target = String(target.dropFirst().dropLast())
+                }
+                if !target.isEmpty {
+                    return URL(string: target, relativeTo: URL(string: base))?.absoluteString
+                }
+            }
+        }
+    }
+    for child in root.children {
+        if let found = tbMetaRefreshTarget(root: child, base: base) {
+            return found
+        }
+    }
+    return nil
+}
+
 func tbRenderPage(html: String, base: String) async
     -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
-        columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField]) {
+        columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField],
+        landedURL: String) {
+    return await tbRenderFollowingRefresh(html: html, base: base, depth: 0)
+}
+
+private func tbRenderFollowingRefresh(html: String, base: String, depth: Int) async
+    -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
+        columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField],
+        landedURL: String) {
     let title = tbExtractTitle(html: html)
     let tree = tbParse(html: html)
+    if depth < 3, let target = tbMetaRefreshTarget(root: tree, base: base),
+       target != base,
+       let (newBase, newHTML) = try? await tbFetch(urlString: target) {
+        return await tbRenderFollowingRefresh(html: newHTML, base: newBase,
+                                              depth: depth + 1)
+    }
     let renderer = TBRenderer(base: base)
     let body = await renderer.render(root: tree)
     return (title.isEmpty ? base : title, body, renderer.pageBackground,
-            renderer.columnTextWidth(root: tree), renderer.forms, renderer.fields)
+            renderer.columnTextWidth(root: tree), renderer.forms, renderer.fields,
+            base)
 }
