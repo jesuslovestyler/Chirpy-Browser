@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.10 (Swift)
+//  Turtle Browser — prototype 0.11 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.10 (Swift) — background photos, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.11 (Swift) — background photos, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -74,7 +74,7 @@ final class BrowserModel: ObservableObject {
                 self.pageText = body
                 self.pageBackground = pageBG
                 self.columnTextWidth = columnW
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.10 (Swift) — background photos, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.11 (Swift) — background photos, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -252,8 +252,13 @@ final class TBBandLayoutManager: NSLayoutManager {
     // the page's own background color is never bridged
     // (it is already the canvas).
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        paintContinuousSurfaces(forGlyphRange: glyphsToShow, at: origin)
+        // AppKit's own background pass FIRST: it paints the
+        // runs' background colors — including, in 0.10, right
+        // over the photos and gradients this class had just
+        // painted. Our surfaces and layers paint after it,
+        // so they stay visible; the glyphs draw later still.
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        paintContinuousSurfaces(forGlyphRange: glyphsToShow, at: origin)
     }
 
     private func paintContinuousSurfaces(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -269,13 +274,11 @@ final class TBBandLayoutManager: NSLayoutManager {
         // (photos and gradients, 0.10).
         var bands: [(color: NSColor?, box: TBBackgroundBox?,
                      boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat)] = []
-        var previousWasBand = false
         var index = charRange.location
         let end = min(NSMaxRange(charRange), string.length)
         while index < end {
             let paragraph = string.paragraphRange(for: NSRange(location: index, length: 0))
             if paragraph.length == 0 { break }
-            var merged = false
             let lastIndex = paragraph.location + paragraph.length - 1
             let box = storage.attribute(TBBackgroundKey, at: lastIndex,
                                         effectiveRange: nil) as? TBBackgroundBox
@@ -291,25 +294,33 @@ final class TBBandLayoutManager: NSLayoutManager {
                 }
                 if let top = top {
                     let boxID = box.map { ObjectIdentifier($0) }
-                    if previousWasBand, let last = bands.last,
-                       last.boxID == boxID,
-                       (last.color == nil && fill == nil)
-                        || (last.color != nil && fill != nil && last.color!.isEqual(fill!)) {
-                        bands[bands.count - 1].bottom = bottom
-                    } else {
-                        bands.append((color: fill, box: box, boxID: boxID,
-                                      top: top, bottom: bottom))
-                    }
-                    merged = true
+                    bands.append((color: fill, box: box, boxID: boxID,
+                                  top: top, bottom: bottom))
                 }
             }
-            previousWasBand = merged
             index = NSMaxRange(paragraph)
         }
 
         if bands.isEmpty { return }
-        NSGraphicsContext.saveGraphicsState()
+        // Coalesce neighbouring bands that share a surface
+        // (same color, same layer box) across the ordinary
+        // spacing between paragraphs, so one element's
+        // background reads as one continuous surface.
+        var surfaces: [(color: NSColor?, box: TBBackgroundBox?,
+                        boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat)] = []
         for band in bands {
+            if let last = surfaces.last, last.boxID == band.boxID,
+               (last.color == nil && band.color == nil)
+                || (last.color != nil && band.color != nil
+                    && last.color!.isEqual(band.color!)),
+               band.top - last.bottom <= 64 {
+                surfaces[surfaces.count - 1].bottom = band.bottom
+            } else {
+                surfaces.append(band)
+            }
+        }
+        NSGraphicsContext.saveGraphicsState()
+        for band in surfaces {
             let rect = NSRect(x: origin.x, y: origin.y + band.top,
                               width: container.size.width,
                               height: band.bottom - band.top)

@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.10 (Swift)
+//  Turtle Browser — engine 0.11 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -58,7 +58,10 @@
 //      the nominal page width); a failed image falls back
 //      to its labelled placeholder. srcset and inline
 //      <svg> are not read yet.
-//    * Background photos (0.10): background-image layers
+//    * Background photos (0.10; paint order fixed in 0.11 —
+//      the view now paints layers AFTER AppKit's own
+//      background pass, which had been repainting the
+//      surface color over them): background-image layers
 //      paint on a block's surface over its color — url()
 //      photos, fetched or decoded from data: URIs, drawn
 //      per background-size (cover/contain/lengths),
@@ -171,7 +174,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.10 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.11 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -185,7 +188,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.10 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.11 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -308,7 +311,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.10 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.11 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
