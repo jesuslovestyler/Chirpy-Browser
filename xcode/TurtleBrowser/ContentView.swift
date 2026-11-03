@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.13 (Swift)
+//  Turtle Browser — prototype 0.13.1 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.13 (Swift) — forms, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.13.1 (Swift) — forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -111,7 +111,7 @@ final class BrowserModel: ObservableObject {
                 self.columnTextWidth = columnW
                 self.pageForms = forms
                 self.pageFields = fields
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13 (Swift) — forms, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.13.1 (Swift) — forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -247,7 +247,7 @@ struct PageTextView: NSViewRepresentable {
         // an NSTextField for every typable input, an NSButton
         // for every submit. The attachments reserved the
         // space in the text; these are the live controls.
-        func rebuildFormViews() {
+        @MainActor func rebuildFormViews() {
             guard let textView = textView,
                   let storage = textView.textStorage,
                   let layoutManager = textView.layoutManager,
@@ -318,7 +318,7 @@ struct PageTextView: NSViewRepresentable {
             if layoutFinishedFlag { repositionFormViews() }
         }
 
-        @objc func fieldSubmitted(_ sender: NSTextField) {
+        @MainActor @objc func fieldSubmitted(_ sender: NSTextField) {
             guard let spec = model.pageFields.first(where: { $0.id == sender.tag })
             else { return }
             if spec.formID >= 0,
@@ -329,13 +329,13 @@ struct PageTextView: NSViewRepresentable {
             }
         }
 
-        @objc func submitClicked(_ sender: NSButton) {
+        @MainActor @objc func submitClicked(_ sender: NSButton) {
             if let form = model.pageForms.first(where: { $0.id == sender.tag }) {
                 submit(form)
             }
         }
 
-        private func submit(_ form: TBFormSpec) {
+        @MainActor private func submit(_ form: TBFormSpec) {
             var values: [Int: String] = [:]
             for (id, field) in fieldViews {
                 if model.pageFields.first(where: { $0.id == id })?.formID == form.id {
