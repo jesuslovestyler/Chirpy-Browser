@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.6 (Swift)
+//  Turtle Browser — engine 0.6.1 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -149,7 +149,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.6 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.6.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -163,7 +163,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.6 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.6.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1256,6 +1256,7 @@ final class TBRenderer {
         // as values — they show through, which amounts to this.)
         let effBackground = tbBackgroundColor(own) ?? inheritedBackground
         let metrics = tbBlockMetrics(own, fontSize: effFont.pointSize)
+        let linkStart = out.length   // for block-level anchors, below
 
         var buffer = NSMutableAttributedString()
         for child in node.children {
@@ -1289,8 +1290,34 @@ final class TBRenderer {
                 buffer.append(inline(child, font: effFont, color: effColor))
             }
         }
+        let lengthBeforeFinalFlush = out.length
         flush(buffer: &buffer, style: style, font: effFont,
               align: effAlign, background: effBackground, metrics: metrics)
+
+        // A block-level anchor (a card styled display:grid, say)
+        // never passes through inline(), where links are made —
+        // so make the whole block clickable here, keeping the
+        // colors its own CSS gave it, and give it its [n] marker.
+        if node.tag == "a", let href = node.attrs["href"], !href.isEmpty,
+           out.length > linkStart {
+            let absolute = URL(string: href, relativeTo: URL(string: base))?.absoluteString ?? href
+            links.append(absolute)
+            out.addAttribute(.link, value: absolute,
+                             range: NSRange(location: linkStart,
+                                            length: out.length - linkStart))
+            let marker = NSAttributedString(
+                string: " [\(links.count)]",
+                attributes: [.font: effFont, .link: absolute,
+                             .foregroundColor: NSColor.linkColor,
+                             .underlineStyle: NSUnderlineStyle.single.rawValue])
+            if out.length > lengthBeforeFinalFlush {
+                // The final flush ended this block with a "\n\n"
+                // separator; the marker belongs before it.
+                out.insert(marker, at: out.length - 2)
+            } else {
+                out.append(marker)
+            }
+        }
     }
 
     private func inline(_ node: TBNode, font: NSFont, color: NSColor?) -> NSAttributedString {

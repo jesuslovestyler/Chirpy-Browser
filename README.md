@@ -14,7 +14,7 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.6
+## Status — Engine 0.6.1
 
 What works today:
 
@@ -41,8 +41,10 @@ What works today:
   link cards stand apart instead of running together), margins
   and padding become paragraph spacing and indents, and
   line-height is honored, with `clamp()`/`min()`/`max()`
-  lengths understood. The properties: color, background color,
-  bold, italic, font size, text alignment, underlines,
+  lengths understood. (0.6.1: block-level links — the cards —
+  stay clickable, with their `[n]` markers, keeping the colors
+  their own CSS gives them.) The properties: color, background
+  color, bold, italic, font size, text alignment, underlines,
   spacing, and `display`.
 
 Honest limits, for now:
