@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.14.0 (Swift)
+//  Turtle Browser — prototype 0.15.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.14.0 (Swift) — forms, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.15.0 (Swift) — forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -124,7 +124,7 @@ final class BrowserModel: ObservableObject {
                 self.columnTextWidth = columnW
                 self.pageForms = forms
                 self.pageFields = fields
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.14.0 (Swift) — forms, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.15.0 (Swift) — forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -518,9 +518,20 @@ final class TBBandLayoutManager: NSLayoutManager {
                     bottom = rect.maxY
                 }
                 if let top = top {
+                    // Surface edges (0.15): the surface's
+                    // first paragraph carries the inside
+                    // space above it, its last the space
+                    // below — extend the band through both,
+                    // so a padded container's color and
+                    // photo reach their true edges.
+                    let extTop = (storage.attribute(TBExtTopKey, at: paragraph.location,
+                                                    effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0
+                    let extBottom = (storage.attribute(TBExtBottomKey, at: paragraph.location,
+                                                       effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0
                     let boxID = box.map { ObjectIdentifier($0) }
                     bands.append((color: fill, box: box, boxID: boxID,
-                                  top: top, bottom: bottom))
+                                  top: top - CGFloat(extTop),
+                                  bottom: bottom + CGFloat(extBottom)))
                 }
             }
             index = NSMaxRange(paragraph)

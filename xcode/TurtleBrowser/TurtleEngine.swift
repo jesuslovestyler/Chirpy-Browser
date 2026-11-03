@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.14.0 (Swift)
+//  Turtle Browser — engine 0.15.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -174,7 +174,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.14.0 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.15.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -192,7 +192,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("TurtleBrowser/0.14.0 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.15.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -209,7 +209,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.14.0 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.15.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -268,6 +268,16 @@ final class TBBackgroundBox {
 // paragraph's closing newline, where the layout manager
 // reads a surface's layers.
 let TBBackgroundKey = NSAttributedString.Key("TBBackgroundLayers")
+
+// Surface edges (0.15): how far a surface's paint extends
+// above its first paragraph's first line and below its
+// last paragraph's last line — the inside space (a padded
+// container's own padding, the spacing of what it holds)
+// that belongs to the surface but to no line of text. The
+// renderer stamps these on the edge paragraphs; the
+// layout manager reads them when it paints the surface.
+let TBExtTopKey = NSAttributedString.Key("TBExtTop")
+let TBExtBottomKey = NSAttributedString.Key("TBExtBottom")
 
 // Parse an element's background-image into a box of
 // layers. The longhand is the primary path; the
@@ -332,7 +342,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.14.0 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.15.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1443,6 +1453,95 @@ final class TBRenderer {
     private var openForms: [Int] = []
     private var nextFieldID = 0
 
+    // Surface edges (0.15): spaceCarry moves a block's
+    // before-spacing down to the first paragraph actually
+    // flushed beneath it — a container holding only blocks
+    // flushes nothing itself, and until now its spacing
+    // (a padded wrapper's padding included) vanished from
+    // the flow, so surfaces began at their first line of
+    // text instead of at their true top edge. The edge
+    // stack tracks, per open background-declaring element,
+    // the inside space at its surface's top and bottom.
+    private var spaceCarry: CGFloat = 0
+    private struct TBSurfaceEdge {
+        var color: NSColor?
+        var box: TBBackgroundBox?
+        var padTop: CGFloat = 0
+        var padBottom: CGFloat = 0
+        var topCarry: CGFloat = 0
+        var topStamped = false
+        var bottomCarry: CGFloat = 0
+        var lastParaRange: NSRange? = nil
+        var lastParaAfter: CGFloat = 0
+    }
+    private var surfaceEdges: [TBSurfaceEdge] = []
+
+    private func edgeIndex(color: NSColor?, box: TBBackgroundBox?) -> Int? {
+        surfaceEdges.lastIndex { edge in
+            guard edge.box === box else { return false }
+            if edge.color == nil && color == nil { return true }
+            if let a = edge.color, let b = color { return a.isEqual(b) }
+            return false
+        }
+    }
+
+    // A paragraph has just been appended under a surface:
+    // the surface's first paragraph is stamped with the
+    // inside space above it (the surface's top edge), and
+    // every paragraph becomes the surface's latest — the
+    // one its bottom edge will be stamped on when the
+    // declaring element closes. A paragraph belonging to
+    // the declaring element itself contributes no after
+    // (its margin lies outside its own surface; its
+    // padding is added separately when the edge closes).
+    private func noteSurfaceParagraph(range: NSRange, color: NSColor?,
+                                      box: TBBackgroundBox?,
+                                      after: CGFloat, ownSurface: Bool) {
+        guard let idx = edgeIndex(color: color, box: box) else { return }
+        if !surfaceEdges[idx].topStamped {
+            surfaceEdges[idx].topStamped = true
+            let ext = surfaceEdges[idx].topCarry
+            if ext > 0 {
+                out.addAttribute(TBExtTopKey,
+                                 value: NSNumber(value: Double(ext)),
+                                 range: range)
+            }
+        }
+        surfaceEdges[idx].lastParaRange = range
+        surfaceEdges[idx].lastParaAfter = ownSurface ? 0 : after
+        surfaceEdges[idx].bottomCarry = 0
+    }
+
+    // A block is closing. Its own declared surface, if
+    // any, closes first: the bottom edge — the last
+    // paragraph's after-space, the pure containers'
+    // afters accumulated inside since, and the element's
+    // own bottom padding — is stamped on that paragraph.
+    // Then, if the block flushed nothing of its own, its
+    // after-spacing joins the carry (to be consumed above
+    // the next paragraph, as its before was) and counts
+    // toward the bottom edges of the surfaces around it.
+    private func closeSurfaceEdges(declaresSurface: Bool, pure: Bool,
+                                   after: CGFloat) {
+        if declaresSurface, !surfaceEdges.isEmpty {
+            let edge = surfaceEdges.removeLast()
+            if let range = edge.lastParaRange {
+                let ext = edge.lastParaAfter + edge.bottomCarry + edge.padBottom
+                if ext > 0 {
+                    out.addAttribute(TBExtBottomKey,
+                                     value: NSNumber(value: Double(ext)),
+                                     range: range)
+                }
+            }
+        }
+        if pure {
+            spaceCarry += after
+            for i in surfaceEdges.indices {
+                surfaceEdges[i].bottomCarry += after
+            }
+        }
+    }
+
     private var currentFormID: Int { openForms.last ?? -1 }
 
     private func enterForm(_ node: TBNode) {
@@ -1775,10 +1874,12 @@ final class TBRenderer {
         return false
     }
 
+    @discardableResult
     private func flush(buffer: inout NSMutableAttributedString, style: String,
                        font: NSFont, align: NSTextAlignment, background: NSColor?,
                        backgroundBox: TBBackgroundBox?,
-                       metrics: TBBlockMetrics) {
+                       metrics: TBBlockMetrics,
+                       ownSurface: Bool = false) -> Bool {
         func isWS(_ s: String) -> Bool {
             s == " " || s == "\n" || s == "\t" || s == "\r"
         }
@@ -1799,10 +1900,10 @@ final class TBRenderer {
                 buffer.insert(NSAttributedString(string: "\u{2022} ", attributes: [.font: font]), at: 0)
             }
             let blockRange = NSRange(location: 0, length: buffer.length)
-            if align != .left || metrics.hasAny {
+            if align != .left || metrics.hasAny || spaceCarry > 0 {
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.alignment = align
-                if metrics.before > 0 { paragraph.paragraphSpacingBefore = metrics.before }
+                if spaceCarry > 0 { paragraph.paragraphSpacingBefore = spaceCarry }
                 if metrics.after > 0 { paragraph.paragraphSpacing = metrics.after }
                 if metrics.lineMultiple > 0 { paragraph.lineHeightMultiple = metrics.lineMultiple }
                 if metrics.extraLineSpacing > 0 { paragraph.lineSpacing = metrics.extraLineSpacing }
@@ -1825,6 +1926,7 @@ final class TBRenderer {
                     buffer.addAttribute(.backgroundColor, value: background, range: range)
                 }
             }
+            let paraStart = out.length
             out.append(buffer)
             // The gap between blocks belongs to the same box:
             // paint it too, so a background reads as one band.
@@ -1839,8 +1941,16 @@ final class TBRenderer {
                 separatorAttrs[TBBackgroundKey] = backgroundBox
             }
             out.append(NSAttributedString(string: "\n\n", attributes: separatorAttrs))
+            noteSurfaceParagraph(
+                range: NSRange(location: paraStart, length: buffer.length),
+                color: background, box: backgroundBox,
+                after: metrics.after, ownSurface: ownSurface)
+            spaceCarry = 0
+            buffer = NSMutableAttributedString()
+            return true
         }
         buffer = NSMutableAttributedString()
+        return false
     }
 
     // Joining two sibling elements whose source carries no
@@ -1878,6 +1988,34 @@ final class TBRenderer {
         // color does: the nearest declaring ancestor's box.
         let effBox = backgroundBox(decls: own) ?? inheritedBackgroundBox
         let metrics = tbBlockMetrics(own, fontSize: effFont.pointSize)
+        // Surface edges (0.15): this block's before-spacing
+        // joins the carry — its own first flushed paragraph
+        // consumes it, and a block that flushes nothing (a
+        // pure container) passes it down to the first text
+        // inside it, so a padded wrapper's spacing enters
+        // the flow instead of vanishing. Open surfaces also
+        // count the spacing as inside themselves, above
+        // their first text.
+        spaceCarry += metrics.before
+        for i in surfaceEdges.indices where !surfaceEdges[i].topStamped {
+            surfaceEdges[i].topCarry += metrics.before
+        }
+        // An element declaring its own background opens a
+        // surface edge context: its padding belongs to its
+        // surface's edges; its margin does not.
+        let declaresSurface = tbBackgroundColor(own) != nil
+            || backgroundBox(decls: own) != nil
+        if declaresSurface {
+            let padding = tbBoxValues(own, "padding")
+            func plen(_ s: String) -> CGFloat {
+                tbLengthValue(s, fontSize: effFont.pointSize) ?? 0
+            }
+            surfaceEdges.append(TBSurfaceEdge(
+                color: effBackground, box: effBox,
+                padTop: plen(padding[0]), padBottom: plen(padding[2]),
+                topCarry: plen(padding[0])))
+        }
+        var flushedOwn = false
         let linkStart = out.length   // for block-level anchors, below
         let isForm = node.tag == "form"
         if isForm { enterForm(node) }
@@ -1899,8 +2037,8 @@ final class TBRenderer {
             // through inline(), where its attachment is seated,
             // whatever display its CSS claims.
             if child.tag != "img" && (forceBlock || (TBBlockTags.contains(child.tag) && !forceInline)) {
-                flush(buffer: &buffer, style: style, font: effFont,
-                      align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics)
+                flushedOwn = flush(buffer: &buffer, style: style, font: effFont,
+                                   align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics, ownSurface: declaresSurface) || flushedOwn
                 let childStyle = tbStyle(for: child.tag)
                 let childBase = TBHeadingTags.contains(child.tag)
                     ? tbFont(for: child.tag) : effFont
@@ -1908,8 +2046,8 @@ final class TBRenderer {
                           color: effColor, align: effAlign,
                           inheritedBackground: effBackground, inheritedBackgroundBox: effBox)
             } else if child.tag == "html" || child.tag == "body" || child.tag == "document" || hasBlock(child) {
-                flush(buffer: &buffer, style: style, font: effFont,
-                      align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics)
+                flushedOwn = flush(buffer: &buffer, style: style, font: effFont,
+                                   align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics, ownSurface: declaresSurface) || flushedOwn
                 walkBlock(node: child, style: style, baseFont: effFont,
                           color: effColor, align: effAlign,
                           inheritedBackground: effBackground, inheritedBackgroundBox: effBox)
@@ -1918,9 +2056,11 @@ final class TBRenderer {
                              isElement: child.tag != "#text")
             }
         }
-        flush(buffer: &buffer, style: style, font: effFont,
-              align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics)
+        flushedOwn = flush(buffer: &buffer, style: style, font: effFont,
+                           align: effAlign, background: effBackground, backgroundBox: effBox, metrics: metrics, ownSurface: declaresSurface) || flushedOwn
         if isForm { exitForm() }
+        closeSurfaceEdges(declaresSurface: declaresSurface,
+                          pure: !flushedOwn, after: metrics.after)
 
         // A block-level anchor (a card styled display:grid, say)
         // never passes through inline(), where links are made —
