@@ -14,8 +14,8 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.11
-
+## Status — Engine 0.12
+Background photos paint — cover/contain, positioning, tiling, and photos embedded in stylesheets as data URIs. Two bugs found by Tyler's screenshots are fixed in this step: rgba() colors now honor their alpha (the translucent gradient veils over the hub's banner were painting as opaque near-black), and background photos draw right side up via an explicit Quartz flip instead of inverted.
 What works today:
 
 - Fetching real pages over HTTPS and rendering them as readable,

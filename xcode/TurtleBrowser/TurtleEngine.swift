@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.11 (Swift)
+//  Turtle Browser — engine 0.12 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -174,7 +174,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.11 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.12 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -188,7 +188,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.11 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.12 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -311,7 +311,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.11 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.12 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -998,12 +998,32 @@ func tbParseColor(_ raw: String?) -> NSColor? {
     if v.hasPrefix("#") { return tbHexColor(v) }
     if v.hasPrefix("rgb") {
         let inner = v.drop(while: { $0 != "(" }).dropFirst().dropLast()
-        let parts = inner.split(separator: ",")
+        var parts = inner.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
+        if parts.count < 3 {
+            // The space-separated form: rgb(16 24 14 / 0.42)
+            parts = inner.replacingOccurrences(of: "/", with: " ")
+                .split(separator: " ")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
         if parts.count >= 3,
            let r = Double(parts[0]), let g = Double(parts[1]), let b = Double(parts[2]) {
+            // The fourth component is the alpha, and it is
+            // load-bearing: rgba(16, 24, 14, 0.42) is a
+            // translucent veil, not the opaque near-black
+            // this parser returned before 0.12.
+            var alpha: CGFloat = 1
+            if parts.count >= 4 {
+                if parts[3].hasSuffix("%"), let pct = Double(parts[3].dropLast()) {
+                    alpha = CGFloat(pct / 100)
+                } else if let a = Double(parts[3]) {
+                    alpha = CGFloat(a)
+                }
+            }
             return NSColor(srgbRed: CGFloat(r / 255), green: CGFloat(g / 255),
-                           blue: CGFloat(b / 255), alpha: 1)
+                           blue: CGFloat(b / 255),
+                           alpha: min(1, max(0, alpha)))
         }
     }
     return nil

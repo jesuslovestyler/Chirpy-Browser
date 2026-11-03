@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.11 (Swift)
+//  Turtle Browser — prototype 0.12 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.11 (Swift) — background photos, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.12 (Swift) — background photos, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -74,7 +74,7 @@ final class BrowserModel: ObservableObject {
                 self.pageText = body
                 self.pageBackground = pageBG
                 self.columnTextWidth = columnW
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.11 (Swift) — background photos, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.12 (Swift) — background photos, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -450,6 +450,24 @@ final class TBBandLayoutManager: NSLayoutManager {
         context.restoreGState()
     }
 
+    // Draw a photo right side up. In the layout manager's
+    // drawing space, NSImage's own drawing lands upside
+    // down (the 0.11 banner wore its sunset inverted), so
+    // the picture goes through Quartz with an explicit
+    // vertical flip about the destination rect — specified
+    // behavior, no heuristics.
+    private func tbDrawPhoto(_ image: NSImage, in dest: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext,
+              let cg = image.cgImage(forProposedRect: nil,
+                                     context: NSGraphicsContext.current,
+                                     hints: nil) else { return }
+        context.saveGState()
+        context.translateBy(x: 0, yBy: dest.minY + dest.maxY)
+        context.scaleBy(x: 1, yBy: -1)
+        context.draw(cg, in: dest)
+        context.restoreGState()
+    }
+
     // A background photo, sized (cover / contain / auto /
     // lengths), positioned (keywords or % — the % point of
     // the photo aligns with the % point of the surface),
@@ -491,10 +509,8 @@ final class TBBandLayoutManager: NSLayoutManager {
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: rect).addClip()
         if repeatSpec.lowercased().contains("no-repeat") {
-            image.draw(in: NSRect(x: originX, y: originY,
-                                  width: drawn.width, height: drawn.height),
-                       from: NSRect(origin: .zero, size: natural),
-                       operation: .sourceOver, fraction: 1)
+            tbDrawPhoto(image, in: NSRect(x: originX, y: originY,
+                                          width: drawn.width, height: drawn.height))
         } else {
             var startX = originX
             while startX > rect.minX { startX -= drawn.width }
@@ -506,10 +522,8 @@ final class TBBandLayoutManager: NSLayoutManager {
             while x < rect.maxX {
                 var y = startY
                 while y < rect.maxY {
-                    image.draw(in: NSRect(x: x, y: y,
-                                          width: drawn.width, height: drawn.height),
-                               from: NSRect(origin: .zero, size: natural),
-                               operation: .sourceOver, fraction: 1)
+                    tbDrawPhoto(image, in: NSRect(x: x, y: y,
+                                                  width: drawn.width, height: drawn.height))
                     if !repeatY { break }
                     y += drawn.height
                 }
