@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.7 (Swift)
+//  Turtle Browser — prototype 0.8 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.7 (Swift) — layout step two, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.8 (Swift) — layout step three, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -74,7 +74,7 @@ final class BrowserModel: ObservableObject {
                 self.pageText = body
                 self.pageBackground = pageBG
                 self.columnTextWidth = columnW
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.7 (Swift) — layout step two, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.8 (Swift) — layout step three, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -237,6 +237,83 @@ final class TBBandLayoutManager: NSLayoutManager {
         }
         super.fillBackgroundRectArray(rectArray, count: rectCount,
                                       forCharacterRange: charRange, color: color)
+    }
+
+    // Layout step three: continuous surfaces. A colored
+    // container's paragraphs paint as separate bands (above),
+    // but the spacing between them belongs to no line of
+    // text, so it shows as dark seams — while a real box
+    // paints its whole surface, gaps and all. Here, before
+    // the ordinary background pass, consecutive paragraphs
+    // that share one surface color are bridged: one fill
+    // runs from the first paragraph's first line to the last
+    // one's last line, seams included. A paragraph with no
+    // surface color, or a different one, breaks the run;
+    // the page's own background color is never bridged
+    // (it is already the canvas).
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        paintContinuousSurfaces(forGlyphRange: glyphsToShow, at: origin)
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    }
+
+    private func paintContinuousSurfaces(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let storage = textStorage, storage.length > 0,
+              let container = textContainers.first,
+              let textView = container.textView else { return }
+        let string = storage.string as NSString
+        let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        let canvas = textView.backgroundColor
+
+        var bands: [(color: NSColor, top: CGFloat, bottom: CGFloat)] = []
+        var previousWasBand = false
+        var index = charRange.location
+        let end = min(NSMaxRange(charRange), string.length)
+        while index < end {
+            let paragraph = string.paragraphRange(for: NSRange(location: index, length: 0))
+            if paragraph.length == 0 { break }
+            var merged = false
+            if let color = surfaceColor(storage: storage, paragraph: paragraph),
+               !color.isEqual(canvas) {
+                var top: CGFloat? = nil
+                var bottom: CGFloat = 0
+                let pGlyphs = glyphRange(forCharacterRange: paragraph, actualCharacterRange: nil)
+                enumerateLineFragments(forGlyphRange: pGlyphs) { rect, _, _, _, _ in
+                    if top == nil { top = rect.minY }
+                    bottom = rect.maxY
+                }
+                if let top = top {
+                    if previousWasBand, let last = bands.last, last.color.isEqual(color) {
+                        bands[bands.count - 1].bottom = bottom
+                    } else {
+                        bands.append((color: color, top: top, bottom: bottom))
+                    }
+                    merged = true
+                }
+            }
+            previousWasBand = merged
+            index = NSMaxRange(paragraph)
+        }
+
+        if bands.isEmpty { return }
+        NSGraphicsContext.saveGraphicsState()
+        for band in bands {
+            band.color.setFill()
+            NSRectFill(NSRect(x: origin.x, y: origin.y + band.top,
+                              width: container.size.width,
+                              height: band.bottom - band.top))
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    // A paragraph's surface color: the background carried by
+    // its last character — for every paragraph but the final
+    // one that is its terminating newline, which the renderer
+    // paints with the block's own effective background.
+    private func surfaceColor(storage: NSTextStorage, paragraph: NSRange) -> NSColor? {
+        let lastIndex = paragraph.location + paragraph.length - 1
+        if lastIndex < 0 { return nil }
+        return storage.attribute(.backgroundColor, at: lastIndex,
+                                 effectiveRange: nil) as? NSColor
     }
 
     private func isBandRun(storage: NSTextStorage, charRange: NSRange, color: NSColor) -> Bool {

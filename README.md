@@ -14,7 +14,7 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.7
+## Status — Engine 0.8
 
 What works today:
 
@@ -53,7 +53,11 @@ What works today:
   is found (a width or max-width cap with auto side margins)
   and the window centers its text in a column of that width,
   and block backgrounds paint as full-width bands across the
-  column instead of hugging their words. The properties:
+  column instead of hugging their words. **Layout step
+  three**: continuous surfaces — the spacing seams between
+  same-colored paragraphs are bridged, so a colored section
+  reads as one painted surface rather than separate stripes.
+  The properties:
   color, background color, bold,
   italic, font size, text alignment, underlines, spacing,
   and `display`.

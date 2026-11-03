@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.7 (Swift)
+//  Turtle Browser — engine 0.8 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -48,6 +48,10 @@
 //      of that width; and block backgrounds are painted by
 //      the view as full-width bands across the column
 //      instead of hugging their words.
+//    * Layout step three (0.8): continuous surfaces — the
+//      view bridges the spacing seams between same-colored
+//      paragraphs, so a colored container reads as one
+//      painted surface instead of separate stripes.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
 //  color-mix(), the font: shorthand, true box positioning
 //  (columns, floats — those want a richer paint surface
@@ -154,7 +158,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.7 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.8 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -168,7 +172,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.7 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.8 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
