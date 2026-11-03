@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.3 (Swift)
+//  Turtle Browser — engine 0.4 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -20,10 +20,19 @@
 //      against a real ancestor chain; plus external stylesheets
 //      fetched from <link rel="stylesheet">, woven into the
 //      cascade in document order alongside <style> blocks.
-//  Not yet: pseudo-classes (:hover) and @-rules such as @media,
-//  the font:/background: shorthands, box layout (margins,
-//  positioning, columns), images (labelled placeholders),
-//  JavaScript (the mountain).
+//    * Step three (0.4): CSS variables. Custom properties
+//      (--ink, --bg, ...) are collected from :root and any other
+//      rule, inherited down the tree like real CSS, and var()
+//      references — with fallbacks — are substituted into every
+//      declaration before it is painted. The one media query
+//      the engine evaluates is prefers-color-scheme: when the
+//      Mac is in dark mode, variables (and any other rules)
+//      inside @media (prefers-color-scheme: dark) join the
+//      cascade, exactly as a real browser would apply them.
+//  Not yet: other pseudo-classes (:hover) and @-rules,
+//  color-mix(), the font:/background: shorthands, box layout
+//  (margins, positioning, columns), images (labelled
+//  placeholders), JavaScript (the mountain).
 //
 
 import Foundation
@@ -125,7 +134,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.3 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.4 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -139,7 +148,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.3 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.4 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -372,8 +381,10 @@ struct TBCompound {
     var tag: String? = nil
     var classes: [String] = []
     var id: String? = nil
+    var isRoot = false   // :root — matches the <html> element
     var specificity: Int {
         (id != nil ? 100 : 0) + classes.count * 10 + (tag != nil ? 1 : 0)
+            + (isRoot ? 10 : 0)   // a pseudo-class counts as a class
     }
 }
 
@@ -408,7 +419,10 @@ func tbParseCompound(_ token: String) -> TBCompound? {
     var compound = TBCompound()
     let chars = Array(token)
     var i = 0
-    if chars[0] == "*" {
+    if token.hasPrefix(":root") {
+        compound.isRoot = true
+        i = 5
+    } else if chars[0] == "*" {
         i = 1   // universal: no element condition
     } else if tbIsNameChar(chars[0]) {
         var name = ""
@@ -439,12 +453,13 @@ func tbParseCompound(_ token: String) -> TBCompound? {
 }
 
 // Parse a full selector: compounds joined by descendant (space)
-// and child (>) combinators. Pseudo-classes and elements (:hover,
-// ::before), attribute selectors ([href]), and the sibling
-// combinators (+, ~) are still outside the grammar: nil.
+// and child (>) combinators. Pseudo-classes and elements other
+// than :root (:hover, ::before), attribute selectors ([href]),
+// and the sibling combinators (+, ~) are outside the grammar: nil.
 func tbParseSelector(_ raw: String) -> TBSelector? {
-    if raw.isEmpty || raw.contains(":") || raw.contains("[") || raw.contains("]")
-        || raw.contains("+") || raw.contains("~") {
+    let withoutRoot = raw.replacingOccurrences(of: ":root", with: "")
+    if raw.isEmpty || withoutRoot.contains(":") || raw.contains("[")
+        || raw.contains("]") || raw.contains("+") || raw.contains("~") {
         return nil
     }
     let spaced = raw.replacingOccurrences(of: ">", with: " > ")
@@ -475,6 +490,7 @@ func tbParseSelector(_ raw: String) -> TBSelector? {
 
 func tbCompoundMatches(_ compound: TBCompound, node: TBNode) -> Bool {
     if node.tag == "#text" || node.tag == "document" { return false }
+    if compound.isRoot && node.tag != "html" { return false }
     if let tag = compound.tag, tag != node.tag { return false }
     if let id = compound.id, node.attrs["id"] != id { return false }
     if !compound.classes.isEmpty {
@@ -541,7 +557,15 @@ func tbParseCSS(_ css: String, orderStart: Int) -> [TBCSSRule] {
     for chunk in cleaned.split(separator: "}") {
         let halves = chunk.split(separator: "{", maxSplits: 1)
         if halves.count != 2 { continue }
-        let selectorText = String(halves[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        var selectorText = String(halves[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        // A statement at-rule (@import, @charset) can share this
+        // chunk with the rule that follows it; the real selector
+        // is what comes after the last ';'. (Tyler's hub puts its
+        // :root variables right after a Google Fonts @import.)
+        if let semi = selectorText.lastIndex(of: ";") {
+            selectorText = String(selectorText[selectorText.index(after: semi)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if selectorText.hasPrefix("@") { continue }
         let declarations = tbParseDeclarations(String(halves[1]))
         if declarations.isEmpty { continue }
@@ -552,6 +576,41 @@ func tbParseCSS(_ css: String, orderStart: Int) -> [TBCSSRule] {
                                    declarations: declarations))
             order += 1
         }
+    }
+    return rules
+}
+
+// Rules inside `@media (prefers-color-scheme: dark)` blocks,
+// lifted out so the renderer can add them to the cascade when
+// the Mac is in dark mode — the one media query this engine
+// evaluates. Other @media blocks (widths, motion) stay unread.
+func tbParseDarkSchemeCSS(_ css: String, orderStart: Int) -> [TBCSSRule] {
+    var cleaned = css
+    while let open = cleaned.range(of: "/*"),
+          let close = cleaned.range(of: "*/", range: open.upperBound..<cleaned.endIndex) {
+        cleaned.removeSubrange(open.lowerBound..<close.upperBound)
+    }
+    var rules: [TBCSSRule] = []
+    var order = orderStart
+    var searchFrom = cleaned.startIndex
+    while let mediaRange = cleaned.range(of: "@media", options: .caseInsensitive,
+                                         range: searchFrom..<cleaned.endIndex),
+          let braceOpen = cleaned.range(of: "{", range: mediaRange.upperBound..<cleaned.endIndex) {
+        let prelude = cleaned[mediaRange.upperBound..<braceOpen.lowerBound].lowercased()
+        var depth = 1
+        var j = braceOpen.upperBound
+        while j < cleaned.endIndex && depth > 0 {
+            if cleaned[j] == "{" { depth += 1 }
+            else if cleaned[j] == "}" { depth -= 1 }
+            j = cleaned.index(after: j)
+        }
+        if prelude.contains("prefers-color-scheme") && prelude.contains("dark") {
+            let inner = String(cleaned[braceOpen.upperBound..<cleaned.index(before: j)])
+            let parsed = tbParseCSS(inner, orderStart: order)
+            rules.append(contentsOf: parsed)
+            order += parsed.count
+        }
+        searchFrom = j
     }
     return rules
 }
@@ -607,6 +666,98 @@ func tbResolveStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
         for (k, v) in tbParseDeclarations(inlineStyle) { out[k] = v }
     }
     return out
+}
+
+// MARK: - CSS variables
+
+// The custom-property environment of one element: every --name
+// defined on the element or inherited from its ancestors, with
+// nearer and stronger definitions winning, as in real CSS.
+func tbVariableEnvironment(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
+    var chain: [TBNode] = []
+    var current: TBNode? = node
+    while let element = current, element.tag != "document" {
+        chain.append(element)
+        current = element.parent
+    }
+    var env: [String: String] = [:]
+    for element in chain.reversed() {
+        var matched: [TBCSSRule] = []
+        for rule in rules where tbSelectorMatches(rule.selector, node: element) {
+            matched.append(rule)
+        }
+        matched.sort {
+            ($0.selector.specificity, $0.order) < ($1.selector.specificity, $1.order)
+        }
+        for rule in matched {
+            for (name, value) in rule.declarations where name.hasPrefix("--") {
+                env[name] = value
+            }
+        }
+        if let inlineStyle = element.attrs["style"] {
+            for (name, value) in tbParseDeclarations(inlineStyle) where name.hasPrefix("--") {
+                env[name] = value
+            }
+        }
+    }
+    return env
+}
+
+// Substitute var(--name) and var(--name, fallback) references in
+// one declaration value. A variable's own value may itself use
+// var(), so substitution recurses (depth-capped against cycles).
+// An unresolvable reference with no fallback makes the whole
+// declaration invalid, as the CSS spec requires: nil.
+func tbSubstituteVars(_ value: String, env: [String: String], depth: Int = 0) -> String? {
+    guard value.contains("var(") else { return value }
+    if depth > 8 { return nil }
+    var result = ""
+    var i = value.startIndex
+    while i < value.endIndex {
+        if value[i...].hasPrefix("var(") {
+            var j = value.index(i, offsetBy: 4)
+            var nest = 1
+            var close: String.Index? = nil
+            while j < value.endIndex {
+                if value[j] == "(" { nest += 1 }
+                else if value[j] == ")" {
+                    nest -= 1
+                    if nest == 0 { close = j; break }
+                }
+                j = value.index(after: j)
+            }
+            guard let closeIdx = close else { return nil }
+            let inner = String(value[value.index(i, offsetBy: 4)..<closeIdx])
+            var name = inner
+            var fallback: String? = nil
+            var nest2 = 0
+            for k in inner.indices {
+                if inner[k] == "(" { nest2 += 1 }
+                else if inner[k] == ")" { nest2 -= 1 }
+                else if inner[k] == "," && nest2 == 0 {
+                    name = String(inner[inner.startIndex..<k])
+                    fallback = String(inner[inner.index(after: k)...])
+                    break
+                }
+            }
+            let key = name.trimmingCharacters(in: .whitespaces)
+            var replacement: String? = nil
+            if key.hasPrefix("--"), let defined = env[key] {
+                replacement = tbSubstituteVars(defined, env: env, depth: depth + 1)
+            }
+            if replacement == nil, let fb = fallback {
+                replacement = tbSubstituteVars(fb.trimmingCharacters(in: .whitespaces),
+                                               env: env, depth: depth + 1)
+            }
+            guard let rep = replacement else { return nil }
+            result += rep
+            i = value.index(after: closeIdx)
+        } else {
+            result.append(value[i])
+            i = value.index(after: i)
+        }
+    }
+    return result
 }
 
 func tbIsHidden(_ decls: [String: String]) -> Bool {
@@ -783,6 +934,28 @@ final class TBRenderer {
 
     init(base: String) { self.base = base }
 
+    // The Mac's own appearance decides prefers-color-scheme,
+    // exactly as it does for a real browser on this machine.
+    var darkAppearance: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    // An element's declarations with var() references resolved
+    // against its inherited custom properties.
+    func resolvedStyle(node: TBNode) -> [String: String] {
+        let raw = tbResolveStyle(node: node, rules: rules)
+        if raw.isEmpty { return raw }
+        let env = tbVariableEnvironment(node: node, rules: rules)
+        var out: [String: String] = [:]
+        for (name, value) in raw {
+            if name.hasPrefix("--") { continue }
+            if let resolved = tbSubstituteVars(value, env: env) {
+                out[name] = resolved
+            }
+        }
+        return out
+    }
+
     func render(root: TBNode) async -> NSAttributedString {
         var sources: [TBStyleSource] = []
         tbCollectStyleSources(root, base: base, into: &sources)
@@ -797,6 +970,11 @@ final class TBRenderer {
             let parsed = tbParseCSS(text, orderStart: order)
             rules.append(contentsOf: parsed)
             order += parsed.count
+            if darkAppearance {
+                let dark = tbParseDarkSchemeCSS(text, orderStart: order)
+                rules.append(contentsOf: dark)
+                order += dark.count
+            }
         }
         walkBlock(node: root, style: "p", baseFont: tbFont(for: "p"),
                   color: nil, align: .left)
@@ -848,7 +1026,7 @@ final class TBRenderer {
 
     private func walkBlock(node: TBNode, style: String, baseFont: NSFont,
                            color: NSColor?, align: NSTextAlignment) {
-        let own = tbResolveStyle(node: node, rules: rules)
+        let own = resolvedStyle(node: node)
         if node.tag != "document" && tbIsHidden(own) { return }
         let effFont = tbFontApplying(own, to: baseFont)
         let effColor = tbParseColor(own["color"]) ?? color
@@ -889,7 +1067,7 @@ final class TBRenderer {
             if let color = color { attrs[.foregroundColor] = color }
             return NSAttributedString(string: t, attributes: attrs)
         }
-        let own = tbResolveStyle(node: node, rules: rules)
+        let own = resolvedStyle(node: node)
         if tbIsHidden(own) {
             return NSAttributedString(string: "")
         }
