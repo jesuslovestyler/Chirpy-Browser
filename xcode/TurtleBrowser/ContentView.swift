@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Turtle Browser — prototype 0.8 (Swift)
+//  Turtle Browser — prototype 0.8.1 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Turtle Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "turtle://home"
     @Published var pageTitle = "Turtle Browser"
-    @Published var statusLine = "Turtle Engine 0.8 (Swift) — layout step three, no JavaScript yet"
+    @Published var statusLine = "Turtle Engine 0.8.1 (Swift) — layout step three, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -74,7 +74,7 @@ final class BrowserModel: ObservableObject {
                 self.pageText = body
                 self.pageBackground = pageBG
                 self.columnTextWidth = columnW
-                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.8 (Swift) — layout step three, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Turtle Engine 0.8.1 (Swift) — layout step three, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -298,9 +298,9 @@ final class TBBandLayoutManager: NSLayoutManager {
         NSGraphicsContext.saveGraphicsState()
         for band in bands {
             band.color.setFill()
-            NSRectFill(NSRect(x: origin.x, y: origin.y + band.top,
-                              width: container.size.width,
-                              height: band.bottom - band.top))
+            NSRect(x: origin.x, y: origin.y + band.top,
+                   width: container.size.width,
+                   height: band.bottom - band.top).fill()
         }
         NSGraphicsContext.restoreGraphicsState()
     }

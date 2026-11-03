@@ -1,6 +1,6 @@
 //
 //  TurtleEngine.swift
-//  Turtle Browser — engine 0.8 (Swift)
+//  Turtle Browser — engine 0.8.1 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -158,7 +158,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.8 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.8.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -172,7 +172,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("TurtleBrowser/0.8 (Swift; our own engine)",
+    request.setValue("TurtleBrowser/0.8.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {

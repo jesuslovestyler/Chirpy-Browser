@@ -14,7 +14,7 @@ is built on three promises — no tracking, no ads, no selling data.
 Turtle Browser is an independent project; it is not affiliated
 with or endorsed by the Catholic Church.
 
-## Status — Engine 0.8
+## Status — Engine 0.8.1
 
 What works today:
 
@@ -57,6 +57,8 @@ What works today:
   three**: continuous surfaces — the spacing seams between
   same-colored paragraphs are bridged, so a colored section
   reads as one painted surface rather than separate stripes.
+  (0.8.1: a build fix — the band fill uses `NSRect.fill()`;
+  the old C `NSRectFill` is not in scope on current SDKs.)
   The properties:
   color, background color, bold,
   italic, font size, text alignment, underlines, spacing,
