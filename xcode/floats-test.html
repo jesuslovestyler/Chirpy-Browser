@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.17 — Floats Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+  .fbox {
+    float: left; width: 180px; height: 120px;
+    background-color: #4682B4; color: #FFFFFF;
+    margin: 0 14px 10px 0; padding: 10px;
+  }
+  .rbox {
+    float: right; width: 180px; height: 120px;
+    background-color: #B22222; color: #FFFFFF;
+    margin: 0 0 10px 14px; padding: 10px;
+  }
+  .wrapper { background-color: #F0E68C; padding: 12px; }
+  .colA {
+    float: left; width: 44%;
+    background-color: #2E8B57; color: #FFFFFF; padding: 10px;
+  }
+  .colB {
+    float: right; width: 44%;
+    background-color: #663399; color: #FFFFFF; padding: 10px;
+  }
+  .rowbox {
+    float: left; width: 120px; height: 80px;
+    background-color: #DAA520; color: #FFFFFF;
+    margin: 8px; padding: 8px;
+  }
+  .short {
+    float: left; width: 150px; height: 70px;
+    background-color: #708090; color: #FFFFFF;
+    margin: 0 12px 8px 0; padding: 8px;
+  }
+  .cleared { clear: both; }
+  .shifted {
+    position: relative; left: 48px; top: 8px;
+    width: 320px; background-color: #FF6347; color: #FFFFFF;
+    padding: 10px;
+  }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.17 — floats test</h1>
+<p>Every box on this page is drawn with CSS alone. Read down
+and check each numbered promise.</p>
+
+<h2>1 — a box floated left inside a paragraph's flow</h2>
+<div>
+  <div class="fbox">FLOATED BOX — the text should wrap around
+  my right side, then resume full width below me.</div>
+  <p>The quick brown fox jumps over the lazy dog, and the
+  paragraph keeps flowing beside the blue box for as many
+  lines as the box is tall. Pack my box with five dozen
+  liquor jugs: the words should stay clear of the box the
+  whole way down, hugging its right edge, and only when the
+  text passes the box's bottom should the lines stretch out
+  to the full width of the column again. If any word hides
+  underneath the blue, the float has failed; if the lines
+  stay narrow all the way to the end of the paragraph, the
+  wrap never let go. Either way you will see it at a glance,
+  which is the point of a test page.</p>
+</div>
+
+<h2>2 — a box floated right</h2>
+<div>
+  <div class="rbox">FLOATED RIGHT — the text should wrap
+  around my left side.</div>
+  <p>Same promise, other side: this paragraph should run
+  down the left of the red box, its lines ending before the
+  box begins, and once the text is past the box's bottom the
+  lines should widen to the full column again. A sidebar,
+  an infobox, a portrait photograph — half the pages on the
+  web are this one shape repeated.</p>
+</div>
+
+<h2>3 — two floated columns in a colored wrapper</h2>
+<div class="wrapper">
+  <div class="colA">LEFT COLUMN — I float left at 44% of the
+  page. The yellow wrapper behind us should stretch down to
+  contain us both, even though we are its only children.</div>
+  <div class="colB">RIGHT COLUMN — I float right at 44%.
+  Between us there should be a gutter of yellow, and the
+  paragraph after the wrapper should begin below the
+  yellow, not beside us.</div>
+</div>
+<p>This paragraph follows the wrapper. It must start below
+the yellow box, at full width — proof the wrapper contained
+its floats.</p>
+
+<h2>4 — a row of floated boxes</h2>
+<div class="wrapper">
+  <div class="rowbox">Box 1</div>
+  <div class="rowbox">Box 2</div>
+  <div class="rowbox">Box 3</div>
+  <div class="rowbox">Box 4</div>
+  <div class="rowbox">Box 5</div>
+  <div class="rowbox">Box 6</div>
+</div>
+<p>The six gold boxes should pack side by side until the
+row runs out of width, then wrap to a second row — and the
+yellow wrapper should contain both rows.</p>
+
+<h2>5 — clear</h2>
+<div>
+  <div class="short">SHORT FLOAT — I am only a little tall.</div>
+  <p>A short paragraph beside the gray box.</p>
+  <h3 class="cleared">This heading has clear: both — it must
+  start BELOW the gray box, never beside it.</h3>
+</div>
+
+<h2>6 — position: relative</h2>
+<div class="shifted">SHIFTED BOX — I am painted 48 points to
+the right and 8 down from where the flow put me.</div>
+<p>The paragraph after the tomato box should sit exactly
+where it would have sat anyway: a relative shift moves the
+paint, never the flow.</p>
+
+<p>End of the test page. If all six promises held, floats
+work.</p>
+</body>
+</html>

@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.16.0 (Swift)
+//  Chirpy Browser — engine 0.17.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -69,10 +69,28 @@
 //      linear-gradient overlays painted from their color
 //      stops. Layers belonging to inline elements, radial
 //      and conic gradients are not read yet.
+//    * Layout step four (0.17): positioned layout. float:
+//      left/right lifts an image or a block box out of the
+//      vertical stack; the renderer records it as a layout
+//      event and the view packs floats against the column's
+//      edges (consecutive floats share a band until the
+//      width runs out, then drop to a new one), gives the
+//      text exclusion paths to wrap around them, and paints
+//      each float — its background, photo layers, picture,
+//      or its own rendered contents — in the surface pass.
+//      clear: left/right/both starts a block below the
+//      floats it names, and a container that establishes
+//      containment (overflow other than visible, flow-root,
+//      a float itself — or, the float-era reality, simply a
+//      painted surface) is extended to contain the floats
+//      anchored inside it. position: relative shifts a
+//      box's paint by its offsets without disturbing the
+//      flow position. position: absolute/fixed and the
+//      multi-column properties are NOT read — honestly out.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
-//  color-mix(), the font: shorthand, true box positioning
-//  (columns, floats — those want a richer paint surface
-//  than a text view), JavaScript (the mountain).
+//  color-mix(), the font: shorthand, position:
+//  absolute/fixed, CSS multi-column (column-count),
+//  JavaScript (the mountain).
 //
 
 import Foundation
@@ -174,7 +192,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.16.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.17.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -192,7 +210,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.16.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.17.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -209,7 +227,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.16.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.17.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -279,6 +297,84 @@ let TBBackgroundKey = NSAttributedString.Key("TBBackgroundLayers")
 let TBExtTopKey = NSAttributedString.Key("TBExtTop")
 let TBExtBottomKey = NSAttributedString.Key("TBExtBottom")
 
+// Layout step four (0.17): positioned layout. The renderer
+// records floats and clears as events in document order,
+// anchored at character offsets in the rendered text; the
+// view resolves them into exclusion paths and painted
+// boxes once it knows the column's real width. A relative
+// offset travels on the text itself, under this key, as an
+// NSValue(NSPoint): the layout manager shifts that run's
+// glyphs and backgrounds when it paints, while the flow —
+// and everything seated in it, like form controls — stays
+// where the text put it.
+let TBRelOffsetKey = NSAttributedString.Key("TBRelOffset")
+
+enum TBFloatSide { case left, right }
+enum TBClearSide { case left, right, both }
+
+final class TBFloatSpec {
+    // Where the float was met in the text; the view hangs
+    // the box from the top of the line that starts there.
+    let anchorCharIndex: Int
+    let side: TBFloatSide
+    let isImage: Bool
+    // The border box the view packs and paints. For image
+    // floats the renderer's finish pass replaces the
+    // provisional size with the picture's real one.
+    var borderWidth: CGFloat
+    var borderHeight: CGFloat
+    var widthDeclared = false
+    var heightDeclared = false
+    var marginTop: CGFloat = 0
+    var marginRight: CGFloat = 0
+    var marginBottom: CGFloat = 0
+    var marginLeft: CGFloat = 0
+    var paddingTop: CGFloat = 0
+    var paddingRight: CGFloat = 0
+    var paddingBottom: CGFloat = 0
+    var paddingLeft: CGFloat = 0
+    var backgroundColor: NSColor? = nil
+    var backgroundBox: TBBackgroundBox? = nil
+    // An image float's picture (nil until fetched).
+    var image: NSImage? = nil
+    var imageFailed = false
+    var alt = ""
+    // A block float's own rendered contents, painted by
+    // the view inside the box's padding.
+    var content: NSAttributedString? = nil
+
+    init(anchorCharIndex: Int, side: TBFloatSide, isImage: Bool,
+         borderWidth: CGFloat, borderHeight: CGFloat) {
+        self.anchorCharIndex = anchorCharIndex
+        self.side = side
+        self.isImage = isImage
+        self.borderWidth = borderWidth
+        self.borderHeight = borderHeight
+    }
+}
+
+final class TBClearSpec {
+    // Patches to the cleared paragraph's first character
+    // when that paragraph is flushed (see TBRenderer.flush).
+    var anchorCharIndex: Int
+    let side: TBClearSide
+    // nil: an author's clear — every earlier float counts.
+    // Non-nil: the renderer's own containment clear for a
+    // container — only floats anchored in [rangeStart,
+    // anchorCharIndex) count.
+    let rangeStart: Int?
+    init(anchorCharIndex: Int, side: TBClearSide, rangeStart: Int?) {
+        self.anchorCharIndex = anchorCharIndex
+        self.side = side
+        self.rangeStart = rangeStart
+    }
+}
+
+enum TBLayoutEvent {
+    case float(TBFloatSpec)
+    case clear(TBClearSpec)
+}
+
 // Parse an element's background-image into a box of
 // layers. The longhand is the primary path; the
 // `background` shorthand is mined for layer chunks that
@@ -342,7 +438,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.16.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.17.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1476,6 +1572,24 @@ final class TBRenderer {
     }
     private var surfaceEdges: [TBSurfaceEdge] = []
 
+    // Layout step four (0.17): the floats and clears the
+    // walk met, in document order, for the view to resolve;
+    // the floats still waiting on pictures or measuring;
+    // and the relative-offset accumulation of the blocks
+    // currently open (offsets sum through nesting, as CSS
+    // positions them). A renderer inside a float records
+    // no events of its own — nested floats simply flow.
+    var layoutEvents: [TBLayoutEvent] = []
+    private var insideFloat = false
+    private var pendingClears: [TBClearSpec] = []
+    private var floatCount = 0
+    private var floatImageJobs: [(spec: TBFloatSpec, url: String)] = []
+    private var pendingBlockFloats: [(spec: TBFloatSpec, sub: TBRenderer)] = []
+    private var relDX: CGFloat = 0
+    private var relDY: CGFloat = 0
+    private var lastFlushRange: NSRange? = nil
+    var nominalWidth: CGFloat = 1000
+
     private func edgeIndex(color: NSColor?, box: TBBackgroundBox?) -> Int? {
         surfaceEdges.lastIndex { edge in
             guard edge.box === box else { return false }
@@ -1849,6 +1963,7 @@ final class TBRenderer {
                 order += dark.count
             }
         }
+        nominalWidth = columnTextWidth(root: root) ?? 1000
         walkBlock(node: root, style: "p", baseFont: tbFont(for: "p"),
                   color: nil, align: .left, inheritedBackground: nil, inheritedBackgroundBox: nil)
         if let body = findTag(root, "body") ?? findTag(root, "html") {
@@ -1856,6 +1971,7 @@ final class TBRenderer {
         }
         await finishImages()
         await finishBackgrounds()
+        await finishFloatImages()
         return out
     }
 
@@ -1928,6 +2044,22 @@ final class TBRenderer {
             }
             let paraStart = out.length
             out.append(buffer)
+            lastFlushRange = NSRange(location: paraStart, length: buffer.length)
+            // Positioned layout (0.17): a paragraph flushed
+            // under position:relative ancestors carries their
+            // accumulated offset, and a clear registered by
+            // the block this paragraph opens anchors here, at
+            // its first character.
+            if relDX != 0 || relDY != 0 {
+                out.addAttribute(TBRelOffsetKey,
+                                 value: NSValue(point: NSPoint(x: relDX, y: relDY)),
+                                 range: NSRange(location: paraStart,
+                                                length: buffer.length))
+            }
+            if !pendingClears.isEmpty {
+                for spec in pendingClears { spec.anchorCharIndex = paraStart }
+                pendingClears = []
+            }
             // The gap between blocks belongs to the same box:
             // paint it too, so a background reads as one band.
             // The closing newline also carries the box's
@@ -1953,6 +2085,33 @@ final class TBRenderer {
         return false
     }
 
+    // A float met mid-paragraph splits the paragraph: the
+    // words before the float keep their place, and the
+    // words after it flow on beside (or below) the float.
+    // In CSS the split is still one paragraph, so the gap
+    // the block's spacing would have put after it must not
+    // appear at the split — zero it on the paragraph just
+    // appended; the block's spacing lands after its true
+    // last paragraph as usual.
+    @discardableResult
+    private func flushForFloat(buffer: inout NSMutableAttributedString, style: String,
+                               font: NSFont, align: NSTextAlignment,
+                               background: NSColor?, backgroundBox: TBBackgroundBox?,
+                               metrics: TBBlockMetrics, ownSurface: Bool) -> Bool {
+        let flushed = flush(buffer: &buffer, style: style, font: font, align: align,
+                            background: background, backgroundBox: backgroundBox,
+                            metrics: metrics, ownSurface: ownSurface)
+        if flushed, let range = lastFlushRange, NSMaxRange(range) <= out.length,
+           let paragraph = out.attribute(.paragraphStyle, at: range.location,
+                                         effectiveRange: nil) as? NSParagraphStyle,
+           paragraph.paragraphSpacing != 0 {
+            let tightened = paragraph.mutableCopy() as! NSMutableParagraphStyle
+            tightened.paragraphSpacing = 0
+            out.addAttribute(.paragraphStyle, value: tightened, range: range)
+        }
+        return flushed
+    }
+
     // Joining two sibling elements whose source carries no
     // whitespace between them — a card's name span hard against
     // its description span: a real layout separates them with
@@ -1976,6 +2135,12 @@ final class TBRenderer {
                            inheritedBackgroundBox: TBBackgroundBox?) {
         let own = resolvedStyle(node: node)
         if node.tag != "document" && tbIsHidden(own) { return }
+        // Positioned layout (0.17): where this block's own
+        // content begins, and how many floats precede it —
+        // the containment check at the block's close reads
+        // both.
+        let entryLength = out.length
+        let floatsAtEntry = floatCount
         let effFont = tbFontApplying(own, to: baseFont)
         let effColor = tbParseColor(own["color"]) ?? color
         let effAlign = tbAlignment(own, fallback: align)
@@ -1988,6 +2153,24 @@ final class TBRenderer {
         // color does: the nearest declaring ancestor's box.
         let effBox = backgroundBox(decls: own) ?? inheritedBackgroundBox
         let metrics = tbBlockMetrics(own, fontSize: effFont.pointSize)
+        // Positioned layout (0.17): this block's own clear
+        // registers now and anchors at the first paragraph
+        // flushed beneath it; its relative offset joins the
+        // accumulation this block's paragraphs are stamped
+        // with, and leaves when the block does.
+        if !insideFloat, node.tag != "document",
+           let side = clearSide(own["clear"]) {
+            let spec = TBClearSpec(anchorCharIndex: out.length,
+                                   side: side, rangeStart: nil)
+            layoutEvents.append(.clear(spec))
+            pendingClears.append(spec)
+        }
+        let savedRelDX = relDX
+        let savedRelDY = relDY
+        if let offset = relativeOffset(own, fontSize: effFont.pointSize) {
+            relDX += offset.dx
+            relDY += offset.dy
+        }
         // Surface edges (0.15): this block's before-spacing
         // joins the carry — its own first flushed paragraph
         // consumes it, and a block that flushes nothing (a
@@ -2028,6 +2211,28 @@ final class TBRenderer {
             // a link styled display:grid is a card, not a word.
             let childOwn = child.tag == "#text" ? [:] : resolvedStyle(node: child)
             if child.tag != "#text" && tbIsHidden(childOwn) { continue }
+            // Positioned layout (0.17): a floated child leaves
+            // the stack here — the words before it flush (with
+            // no invented gap), the float is recorded for the
+            // view to place, and the walk flows on. Form
+            // controls keep their in-flow seating even when a
+            // page styles them floated; past sixty floats the
+            // rest simply flow, as they did before 0.17.
+            if !insideFloat, child.tag != "#text", floatCount < 60,
+               !["input", "select", "textarea", "button"].contains(child.tag),
+               let side = floatSide(childOwn["float"]) {
+                flushedOwn = flushForFloat(buffer: &buffer, style: style, font: effFont,
+                                           align: effAlign, background: effBackground,
+                                           backgroundBox: effBox, metrics: metrics,
+                                           ownSurface: declaresSurface) || flushedOwn
+                if child.tag == "img" {
+                    registerImageFloat(child, own: childOwn, side: side, font: effFont)
+                } else {
+                    registerBlockFloat(child, own: childOwn, side: side,
+                                       font: effFont, color: effColor, align: effAlign)
+                }
+                continue
+            }
             let display = (childOwn["display"] ?? "").lowercased()
             let forceBlock = ["block", "flex", "grid", "list-item",
                               "table", "flow-root"].contains(display)
@@ -2062,6 +2267,24 @@ final class TBRenderer {
         closeSurfaceEdges(declaresSurface: declaresSurface,
                           pure: !flushedOwn, after: metrics.after)
 
+        // Float containment (0.17): floats anchored inside
+        // this block must not spill past its bottom when the
+        // block establishes containment — it clips or
+        // scrolls (overflow other than visible), it is a
+        // flow root or a table, it is itself floated — or,
+        // the float-era reality this engine chooses, it
+        // simply paints a surface: a backgrounded wrapper is
+        // expected to wrap its floats, clearfix or no. The
+        // containment clear counts only the floats anchored
+        // inside this block, and pushes only what follows.
+        if !insideFloat && floatCount > floatsAtEntry && establishesContainment(own) {
+            layoutEvents.append(.clear(TBClearSpec(anchorCharIndex: out.length,
+                                                   side: .both,
+                                                   rangeStart: entryLength)))
+        }
+        relDX = savedRelDX
+        relDY = savedRelDY
+
         // A block-level anchor (a card styled display:grid, say)
         // never passes through inline(), where links are made —
         // so make the whole block clickable here, keeping the
@@ -2091,6 +2314,273 @@ final class TBRenderer {
             }
             out.insert(marker, at: insertAt)
         }
+    }
+
+    // MARK: - Positioned layout (0.17)
+
+    private func floatSide(_ raw: String?) -> TBFloatSide? {
+        switch (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased() {
+        case "left": return .left
+        case "right": return .right
+        default: return nil
+        }
+    }
+
+    private func clearSide(_ raw: String?) -> TBClearSide? {
+        switch (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased() {
+        case "left": return .left
+        case "right": return .right
+        case "both": return .both
+        default: return nil
+        }
+    }
+
+    // position:relative's shift: left wins over right and
+    // top over bottom (the CSS rule for the over-constrained
+    // case); percentages resolve against the nominal page
+    // width, as lengths do throughout this engine.
+    private func relativeOffset(_ decls: [String: String], fontSize: CGFloat)
+        -> (dx: CGFloat, dy: CGFloat)? {
+        guard (decls["position"] ?? "").lowercased() == "relative" else { return nil }
+        func length(_ raw: String?) -> CGFloat? {
+            guard let raw = raw?.trimmingCharacters(in: .whitespaces),
+                  !raw.isEmpty, raw.lowercased() != "auto" else { return nil }
+            return tbLengthValue(raw, fontSize: fontSize)
+        }
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
+        if let left = length(decls["left"]) { dx = left }
+        else if let right = length(decls["right"]) { dx = -right }
+        if let top = length(decls["top"]) { dy = top }
+        else if let bottom = length(decls["bottom"]) { dy = -bottom }
+        return (dx, dy)
+    }
+
+    // A box's four margin or padding lengths, in the
+    // engine's [top, right, bottom, left] order.
+    private func boxLengths(_ decls: [String: String], _ property: String,
+                            fontSize: CGFloat)
+        -> (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) {
+        let values = tbBoxValues(decls, property)
+        func length(_ index: Int) -> CGFloat {
+            guard index < values.count else { return 0 }
+            return tbLengthValue(values[index], fontSize: fontSize) ?? 0
+        }
+        return (length(0), length(1), length(2), length(3))
+    }
+
+    // Does this block keep its floated children inside
+    // itself? The CSS answers — a non-visible overflow, a
+    // flow root, a table, a float of its own — plus this
+    // engine's pragmatic one: a block that paints a surface
+    // contains its floats, because on float-era pages a
+    // backgrounded wrapper is expected to wrap them (see
+    // the containment clear in walkBlock).
+    private func establishesContainment(_ own: [String: String]) -> Bool {
+        for key in ["overflow", "overflow-x", "overflow-y"] {
+            if let value = own[key]?.lowercased(),
+               ["hidden", "auto", "scroll", "clip"].contains(value) { return true }
+        }
+        let display = (own["display"] ?? "").lowercased()
+        if display == "flow-root" || display == "table" { return true }
+        if floatSide(own["float"]) != nil { return true }
+        return tbBackgroundColor(own) != nil || backgroundBox(decls: own) != nil
+    }
+
+    private func registerImageFloat(_ node: TBNode, own: [String: String],
+                                    side: TBFloatSide, font: NSFont) {
+        let src = (node.attrs["src"] ?? "").trimmingCharacters(in: .whitespaces)
+        // A declared 1x1 is a tracking pixel, not a picture.
+        let isPixel = node.attrs["width"] == "1" || node.attrs["height"] == "1"
+        guard !src.isEmpty, !isPixel else { return }
+        let ownFont = tbFontApplying(own, to: font)
+        let declaredW = tbLengthValue(own["width"] ?? node.attrs["width"],
+                                      fontSize: ownFont.pointSize)
+        let declaredH = tbLengthValue(own["height"] ?? node.attrs["height"],
+                                      fontSize: ownFont.pointSize)
+        let spec = TBFloatSpec(anchorCharIndex: out.length, side: side, isImage: true,
+                               borderWidth: declaredW ?? 220,
+                               borderHeight: declaredH ?? 140)
+        spec.widthDeclared = declaredW != nil
+        spec.heightDeclared = declaredH != nil
+        spec.alt = node.attrs["alt"] ?? ""
+        let margins = boxLengths(own, "margin", fontSize: ownFont.pointSize)
+        spec.marginTop = margins.top
+        spec.marginRight = margins.right
+        spec.marginBottom = margins.bottom
+        spec.marginLeft = margins.left
+        let absolute = src.hasPrefix("data:")
+            ? src
+            : (URL(string: src, relativeTo: URL(string: base))?.absoluteString ?? src)
+        layoutEvents.append(.float(spec))
+        floatCount += 1
+        floatImageJobs.append((spec: spec, url: absolute))
+    }
+
+    private func registerBlockFloat(_ node: TBNode, own: [String: String],
+                                    side: TBFloatSide, font: NSFont,
+                                    color: NSColor?, align: NSTextAlignment) {
+        let childFont = tbFontApplying(own, to: font)
+        let fontSize = childFont.pointSize
+        let margins = boxLengths(own, "margin", fontSize: fontSize)
+        let padding = boxLengths(own, "padding", fontSize: fontSize)
+        let declaredW = tbLengthValue(own["width"], fontSize: fontSize)
+        let declaredH = tbLengthValue(own["height"], fontSize: fontSize)
+        let spec = TBFloatSpec(anchorCharIndex: out.length, side: side, isImage: false,
+                               borderWidth: declaredW ?? 0,
+                               borderHeight: declaredH ?? 0)
+        spec.widthDeclared = declaredW != nil
+        spec.heightDeclared = declaredH != nil
+        spec.marginTop = margins.top
+        spec.marginRight = margins.right
+        spec.marginBottom = margins.bottom
+        spec.marginLeft = margins.left
+        spec.paddingTop = padding.top
+        spec.paddingRight = padding.right
+        spec.paddingBottom = padding.bottom
+        spec.paddingLeft = padding.left
+        spec.backgroundColor = tbBackgroundColor(own)
+        spec.backgroundBox = backgroundBox(decls: own)
+        // The float's contents render in a renderer of their
+        // own — same rules, same base — which records no
+        // layout events: a float inside a float simply flows.
+        let sub = TBRenderer(base: base)
+        sub.rules = rules
+        sub.insideFloat = true
+        sub.nominalWidth = nominalWidth
+        sub.walkBlock(node: node, style: tbStyle(for: node.tag), baseFont: childFont,
+                      color: color, align: align,
+                      inheritedBackground: nil, inheritedBackgroundBox: nil)
+        layoutEvents.append(.float(spec))
+        floatCount += 1
+        pendingBlockFloats.append((spec: spec, sub: sub))
+    }
+
+    // Measure text the way the view will lay it out: its
+    // own layout manager and container, at a given width.
+    private func measureText(_ string: NSAttributedString, width: CGFloat) -> CGSize {
+        let storage = NSTextStorage(attributedString: string)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(
+            size: NSSize(width: max(width, 10),
+                         height: CGFloat.greatestFiniteMagnitude))
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        manager.ensureLayout(for: container)
+        return manager.usedRect(for: container).size
+    }
+
+    // A block float's contents are finished (its pictures
+    // fetched, its failures labelled): strip what cannot
+    // work inside a painted box — the link targets and
+    // their [n] markers (the markers point into the page's
+    // link list, which this box is not part of), and the
+    // form controls, for which bracketed labels stand in —
+    // then size the box: a declared width wins, else the
+    // box shrinks to its contents' natural width, capped
+    // at the column; a declared height wins, else the
+    // measured height of the contents at the final width.
+    // Links inside a floated box keep their colors in 0.17
+    // but are not clickable — the box is paint, not text.
+    private func finalizeBlockFloat(spec: TBFloatSpec, sub: TBRenderer) {
+        let cleaned = NSMutableAttributedString(attributedString: sub.out)
+        var swaps: [(range: NSRange, text: String)] = []
+        cleaned.enumerateAttribute(
+            .attachment, in: NSRange(location: 0, length: cleaned.length)
+        ) { value, range, _ in
+            if let submit = value as? TBSubmitAttachment {
+                swaps.append((range: range, text: " [\(submit.label)] "))
+            } else if let field = value as? TBFieldAttachment {
+                let name = sub.fields.first { $0.id == field.fieldID }
+                    .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
+                swaps.append((range: range, text: " [\(name)] "))
+            }
+        }
+        cleaned.enumerateAttribute(
+            .link, in: NSRange(location: 0, length: cleaned.length)
+        ) { _, range, _ in
+            let text = (cleaned.string as NSString).substring(with: range)
+            if text.hasPrefix(" ["), text.hasSuffix("]") {
+                let digits = text.dropFirst(2).dropLast()
+                if !digits.isEmpty, digits.allSatisfy({ $0.isNumber }) {
+                    swaps.append((range: range, text: ""))
+                }
+            }
+        }
+        for swap in swaps.sorted(by: { $0.range.location > $1.range.location }) {
+            cleaned.replaceCharacters(in: swap.range, with: NSAttributedString(
+                string: swap.text,
+                attributes: [.font: NSFont.systemFont(ofSize: 12),
+                             .foregroundColor: NSColor.secondaryLabelColor]))
+        }
+        cleaned.removeAttribute(.link,
+                                range: NSRange(location: 0, length: cleaned.length))
+        spec.content = cleaned
+        let padH = spec.paddingLeft + spec.paddingRight
+        let padV = spec.paddingTop + spec.paddingBottom
+        if !spec.widthDeclared {
+            let natural = measureText(cleaned, width: nominalWidth).width
+            spec.borderWidth = min(max(natural + padH, 1), nominalWidth)
+        }
+        if !spec.heightDeclared {
+            let contentWidth = max(spec.borderWidth - padH, 10)
+            spec.borderHeight = measureText(cleaned, width: contentWidth).height + padV
+        }
+        spec.borderWidth = max(spec.borderWidth, 1)
+        spec.borderHeight = max(spec.borderHeight, 1)
+    }
+
+    // Fetch the floated pictures (as finishImages does for
+    // the flow) and finish the block floats: a declared
+    // dimension wins, the other follows the picture's own
+    // proportions, and nothing exceeds the column's width.
+    func finishFloatImages() async {
+        if !floatImageJobs.isEmpty {
+            var dataByIndex: [Int: Data] = [:]
+            await withTaskGroup(of: (Int, Data?).self) { group in
+                for (index, job) in floatImageJobs.enumerated() {
+                    if job.url.hasPrefix("data:") {
+                        dataByIndex[index] = tbDecodeDataURI(job.url)
+                    } else {
+                        let url = job.url
+                        group.addTask { (index, await tbFetchData(urlString: url)) }
+                    }
+                }
+                for await (index, data) in group {
+                    if let data = data { dataByIndex[index] = data }
+                }
+            }
+            for (index, job) in floatImageJobs.enumerated() {
+                let spec = job.spec
+                guard let data = dataByIndex[index], let image = NSImage(data: data),
+                      image.size.width >= 2, image.size.height >= 2 else {
+                    spec.imageFailed = true
+                    continue
+                }
+                let natural = image.size
+                var width = spec.widthDeclared ? spec.borderWidth : natural.width
+                var height = spec.heightDeclared ? spec.borderHeight : natural.height
+                if spec.widthDeclared && !spec.heightDeclared {
+                    height = natural.height * (width / natural.width)
+                } else if spec.heightDeclared && !spec.widthDeclared {
+                    width = natural.width * (height / natural.height)
+                }
+                if width > nominalWidth {
+                    height *= nominalWidth / width
+                    width = nominalWidth
+                }
+                spec.image = image
+                spec.borderWidth = width
+                spec.borderHeight = height
+            }
+            floatImageJobs = []
+        }
+        for pending in pendingBlockFloats {
+            await pending.sub.finishImages()
+            await pending.sub.finishBackgrounds()
+            finalizeBlockFloat(spec: pending.spec, sub: pending.sub)
+        }
+        pendingBlockFloats = []
     }
 
     private func inline(_ node: TBNode, font: NSFont, color: NSColor?) -> NSAttributedString {
@@ -2226,6 +2716,18 @@ final class TBRenderer {
                                     value: NSUnderlineStyle.single.rawValue, range: full)
             }
         }
+        // Positioned layout (0.17): a relatively positioned
+        // inline box carries its offset on its own run; the
+        // layout manager shifts that run when painting.
+        // (Inside a relatively positioned block, the block's
+        // paragraph stamp — the summed offset — governs.)
+        if !insideFloat, result.length > 0,
+           let offset = relativeOffset(own, fontSize: f.pointSize),
+           offset.dx != 0 || offset.dy != 0 {
+            result.addAttribute(TBRelOffsetKey,
+                                value: NSValue(point: NSPoint(x: offset.dx, y: offset.dy)),
+                                range: NSRange(location: 0, length: result.length))
+        }
         return result
     }
 }
@@ -2299,14 +2801,14 @@ func tbScriptBounceTargets(html: String, base: String) -> [String] {
 func tbRenderPage(html: String, base: String) async
     -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
         columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField],
-        landedURL: String) {
+        landedURL: String, layoutEvents: [TBLayoutEvent]) {
     return await tbRenderFollowingRefresh(html: html, base: base, depth: 0)
 }
 
 private func tbRenderFollowingRefresh(html: String, base: String, depth: Int) async
     -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
         columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField],
-        landedURL: String) {
+        landedURL: String, layoutEvents: [TBLayoutEvent]) {
     let title = tbExtractTitle(html: html)
     let tree = tbParse(html: html)
     if depth < 3, let target = tbMetaRefreshTarget(root: tree, base: base),
@@ -2345,10 +2847,10 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int) as
                                  .underlineStyle: NSUnderlineStyle.single.rawValue]))
             }
             return (title.isEmpty ? "This page needs JavaScript" : title,
-                    notice, nil, nil, [], [], base)
+                    notice, nil, nil, [], [], base, [])
         }
     }
     return (title.isEmpty ? base : title, body, renderer.pageBackground,
             renderer.columnTextWidth(root: tree), renderer.forms, renderer.fields,
-            base)
+            base, renderer.layoutEvents)
 }

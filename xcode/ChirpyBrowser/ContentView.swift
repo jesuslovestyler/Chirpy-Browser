@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.16.0 (Swift)
+//  Chirpy Browser — prototype 0.17.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -15,7 +15,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.16.0 (Swift) — forms, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.17.0 (Swift) — floats and forms, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -23,6 +23,7 @@ final class BrowserModel: ObservableObject {
     @Published var columnTextWidth: CGFloat? = nil
     @Published var pageForms: [TBFormSpec] = []
     @Published var pageFields: [TBFormField] = []
+    @Published var pageLayoutEvents: [TBLayoutEvent] = []
 
     private var currentURL = ""
     private var backStack: [String] = []
@@ -114,7 +115,7 @@ final class BrowserModel: ObservableObject {
                     fetched = try await tbFetch(urlString: target)
                 }
                 let (finalURL, html) = fetched
-                let (title, body, pageBG, columnW, forms, fields, landedURL) =
+                let (title, body, pageBG, columnW, forms, fields, landedURL, layoutEvents) =
                     await tbRenderPage(html: html, base: finalURL)
                 self.currentURL = landedURL
                 self.addressText = landedURL
@@ -124,7 +125,8 @@ final class BrowserModel: ObservableObject {
                 self.columnTextWidth = columnW
                 self.pageForms = forms
                 self.pageFields = fields
-                self.statusLine = "\(finalURL)  ·  Chirpy Engine 0.16.0 (Swift) — forms, no JavaScript yet"
+                self.pageLayoutEvents = layoutEvents
+                self.statusLine = "\(finalURL)  ·  Chirpy Engine 0.17.0 (Swift) — floats and forms, no JavaScript yet"
             } catch {
                 self.currentURL = target
                 self.addressText = target
@@ -141,6 +143,7 @@ final class BrowserModel: ObservableObject {
                 self.columnTextWidth = nil
                 self.pageForms = []
                 self.pageFields = []
+                self.pageLayoutEvents = []
                 self.statusLine = "Load failed"
             }
             self.canGoBack = !self.backStack.isEmpty
@@ -190,6 +193,9 @@ struct PageTextView: NSViewRepresentable {
             textView.textStorage?.setAttributedString(model.pageText)
             textView.scrollToBeginningOfDocument(nil)
             context.coordinator.rebuildFormViews()
+            context.coordinator.layoutEvents = model.pageLayoutEvents
+            context.coordinator.floatLayoutDirty = true
+            context.coordinator.settleFloatLayout()
         }
         context.coordinator.columnWidth = model.columnTextWidth
         context.coordinator.refreshInsets()
@@ -215,6 +221,14 @@ struct PageTextView: NSViewRepresentable {
         private var formAnchors: [(view: NSView, charIndex: Int,
                                    attachment: NSTextAttachment)] = []
         private var formIDByFieldID: [Int: Int] = [:]
+
+        // Positioned layout (0.17): the page's float and
+        // clear events, and the container width they were
+        // last resolved at — the exclusion paths are rebuilt
+        // whenever either changes.
+        var layoutEvents: [TBLayoutEvent] = []
+        var floatLayoutDirty = false
+        private var floatWidth: CGFloat = 0
 
         init(model: BrowserModel) {
             self.model = model
@@ -246,6 +260,12 @@ struct PageTextView: NSViewRepresentable {
                 textView.textContainerInset = newInset
             }
             settleFormViews()
+            // A new column width can land mid-cycle; resolve
+            // the floats once it has settled, the same way
+            // the form seating settles.
+            DispatchQueue.main.async { [weak self] in
+                self?.settleFloatLayout()
+            }
         }
 
         func detach() {
@@ -333,6 +353,173 @@ struct PageTextView: NSViewRepresentable {
                   let container = textView.textContainer else { return }
             layoutManager.ensureLayout(for: container)
             repositionFormViews()
+        }
+
+        // Positioned layout (0.17): resolve the page's float
+        // and clear events against the column's real width.
+        // Each float packs at the highest band it fits —
+        // against its side's edge or beside the floats
+        // already there, dropping below the shallowest
+        // blocker when the band is full — and becomes an
+        // exclusion path the remaining text wraps around;
+        // each clear becomes a full-width exclusion running
+        // from its paragraph's top to the deepest float it
+        // must pass. Exclusions apply one event at a time,
+        // with layout re-run between them, so every later
+        // anchor measures the text as it will truly lie.
+        // A non-floated block beside a float needs nothing
+        // special: the exclusion narrows its lines for as
+        // long as the float lasts, and full width resumes
+        // below it — the sidebar pattern falls out of this.
+        func settleFloatLayout() {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer,
+                  let storage = textView.textStorage else { return }
+            let width = container.size.width
+            if !floatLayoutDirty && width == floatWidth { return }
+            if width < 40 { return }   // no real frame yet; stay dirty
+            floatLayoutDirty = false
+            floatWidth = width
+            let band = layoutManager as? TBBandLayoutManager
+            band?.floatPaints = []
+            if !container.exclusionPaths.isEmpty {
+                container.exclusionPaths = []
+            }
+            guard !layoutEvents.isEmpty, storage.length > 0 else {
+                textView.needsDisplay = true
+                return
+            }
+            layoutManager.ensureLayout(for: container)
+            var placed: [(rect: NSRect, side: TBFloatSide, anchor: Int)] = []
+            var paints: [(rect: NSRect, spec: TBFloatSpec)] = []
+            var exclusions: [NSBezierPath] = []
+
+            func overlaps(_ a: NSRect, _ b: NSRect) -> Bool {
+                a.minX < b.maxX && b.minX < a.maxX
+                    && a.minY < b.maxY && b.minY < a.maxY
+            }
+            func applyExclusions(from charIndex: Int) {
+                container.exclusionPaths = exclusions
+                if charIndex < storage.length {
+                    layoutManager.invalidateLayout(
+                        forCharacterRange: NSRange(location: charIndex,
+                                                   length: storage.length - charIndex),
+                        actualCharacterRange: nil)
+                }
+                layoutManager.ensureLayout(for: container)
+            }
+
+            for event in layoutEvents {
+                switch event {
+                case .float(let spec):
+                    let marginW = spec.borderWidth + spec.marginLeft + spec.marginRight
+                    let marginH = spec.borderHeight + spec.marginTop + spec.marginBottom
+                    var top = floatAnchorY(spec.anchorCharIndex)
+                    // A float never rises above an earlier one.
+                    for other in placed { top = max(top, other.rect.minY) }
+                    var y = top
+                    var marginX: CGFloat? = nil
+                    var tries = 0
+                    while marginX == nil && tries < 80 {
+                        tries += 1
+                        let blockers = placed.filter {
+                            $0.rect.minY < y + marginH && y < $0.rect.maxY
+                        }
+                        var candidates: [CGFloat] = [
+                            spec.side == .left ? 0 : width - marginW
+                        ]
+                        for blocker in blockers {
+                            candidates.append(spec.side == .left
+                                ? blocker.rect.maxX
+                                : blocker.rect.minX - marginW)
+                        }
+                        candidates.sort { spec.side == .left ? $0 < $1 : $0 > $1 }
+                        for x in candidates {
+                            if x < -0.5 || x + marginW > width + 0.5 { continue }
+                            let rect = NSRect(x: x, y: y,
+                                              width: marginW, height: marginH)
+                            if blockers.allSatisfy({ !overlaps($0.rect, rect) }) {
+                                marginX = x
+                                break
+                            }
+                        }
+                        if marginX == nil {
+                            // The band is full: drop below the
+                            // shallowest blocker and try again.
+                            // With nothing in the way but a box
+                            // wider than the column, take the
+                            // edge and let it overflow.
+                            let bottoms = blockers.map { $0.rect.maxY }
+                                .filter { $0 > y }
+                            if let next = bottoms.min() {
+                                y = next
+                            } else {
+                                marginX = spec.side == .left
+                                    ? 0 : max(0, width - marginW)
+                            }
+                        }
+                    }
+                    let placedX = marginX ?? 0
+                    let marginRect = NSRect(x: placedX, y: y,
+                                            width: marginW, height: marginH)
+                    placed.append((rect: marginRect, side: spec.side,
+                                   anchor: spec.anchorCharIndex))
+                    paints.append((rect: NSRect(x: placedX + spec.marginLeft,
+                                                y: y + spec.marginTop,
+                                                width: spec.borderWidth,
+                                                height: spec.borderHeight),
+                                   spec: spec))
+                    exclusions.append(NSBezierPath(rect: marginRect))
+                    applyExclusions(from: spec.anchorCharIndex)
+                case .clear(let spec):
+                    // A clear at the very end of the text has
+                    // nothing after it to push — skip it, so a
+                    // trailing float is never mistaken for a
+                    // reason to move the last line.
+                    guard spec.anchorCharIndex < storage.length else { continue }
+                    let anchorTop = floatAnchorY(spec.anchorCharIndex)
+                    var limit: CGFloat = 0
+                    for other in placed {
+                        if spec.side == .left && other.side != .left { continue }
+                        if spec.side == .right && other.side != .right { continue }
+                        if let start = spec.rangeStart,
+                           !(other.anchor >= start
+                             && other.anchor < spec.anchorCharIndex) {
+                            continue
+                        }
+                        limit = max(limit, other.rect.maxY)
+                    }
+                    if limit > anchorTop + 1 {
+                        exclusions.append(NSBezierPath(rect: NSRect(
+                            x: 0, y: anchorTop, width: width,
+                            height: limit - anchorTop)))
+                        applyExclusions(from: spec.anchorCharIndex)
+                    }
+                }
+            }
+            band?.floatPaints = paints
+            textView.needsDisplay = true
+            repositionFormViews()
+        }
+
+        // The top of the line holding a character, in text
+        // container coordinates — where a float hangs from,
+        // and where a clear's exclusion begins.
+        private func floatAnchorY(_ charIndex: Int) -> CGFloat {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer,
+                  let storage = textView.textStorage,
+                  storage.length > 0 else { return 0 }
+            let clamped = min(max(charIndex, 0), storage.length - 1)
+            let glyph = layoutManager.glyphIndexForCharacter(at: clamped)
+            // NSLayoutManager ensures layout by container or
+            // glyph range — there is no forGlyphAt variant
+            // (0.17.0 compile fix, Nov 4).
+            layoutManager.ensureLayout(for: container)
+            return layoutManager.lineFragmentRect(forGlyphAt: glyph,
+                                                  effectiveRange: nil).minY
         }
 
         // Set each control over its attachment: the glyph's
@@ -439,24 +626,67 @@ struct PageTextView: NSViewRepresentable {
 // paragraph's newline in its own color, so it keeps its
 // shape; a run that itself reaches a newline is a band too.
 final class TBBandLayoutManager: NSLayoutManager {
+    // Positioned layout (0.17): the floats the coordinator
+    // has placed for this page — border rects in container
+    // coordinates, with the spec describing each box —
+    // painted last in drawBackground, over the surfaces.
+    var floatPaints: [(rect: NSRect, spec: TBFloatSpec)] = [] {
+        didSet { floatContentLayouts = [:] }
+    }
+    private var floatContentLayouts:
+        [ObjectIdentifier: (NSLayoutManager, NSTextContainer)] = [:]
+
+    // A character's relative-position offset (0.17), read
+    // from the stamp the renderer left on the text.
+    private func paintOffset(at charIndex: Int, in storage: NSTextStorage) -> NSPoint {
+        guard storage.length > 0 else { return .zero }
+        let clamped = min(max(charIndex, 0), storage.length - 1)
+        if let value = storage.attribute(TBRelOffsetKey, at: clamped,
+                                         effectiveRange: nil) as? NSValue {
+            return value.pointValue
+        }
+        return .zero
+    }
+
     override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>,
                                           count rectCount: Int,
                                           forCharacterRange charRange: NSRange,
                                           color: NSColor) {
-        if rectCount > 0, let storage = textStorage, storage.length > 0,
-           let container = textContainers.first, let textView = container.textView,
+        guard rectCount > 0, let storage = textStorage, storage.length > 0 else {
+            super.fillBackgroundRectArray(rectArray, count: rectCount,
+                                          forCharacterRange: charRange, color: color)
+            return
+        }
+        let offset = paintOffset(at: charRange.location, in: storage)
+        if let container = textContainers.first, let textView = container.textView,
            isBandRun(storage: storage, charRange: charRange, color: color) {
             let widened = UnsafeMutablePointer<NSRect>.allocate(capacity: rectCount)
             defer { widened.deallocate() }
-            let left = textView.textContainerOrigin.x
+            let left = textView.textContainerOrigin.x + offset.x
             let width = container.size.width
             for i in 0..<rectCount {
                 var rect = rectArray[i]
                 rect.origin.x = left
+                rect.origin.y += offset.y
                 rect.size.width = width
                 widened[i] = rect
             }
             super.fillBackgroundRectArray(widened, count: rectCount,
+                                          forCharacterRange: charRange, color: color)
+            return
+        }
+        // Positioned layout (0.17): a relatively offset run
+        // takes its background with it when it shifts.
+        if offset != .zero {
+            let shifted = UnsafeMutablePointer<NSRect>.allocate(capacity: rectCount)
+            defer { shifted.deallocate() }
+            for i in 0..<rectCount {
+                shifted[i] = NSRect(x: rectArray[i].origin.x + offset.x,
+                                    y: rectArray[i].origin.y + offset.y,
+                                    width: rectArray[i].width,
+                                    height: rectArray[i].height)
+            }
+            super.fillBackgroundRectArray(shifted, count: rectCount,
                                           forCharacterRange: charRange, color: color)
             return
         }
@@ -484,6 +714,7 @@ final class TBBandLayoutManager: NSLayoutManager {
         // so they stay visible; the glyphs draw later still.
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
         paintContinuousSurfaces(forGlyphRange: glyphsToShow, at: origin)
+        paintFloats(at: origin)
     }
 
     private func paintContinuousSurfaces(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -498,7 +729,8 @@ final class TBBandLayoutManager: NSLayoutManager {
         // a background — its fill color and/or its layer box
         // (photos and gradients, 0.10).
         var bands: [(color: NSColor?, box: TBBackgroundBox?,
-                     boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat)] = []
+                     boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat,
+                     dx: CGFloat, dy: CGFloat)] = []
         var index = charRange.location
         let end = min(NSMaxRange(charRange), string.length)
         while index < end {
@@ -529,9 +761,14 @@ final class TBBandLayoutManager: NSLayoutManager {
                     let extBottom = (storage.attribute(TBExtBottomKey, at: paragraph.location,
                                                        effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0
                     let boxID = box.map { ObjectIdentifier($0) }
+                    // Positioned layout (0.17): a relatively
+                    // offset surface paints shifted, as one
+                    // band of its own.
+                    let offset = paintOffset(at: paragraph.location, in: storage)
                     bands.append((color: fill, box: box, boxID: boxID,
                                   top: top - CGFloat(extTop),
-                                  bottom: bottom + CGFloat(extBottom)))
+                                  bottom: bottom + CGFloat(extBottom),
+                                  dx: offset.x, dy: offset.y))
                 }
             }
             index = NSMaxRange(paragraph)
@@ -543,9 +780,11 @@ final class TBBandLayoutManager: NSLayoutManager {
         // spacing between paragraphs, so one element's
         // background reads as one continuous surface.
         var surfaces: [(color: NSColor?, box: TBBackgroundBox?,
-                        boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat)] = []
+                        boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat,
+                        dx: CGFloat, dy: CGFloat)] = []
         for band in bands {
             if let last = surfaces.last, last.boxID == band.boxID,
+               last.dx == band.dx, last.dy == band.dy,
                (last.color == nil && band.color == nil)
                 || (last.color != nil && band.color != nil
                     && last.color!.isEqual(band.color!)),
@@ -557,7 +796,7 @@ final class TBBandLayoutManager: NSLayoutManager {
         }
         NSGraphicsContext.saveGraphicsState()
         for band in surfaces {
-            let rect = NSRect(x: origin.x, y: origin.y + band.top,
+            let rect = NSRect(x: origin.x + band.dx, y: origin.y + band.top + band.dy,
                               width: container.size.width,
                               height: band.bottom - band.top)
             if let color = band.color {
@@ -569,6 +808,118 @@ final class TBBandLayoutManager: NSLayoutManager {
             }
         }
         NSGraphicsContext.restoreGraphicsState()
+    }
+
+    // Positioned layout (0.17): the page's floats, painted
+    // over the surfaces at the positions the coordinator
+    // resolved — background color and photo layers first,
+    // then the picture, or the box's own contents inside
+    // its padding. A picture that never arrived leaves a
+    // labelled frame, as a failed in-flow image does.
+    private func paintFloats(at origin: NSPoint) {
+        for paint in floatPaints {
+            let spec = paint.spec
+            let rect = NSRect(x: origin.x + paint.rect.minX,
+                              y: origin.y + paint.rect.minY,
+                              width: paint.rect.width, height: paint.rect.height)
+            if let color = spec.backgroundColor {
+                color.setFill()
+                rect.fill()
+            }
+            if let box = spec.backgroundBox {
+                paintBackgroundLayers(box, in: rect)
+            }
+            let contentRect = NSRect(
+                x: rect.minX + spec.paddingLeft, y: rect.minY + spec.paddingTop,
+                width: max(0, rect.width - spec.paddingLeft - spec.paddingRight),
+                height: max(0, rect.height - spec.paddingTop - spec.paddingBottom))
+            if spec.isImage {
+                if let image = spec.image {
+                    tbDrawPhoto(image, in: contentRect)
+                } else if spec.imageFailed {
+                    NSColor.separatorColor.setStroke()
+                    let frame = NSBezierPath(rect: contentRect.insetBy(dx: 0.5, dy: 0.5))
+                    frame.lineWidth = 1
+                    frame.stroke()
+                    let label = spec.alt.isEmpty ? "image" : spec.alt
+                    let attrs: [NSAttributedString.Key: Any] = [
+                        .font: NSFont.systemFont(ofSize: 11),
+                        .foregroundColor: NSColor.secondaryLabelColor]
+                    let size = (label as NSString).size(withAttributes: attrs)
+                    (label as NSString).draw(
+                        at: NSPoint(x: contentRect.midX - size.width / 2,
+                                    y: contentRect.midY - size.height / 2),
+                        withAttributes: attrs)
+                }
+            } else if let content = spec.content, content.length > 0 {
+                drawFloatContent(content, spec: spec, in: contentRect)
+            }
+        }
+    }
+
+    // Lay a block float's contents out in a private layout
+    // manager at the box's content size and paint them
+    // there. The layout is cached per float until the
+    // page's floats are resolved again.
+    private func drawFloatContent(_ content: NSAttributedString,
+                                  spec: TBFloatSpec, in rect: NSRect) {
+        let key = ObjectIdentifier(spec)
+        let manager: NSLayoutManager
+        let container: NSTextContainer
+        if let cached = floatContentLayouts[key], cached.1.size == rect.size {
+            manager = cached.0
+            container = cached.1
+        } else {
+            let storage = NSTextStorage(attributedString: content)
+            manager = NSLayoutManager()
+            container = NSTextContainer(size: rect.size)
+            storage.addLayoutManager(manager)
+            manager.addTextContainer(container)
+            floatContentLayouts[key] = (manager, container)
+        }
+        manager.ensureLayout(for: container)
+        let glyphs = manager.glyphRange(for: container)
+        guard glyphs.length > 0 else { return }
+        manager.drawBackground(forGlyphRange: glyphs, at: rect.origin)
+        manager.drawGlyphs(forGlyphRange: glyphs, at: rect.origin)
+    }
+
+    // Positioned layout (0.17): glyphs under a relative
+    // offset paint shifted by it, run by run, while the
+    // layout itself — selection, carets, form seats —
+    // stays at the flow position.
+    override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let storage = textStorage, storage.length > 0 else {
+            super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+            return
+        }
+        let charRange = characterRange(forGlyphRange: glyphsToShow,
+                                       actualGlyphRange: nil)
+        var segments: [(range: NSRange, offset: NSPoint)] = []
+        var hasOffset = false
+        storage.enumerateAttribute(TBRelOffsetKey, in: charRange) { value, range, _ in
+            let offset = (value as? NSValue)?.pointValue ?? .zero
+            if offset != .zero { hasOffset = true }
+            segments.append((range: range, offset: offset))
+        }
+        guard hasOffset else {
+            super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+            return
+        }
+        for entry in segments {
+            let segment = glyphRange(forCharacterRange: entry.range,
+                                     actualCharacterRange: nil)
+            guard segment.length > 0 else { continue }
+            if entry.offset == .zero {
+                super.drawGlyphs(forGlyphRange: segment, at: origin)
+            } else {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current?.cgContext
+                    .translateBy(x: entry.offset.x, y: entry.offset.y)
+                super.drawGlyphs(forGlyphRange: segment, at: origin)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
     }
 
     // Paint a surface's background layers: CSS lists the
