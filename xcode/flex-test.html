@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.24 — Flexbox Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+  .bar {
+    display: flex; background-color: #F0E68C; padding: 10px;
+    margin: 8px 0;
+  }
+  .box {
+    width: 140px; padding: 10px; color: #FFFFFF;
+    background-color: #4682B4;
+  }
+  .b1 { background-color: #4682B4; }
+  .b2 { background-color: #B22222; }
+  .b3 { background-color: #2E8B57; }
+  .b4 { background-color: #663399; }
+  .b5 { background-color: #DAA520; }
+  .between { justify-content: space-between; }
+  .grower { flex-grow: 1; }
+  .narrow { width: 480px; }
+  .shrinker { flex: 0 1 300px; padding: 10px; color: #FFFFFF; }
+  .wraprow { width: 500px; flex-wrap: wrap; }
+  .wbox { width: 160px; padding: 10px; color: #FFFFFF; }
+  .column { flex-direction: column; gap: 8px; }
+  .crow { padding: 10px; color: #FFFFFF; }
+  .stage {
+    height: 120px; justify-content: center; align-items: center;
+  }
+  .solo { width: 160px; height: 48px; padding: 8px; color: #FFFFFF;
+          background-color: #B22222; }
+  .gapped { gap: 24px; }
+  .gbox { width: 100px; padding: 10px; color: #FFFFFF; }
+  .o3 { order: 3; }
+  .o1 { order: 1; }
+  .o2 { order: 2; }
+  .cards { gap: 16px; }
+  .card {
+    display: flex; flex-direction: column; gap: 6px;
+    flex: 1; padding: 12px; color: #FFFFFF;
+  }
+  .ct { font-weight: bold; font-size: 17px; }
+  .rev { flex-direction: row-reverse; }
+  .baseline { align-items: baseline; }
+  .big { font-size: 28px; padding: 8px; color: #FFFFFF;
+         background-color: #4682B4; }
+  .small { font-size: 13px; padding: 8px; color: #FFFFFF;
+           background-color: #B22222; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.24 — flexbox test</h1>
+<p>Every arrangement on this page is made with CSS flexbox
+alone. Read down and check each numbered promise. First,
+the status line at the bottom of the window should read
+"Chirpy Engine 0.24.0 (Swift)". Two honest notes before
+the promises: the items on this page are paint, not live
+text — the floated boxes' bargain since 0.17 — so a link
+inside an item shows its colors but does not click; and
+flex-wrap: wrap-reverse is not read yet (its pages get
+plain wrap), while wrapped lines always pack from the
+top, because align-content is not read yet either.</p>
+
+<h2>1 — space-between</h2>
+<div class="bar between">
+  <div class="box b1">FIRST — I hug the left edge of the
+  yellow bar.</div>
+  <div class="box b2">MIDDLE — I stand exactly halfway
+  between the other two.</div>
+  <div class="box b3">LAST — I hug the right edge. The
+  yellow showing between us is the leftover space,
+  shared evenly into the two gaps.</div>
+</div>
+
+<h2>2 — flex-grow takes the leftover</h2>
+<div class="bar">
+  <div class="box b1">FIXED — 140 points wide, as
+  declared.</div>
+  <div class="box b2 grower">GROWING — I have flex-grow: 1,
+  so every point of leftover width between the two fixed
+  boxes is mine: I stretch to fill it, however wide the
+  window stands, and the green box is pushed to the
+  right edge. If I am only as wide as my words, grow
+  has failed.</div>
+  <div class="box b3">FIXED — 140 points wide, as
+  declared.</div>
+</div>
+
+<h2>3 — flex-shrink under overflow</h2>
+<div class="bar narrow">
+  <div class="shrinker b1">SHRINK 1 — my basis is 300
+  points.</div>
+  <div class="shrinker b2">SHRINK 2 — mine too. Together
+  we three ask for 900 points of row.</div>
+  <div class="shrinker b3">SHRINK 3 — but this row is
+  set only 480 wide, so we each give back a third of
+  the overflow and stand about 150 wide, side by
+  side inside the 480, instead of spilling past it.</div>
+</div>
+
+<h2>4 — wrap onto two lines</h2>
+<div class="bar wraprow">
+  <div class="wbox b1">WRAP 1</div>
+  <div class="wbox b2">WRAP 2</div>
+  <div class="wbox b3">WRAP 3</div>
+  <div class="wbox b4">WRAP 4 — the bar is 500 wide and
+  we are 160 each, so I no longer fit on the first
+  line: I start the second.</div>
+  <div class="wbox b5">WRAP 5 — second line, second
+  seat.</div>
+</div>
+
+<h2>5 — column direction</h2>
+<div class="bar column">
+  <div class="crow b1">ROW ONE — in a column container
+  the items stack downward, and each of us stretches
+  across the bar's whole width.</div>
+  <div class="crow b2">ROW TWO — with an 8-point gap
+  between us, which the yellow shows.</div>
+  <div class="crow b3">ROW THREE — no box here declares
+  a width; the stretch is the alignment's doing.</div>
+</div>
+
+<h2>6 — centered on both axes</h2>
+<div class="bar stage">
+  <div class="solo">CENTERED — the bar is 120 tall; I
+  sit at its exact middle, left-right and top-bottom
+  alike.</div>
+</div>
+
+<h2>7 — gap</h2>
+<div class="bar gapped">
+  <div class="gbox b1">GAP 1</div>
+  <div class="gbox b2">GAP 2</div>
+  <div class="gbox b3">GAP 3</div>
+</div>
+<p>The yellow gutters between the boxes are 24 points
+each — and there is no gap at the bar's edges: a gap
+lives only between items.</p>
+
+<h2>8 — order rearranges</h2>
+<div class="bar">
+  <div class="box o3 b1">FILE 1, order 3 — I stand
+  LAST.</div>
+  <div class="box o1 b2">FILE 2, order 1 — I stand
+  FIRST.</div>
+  <div class="box o2 b3">FILE 3, order 2 — I stand
+  between them.</div>
+</div>
+<p>In the file, the blue box is written first, the red
+second, the green third. On the page the order
+property has re-sorted us: red, green, blue.</p>
+
+<h2>9 — nested flex: the link cards</h2>
+<div class="bar cards">
+  <a class="card b1" href="https://jesuslovestyler.github.io/Catholic-Bible/">
+    <div class="ct">Catholic Bible</div>
+    <div>Each card is a flex item of the row — and a
+    flex container itself, stacking its title over its
+    text in a column.</div>
+  </a>
+  <a class="card b2" href="https://jesuslovestyler.github.io/Catholic-Study-Bible/">
+    <div class="ct">Catholic Study Bible</div>
+    <div>We three cards share the row equally, because
+    each of us is flex: 1 — however much text we hold,
+    our widths match.</div>
+  </a>
+  <a class="card b3" href="https://jesuslovestyler.github.io/Library-of-Faith/">
+    <div class="ct">Library of Faith</div>
+    <div>And because the row stretches its items, we
+    three stand the same height too — as tall as the
+    tallest card.</div>
+  </a>
+</div>
+
+<h2>10 — row-reverse</h2>
+<div class="bar rev">
+  <div class="box b1">ONE — written first, so in a
+  reversed row I stand at the RIGHT edge.</div>
+  <div class="box b2">TWO — I stand in the middle.</div>
+  <div class="box b3">THREE — written last, so I stand
+  at the LEFT edge. Read the row left to right: three,
+  two, one.</div>
+</div>
+
+<h2>11 — baseline</h2>
+<div class="bar baseline">
+  <div class="big">Big words</div>
+  <div class="small">small words, standing lower</div>
+</div>
+<p>The two boxes' tops do not line up — the red one
+hangs lower — but the words themselves share one
+invisible line: each box is placed so its first line
+of text meets the other's baseline.</p>
+
+<p>End of the test page. If all eleven promises held,
+flexbox works.</p>
+</body>
+</html>

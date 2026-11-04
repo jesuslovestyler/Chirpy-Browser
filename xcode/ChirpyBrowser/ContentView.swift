@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.23.2 (Swift)
+//  Chirpy Browser — prototype 0.24.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.23.2 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.24.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -180,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.23.2 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.24.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -782,6 +782,7 @@ struct PageTextView: NSViewRepresentable {
             band?.positionedPaintsBelow = []
             band?.positionedPaints = []
             band?.columnPaints = []
+            band?.flexPaints = []
             if !container.exclusionPaths.isEmpty {
                 container.exclusionPaths = []
             }
@@ -825,7 +826,7 @@ struct PageTextView: NSViewRepresentable {
                 for event in self.layoutEvents {
                     switch event {
                     case .float(let spec):
-                        // A percentage width (0.23.2)
+                        // A percentage width (0.24.0)
                         // resolves here, against the real
                         // column the view is placing in,
                         // less the containing block's
@@ -924,7 +925,7 @@ struct PageTextView: NSViewRepresentable {
                             if spec.side == .left && other.side != .left { continue }
                             if spec.side == .right && other.side != .right { continue }
                             // The bound is inclusive
-                            // (0.23.2): a wrapper whose
+                            // (0.24.0): a wrapper whose
                             // only children are floats
                             // appends no characters
                             // between its last float and
@@ -961,6 +962,13 @@ struct PageTextView: NSViewRepresentable {
                         // resolve after the float passes,
                         // with the positioned boxes.
                         continue
+                    case .flex:
+                        // Flex containers (0.24) make no
+                        // exclusions for the same reason:
+                        // the seat is ordinary flow text.
+                        // They resolve after the float
+                        // passes too, with the columns.
+                        continue
                     }
                 }
                 return (exclusions, paints)
@@ -983,6 +991,7 @@ struct PageTextView: NSViewRepresentable {
                 case .clear(let spec): return spec.anchorCharIndex
                 case .positioned(let spec): return spec.anchorCharIndex
                 case .columns(let spec): return spec.anchorCharIndex
+                case .flex(let spec): return spec.anchorCharIndex
                 }
             }.min() ?? 0
             var exclusions: [NSBezierPath] = []
@@ -1082,6 +1091,30 @@ struct PageTextView: NSViewRepresentable {
                     spec: spec))
             }
             band?.columnPaints = columnPaints
+
+            // Flexbox (0.24): a flex container's seat
+            // stands in the flow at its reserved height,
+            // exactly like a multicolumn block's — the
+            // items paint into the seat's line, resolved
+            // from the seat's own line fragment, so a
+            // clear or a float above the container that
+            // moved its line moves the items with it.
+            var flexPaints: [(rect: NSRect, spec: TBFlexSpec)] = []
+            for event in layoutEvents {
+                guard case .flex(let spec) = event,
+                      spec.anchorCharIndex < storage.length else { continue }
+                let glyph = layoutManager.glyphIndexForCharacter(
+                    at: spec.anchorCharIndex)
+                guard glyph < layoutManager.numberOfGlyphs else { continue }
+                let fragment = layoutManager.lineFragmentRect(
+                    forGlyphAt: glyph, effectiveRange: nil)
+                let spot = layoutManager.location(forGlyphAt: glyph)
+                flexPaints.append((rect: NSRect(
+                    x: fragment.minX + spot.x, y: fragment.minY,
+                    width: spec.totalWidth, height: spec.totalHeight),
+                    spec: spec))
+            }
+            band?.flexPaints = flexPaints
             rebuildFixedViews()
             textView.needsDisplay = true
             repositionFormViews()
@@ -1107,7 +1140,7 @@ struct PageTextView: NSViewRepresentable {
         }
 
         // Measure a painted box's text the way the
-        // renderer measures it (0.23.2): its own storage,
+        // renderer measures it (0.24.0): its own storage,
         // manager and container at a given width. Used to
         // re-measure a percentage-width float's height
         // once its width has been resolved against the
@@ -1441,7 +1474,7 @@ final class TBBandLayoutManager: NSLayoutManager {
     var floatPaints: [(rect: NSRect, spec: TBFloatSpec)] = [] {
         didSet { floatContentLayouts = [:] }
     }
-    // Painted layouts (0.23.2): the cache holds each
+    // Painted layouts (0.24.0): the cache holds each
     // box's NSTextStorage alongside its layout manager
     // and container. A layout manager references its
     // text storage only weakly — the storage owns the
@@ -1488,7 +1521,7 @@ final class TBBandLayoutManager: NSLayoutManager {
                 rect.origin.y += offset.y
                 rect.size.width = width
                 // A rect with no area is dropped
-                // (0.23.2): handed on, it would fill
+                // (0.24.0): handed on, it would fill
                 // as a zero-size draw — the kind
                 // Metal's debug validation asserts
                 // on — and it can paint no pixel
@@ -1551,6 +1584,7 @@ final class TBBandLayoutManager: NSLayoutManager {
         paintPositionedBelow(at: origin)
         paintFloats(at: origin)
         paintColumns(at: origin)
+        paintFlex(at: origin)
     }
 
     private func paintContinuousSurfaces(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -1637,7 +1671,7 @@ final class TBBandLayoutManager: NSLayoutManager {
                               height: band.bottom - band.top)
             // A band of no height — an empty
             // paragraph's surface can measure zero —
-            // is never issued as a draw (0.23.2):
+            // is never issued as a draw (0.24.0):
             // zero-size draws are what Metal's debug
             // validation asserts on (instanceCount 0),
             // and a rect with no area paints nothing
@@ -1693,7 +1727,7 @@ final class TBBandLayoutManager: NSLayoutManager {
             // rule a point or three wide has no bevel to
             // show. Dotted and dashed stroke a line with
             // a dash pattern instead. A rule of no height
-            // is not drawn at all (0.23.2): a zero-height
+            // is not drawn at all (0.24.0): a zero-height
             // fill, or a path from a point to itself, is
             // a zero-size draw.
             if spec.columnCount > 1, spec.ruleWidth > 0,
@@ -1748,7 +1782,7 @@ final class TBBandLayoutManager: NSLayoutManager {
             manager = cached.1
             containers = cached.2
         } else {
-            // 0.23.2: the storage is built first and
+            // 0.24.0: the storage is built first and
             // attached to the manager before its
             // containers — the floated-box painter's
             // established order — and the cache keeps
@@ -1783,6 +1817,148 @@ final class TBBandLayoutManager: NSLayoutManager {
                 y: rect.minY)
             manager.drawBackground(forGlyphRange: glyphs, at: at)
             manager.drawGlyphs(forGlyphRange: glyphs, at: at)
+            // Flexbox (0.24): a flex container nested
+            // in the columns paints at its seat in this
+            // column, like one nested anywhere else.
+            let chars = manager.characterRange(forGlyphRange: glyphs,
+                                               actualGlyphRange: nil)
+            paintFlexSeats(in: content, manager: manager, at: at,
+                           charRange: chars)
+        }
+    }
+
+    // Flexbox (0.24): the flex containers the
+    // coordinator has resolved for this page — each
+    // seat's rect in container coordinates, with the
+    // spec carrying the items and their resolved
+    // boxes — painted in drawBackground, after the
+    // columns: each item's background first, then its
+    // contents inside its padding.
+    var flexPaints: [(rect: NSRect, spec: TBFlexSpec)] = [] {
+        didSet { flexContentLayouts = [:] }
+    }
+    // Item contents are painted layouts, like a
+    // floated box's: the cache holds each item's
+    // NSTextStorage alongside its manager and
+    // container, for the reason 0.24.0 recorded — a
+    // layout manager holds its text storage only
+    // weakly, and a cache that kept only the manager
+    // left every repaint holding no text at all.
+    private var flexContentLayouts:
+        [ObjectIdentifier: (NSTextStorage, NSLayoutManager, NSTextContainer)] = [:]
+
+    private func paintFlex(at origin: NSPoint) {
+        for paint in flexPaints {
+            paintFlexContainer(paint.spec, at: NSPoint(
+                x: origin.x + paint.rect.minX,
+                y: origin.y + paint.rect.minY))
+        }
+    }
+
+    // Paint one flex container's items at a
+    // content-box origin — the single flex paint
+    // path: the main flow's seats arrive here from
+    // paintFlex, and a container nested inside
+    // painted contents arrives from paintFlexSeats,
+    // at the seat's own place in its box. Each item
+    // paints its background color and photo layers
+    // over its whole border box (never for a rect
+    // with no area — a zero-size fill is the draw
+    // Metal's debug validation asserts on), then its
+    // contents inside its padding.
+    func paintFlexContainer(_ spec: TBFlexSpec, at origin: NSPoint) {
+        for item in spec.items {
+            let rect = NSRect(x: origin.x + item.rect.minX,
+                              y: origin.y + item.rect.minY,
+                              width: item.rect.width,
+                              height: item.rect.height)
+            if let color = item.backgroundColor,
+               rect.width > 0, rect.height > 0 {
+                color.setFill()
+                rect.fill()
+            }
+            if let box = item.backgroundBox {
+                TBBandLayoutManager.paintBackgroundLayers(box, in: rect)
+            }
+            let contentRect = NSRect(
+                x: rect.minX + item.paddingLeft,
+                y: rect.minY + item.paddingTop,
+                width: max(0, rect.width - item.paddingLeft
+                    - item.paddingRight),
+                height: max(0, rect.height - item.paddingTop
+                    - item.paddingBottom))
+            if let content = item.content, content.length > 0,
+               contentRect.width > 0, contentRect.height > 0 {
+                drawFlexItemContent(item, in: contentRect)
+            }
+        }
+    }
+
+    // Lay a flex item's contents out in a private
+    // layout manager at the item's content size and
+    // paint them there — a floated box's content
+    // painting, per item — then paint any flex
+    // containers nested in those contents at their
+    // seats. The layout is cached per item until the
+    // page resolves again.
+    private func drawFlexItemContent(_ item: TBFlexItem, in rect: NSRect) {
+        guard let content = item.content, content.length > 0
+        else { return }
+        let key = ObjectIdentifier(item)
+        let manager: NSLayoutManager
+        let container: NSTextContainer
+        if let cached = flexContentLayouts[key],
+           cached.2.size == rect.size {
+            manager = cached.1
+            container = cached.2
+        } else {
+            let storage = NSTextStorage(attributedString: content)
+            manager = NSLayoutManager()
+            container = NSTextContainer(size: rect.size)
+            storage.addLayoutManager(manager)
+            manager.addTextContainer(container)
+            flexContentLayouts[key] = (storage, manager, container)
+        }
+        manager.ensureLayout(for: container)
+        let glyphs = manager.glyphRange(for: container)
+        guard glyphs.length > 0 else { return }
+        manager.drawBackground(forGlyphRange: glyphs, at: rect.origin)
+        manager.drawGlyphs(forGlyphRange: glyphs, at: rect.origin)
+        paintFlexSeats(in: content, manager: manager, at: rect.origin)
+    }
+
+    // Paint the flex containers nested inside painted
+    // contents: the renderer stamps each nested
+    // container's spec on its seat character, so scan
+    // the contents for the stamp, resolve each seat's
+    // place from the layout that just painted the
+    // contents — the fragment's start plus the glyph's
+    // own advance within the line, the way a form
+    // control's seat is found — and paint the
+    // container's items there. A character range
+    // limits the scan to one column of a multicolumn
+    // block's chained containers.
+    func paintFlexSeats(in content: NSAttributedString,
+                        manager: NSLayoutManager, at origin: NSPoint,
+                        charRange: NSRange? = nil) {
+        let range = charRange
+            ?? NSRange(location: 0, length: content.length)
+        var seats: [(spec: TBFlexSpec, charIndex: Int)] = []
+        content.enumerateAttribute(TBFlexSpecKey, in: range) {
+            value, r, _ in
+            if let spec = value as? TBFlexSpec {
+                seats.append((spec: spec, charIndex: r.location))
+            }
+        }
+        for seat in seats {
+            let glyph = manager.glyphIndexForCharacter(at: seat.charIndex)
+            guard glyph < manager.numberOfGlyphs else { continue }
+            let fragment = manager.lineFragmentRect(forGlyphAt: glyph,
+                                                    effectiveRange: nil)
+            let spot = manager.location(forGlyphAt: glyph)
+            paintFlexContainer(seat.spec, at: NSPoint(
+                x: origin.x + fragment.minX + spot.x,
+                y: origin.y + fragment.minY))
         }
     }
 
@@ -1794,7 +1970,7 @@ final class TBBandLayoutManager: NSLayoutManager {
     // its padding. A picture that never arrived leaves a
     // labelled frame, as a failed in-flow image does.
     func paintBox(rect: NSRect, source: TBBoxPaintSource) {
-        // No fill for an empty rect (0.23.2): a box
+        // No fill for an empty rect (0.24.0): a box
         // resolved to no width or no height paints
         // nothing anyway, and a zero-size fill is
         // exactly the draw Metal's debug validation
@@ -1818,7 +1994,7 @@ final class TBBandLayoutManager: NSLayoutManager {
                       contentRect.width > 1, contentRect.height > 1 {
                 // The frame is inset half a point, so
                 // a content rect of a point or less
-                // would stroke an empty path (0.23.2).
+                // would stroke an empty path (0.24.0).
                 NSColor.separatorColor.setStroke()
                 let frame = NSBezierPath(rect: contentRect.insetBy(dx: 0.5, dy: 0.5))
                 frame.lineWidth = 1
@@ -1898,6 +2074,9 @@ final class TBBandLayoutManager: NSLayoutManager {
         guard glyphs.length > 0 else { return }
         manager.drawBackground(forGlyphRange: glyphs, at: rect.origin)
         manager.drawGlyphs(forGlyphRange: glyphs, at: rect.origin)
+        // Flexbox (0.24): a flex container nested in
+        // this box paints at its seat, recursively.
+        paintFlexSeats(in: content, manager: manager, at: rect.origin)
     }
 
     // Positioned layout (0.17): glyphs under a relative
@@ -1946,7 +2125,7 @@ final class TBBandLayoutManager: NSLayoutManager {
     // backgrounds through this same path.
     static func paintBackgroundLayers(_ box: TBBackgroundBox, in rect: NSRect) {
         // One guard for every caller — surfaces, the
-        // box painter, the fixed overlays (0.23.2): no
+        // box painter, the fixed overlays (0.24.0): no
         // layer of a box with no area is ever drawn,
         // since a gradient or photo issued into an
         // empty rect is a zero-size draw.
@@ -2243,9 +2422,16 @@ final class TBFixedOverlayView: NSView {
     }
     // The storage rides in the cache for the same
     // reason as in the layout manager's painters
-    // (0.23.2): the manager holds it only weakly, and
+    // (0.24.0): the manager holds it only weakly, and
     // a fixed box's words must survive repaints.
     private var contentLayout: (NSTextStorage, NSLayoutManager, NSTextContainer)? = nil
+
+    // Flexbox (0.24): the painter for any flex
+    // containers nested in this box's contents — a
+    // band layout manager kept for its item layout
+    // caches and paint paths; it lays out nothing of
+    // its own.
+    private let flexPainter = TBBandLayoutManager()
 
     override var isFlipped: Bool { true }
 
@@ -2303,6 +2489,11 @@ final class TBFixedOverlayView: NSView {
         guard glyphs.length > 0 else { return }
         manager.drawBackground(forGlyphRange: glyphs, at: contentRect.origin)
         manager.drawGlyphs(forGlyphRange: glyphs, at: contentRect.origin)
+        // Flexbox (0.24): a flex container nested in
+        // this box paints at its seat, as in any
+        // painted box.
+        flexPainter.paintFlexSeats(in: content, manager: manager,
+                                   at: contentRect.origin)
     }
 }
 

@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.23.2 (Swift)
+//  Chirpy Browser — engine 0.24.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -184,7 +184,53 @@
 //      :focus and :active are not read, and a hover
 //      background's photo or gradient layers are not
 //      painted — its color is.
-//  Not yet: position: sticky, :focus and :active,
+//    * Flexbox (0.24): a block with display:flex (or
+//      inline-flex, treated the same) hands its
+//      children to the flex layout — each element
+//      child an item sub-rendered like a floated box's
+//      contents, each run of text and inline children
+//      one anonymous item, as the spec requires — and
+//      takes its place in the flow as a clear seat,
+//      like a multicolumn block, while the view paints
+//      the items into the seat's line. flex-direction
+//      in all four spellings (the reverses mirror the
+//      laid-out boxes in the container's main extent),
+//      flex-wrap: wrap, the six justify-content
+//      distributions, align-items and align-self
+//      (stretch, flex-start, flex-end, center, and
+//      baseline — the shared baseline measured from
+//      each item's own layout, first fragment and
+//      first glyph), row-gap / column-gap / gap,
+//      order, and the item properties flex-grow,
+//      flex-shrink, flex-basis and the flex shorthand
+//      are read, resolved per the spec's own shape:
+//      base sizes clamped to hypothetical sizes,
+//      lines collected by them, flexible lengths
+//      resolved line by line with items freezing at
+//      their declared min and max clamps and at
+//      their contents' own size under shrink.
+//      Percentages resolve against the container's
+//      true content size in the layout pass, never a
+//      nominal page. Declared sizes read as the whole
+//      box, the floated boxes' convention. Flex
+//      containers nest — an item that is itself
+//      display:flex sub-renders through the same
+//      machinery, its spec riding on its seat under
+//      TBFlexSpecKey wherever the painted contents
+//      carrying it travel, corrected at the finalize
+//      to the width it truly stands in — and a flex
+//      container inside a floated, positioned or
+//      column box works the same way. An absolutely
+//      positioned child is no item; it registers with
+//      the positioned machinery as usual. Not read:
+//      wrap-reverse (its pages get wrap), align-content
+//      (wrapped lines pack at the cross start), and a
+//      flex container's percentage height. Items are
+//      paint, not live text — the floated box's
+//      bargain, struck again: their links show their
+//      colors but do not click.
+//  Not yet: grid, position: sticky, transforms,
+//  :focus and :active, column-span,
 //  JavaScript (the mountain).
 //
 
@@ -287,7 +333,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.24.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -305,7 +351,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.24.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -359,7 +405,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.24.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -437,7 +483,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.24.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -579,6 +625,22 @@ final class TBHoverStyle {
     var strikethroughStyle: Int? = nil
 }
 
+// Flexbox (0.24): a flex container's spec rides on its
+// seat character under this key, as a class (attribute
+// values that are Swift dictionaries do not survive
+// being read back — the hover stamps' lesson). A
+// top-level container ALSO records a .flex layout
+// event, and the view resolves its seat from the event
+// like a multicolumn block's; but a container nested
+// inside a painted box — a floated box's contents, a
+// column block, another flex item — has no event of its
+// own (its renderer records none), so the stamp is what
+// carries it: wherever the box's contents travel, the
+// seat and its spec travel together, and the view finds
+// the stamp when it paints the box and lays the flex
+// items into the seat's place, recursively.
+let TBFlexSpecKey = NSAttributedString.Key("TBFlexSpec")
+
 enum TBFloatSide { case left, right }
 enum TBClearSide { case left, right, both }
 
@@ -595,7 +657,7 @@ final class TBFloatSpec {
     var borderHeight: CGFloat
     var widthDeclared = false
     var heightDeclared = false
-    // A declared percentage width (0.23.2): the raw
+    // A declared percentage width (0.24.0): the raw
     // percent, kept unresolved because a percentage
     // belongs to the containing block, whose real
     // width only the view knows — the view resolves
@@ -664,6 +726,7 @@ enum TBLayoutEvent {
     case clear(TBClearSpec)
     case positioned(TBPositionedSpec)
     case columns(TBMultiColumnSpec)
+    case flex(TBFlexSpec)
 }
 
 // Positioned layout (0.21): an element with position
@@ -809,6 +872,142 @@ final class TBMultiColumnSpec {
     }
 }
 
+// Flexbox (0.24): the seat that reserves a flex
+// container's height in the flow — a clear-seat
+// attachment like the multicolumn block's, one
+// character wide in the text and the whole block
+// tall — and the spec the walk records for the view:
+// the container's flex parameters and its items, each
+// item sub-rendered and cleaned like a floated box's
+// contents, with every item's border box resolved by
+// the renderer's layout pass into the container's
+// content-box coordinates. The view paints the items
+// into the seat's line.
+final class TBFlexSeatAttachment: NSTextAttachment {}
+
+enum TBFlexDirection { case row, rowReverse, column, columnReverse }
+
+// One flex item: its flex properties as the page
+// declared them (lengths kept as points-or-percent
+// until the layout pass resolves them against the
+// container's true size — a percentage resolved
+// against a nominal page is the 0.24.0 float bug, and
+// flex does not repeat it), its margins and padding,
+// its backgrounds, its rendered contents, and — after
+// the layout pass — its border box in the container's
+// content-box coordinates.
+final class TBFlexItem {
+    var order: Int = 0
+    var grow: Double = 0
+    var shrink: Double = 1
+    // flex-basis: nil is auto (the item's width or
+    // height property, else its contents); basisContent
+    // is the `content` keyword (its contents, always).
+    var basis: TBInsetValue? = nil
+    var basisContent = false
+    // align-self: nil is auto — the container's
+    // align-items answers.
+    var alignSelf: String? = nil
+    var marginTop: CGFloat = 0
+    var marginRight: CGFloat = 0
+    var marginBottom: CGFloat = 0
+    var marginLeft: CGFloat = 0
+    var paddingTop: CGFloat = 0
+    var paddingRight: CGFloat = 0
+    var paddingBottom: CGFloat = 0
+    var paddingLeft: CGFloat = 0
+    var widthDecl: TBInsetValue? = nil
+    var heightDecl: TBInsetValue? = nil
+    var minWidth: TBInsetValue? = nil
+    var maxWidth: TBInsetValue? = nil
+    var minHeight: TBInsetValue? = nil
+    var maxHeight: TBInsetValue? = nil
+    var backgroundColor: NSColor? = nil
+    var backgroundBox: TBBackgroundBox? = nil
+    // The item's own rendered contents, painted by the
+    // view inside the item's padding — paint, not live
+    // text: the floated box's bargain, struck again.
+    var content: NSAttributedString? = nil
+    // The border box the layout pass resolved.
+    var rect: NSRect = .zero
+
+    // The margins along an axis, summed.
+    func marginMain(horizontal: Bool) -> CGFloat {
+        horizontal ? marginLeft + marginRight : marginTop + marginBottom
+    }
+    func marginCross(horizontal: Bool) -> CGFloat {
+        horizontal ? marginTop + marginBottom : marginLeft + marginRight
+    }
+    func paddingMain(horizontal: Bool) -> CGFloat {
+        horizontal ? paddingLeft + paddingRight : paddingTop + paddingBottom
+    }
+    func paddingCross(horizontal: Bool) -> CGFloat {
+        horizontal ? paddingTop + paddingBottom : paddingLeft + paddingRight
+    }
+}
+
+final class TBFlexSpec {
+    // Where the seat sits in the text; the view hangs
+    // the container from the top of the line that
+    // holds it.
+    var anchorCharIndex: Int = 0
+    let direction: TBFlexDirection
+    var wraps: Bool = false
+    var justify: String = "flex-start"
+    var alignItems: String = "stretch"
+    // The gaps as declared, resolved by the layout
+    // pass: column-gap percentages belong to the
+    // container's width, row-gap percentages to its
+    // height when the page declared one (an indefinite
+    // height resolves a percentage row-gap to zero, as
+    // the spec directs).
+    var gapRow: TBInsetValue? = nil
+    var gapColumn: TBInsetValue? = nil
+    // The container's content-box width — the seat's
+    // width, and the span row-direction items share.
+    // A variable, not a constant: a container nested in
+    // a painted box is first walked against the page's
+    // nominal width, and the box's finalize corrects it
+    // to the width it truly stands in (see
+    // correctFlexSeats).
+    var totalWidth: CGFloat
+    // The content-box height the page declared, when
+    // it declared one; nil is an indefinite height —
+    // the container stands as tall as its lines.
+    var declaredHeight: CGFloat? = nil
+    // The content-box width a declared width or
+    // max-width capped the container at, when one did:
+    // a finalize correcting a nested container may
+    // narrow it to the width it stands in, but never
+    // widen it past what the page declared.
+    var declaredContentWidth: CGFloat? = nil
+    // The container's own min-height / max-height,
+    // resolved to content-box points at spec time
+    // (percentage heights are not read — there is no
+    // definite height above a flow block to resolve
+    // them against).
+    var minHeightClamp: CGFloat? = nil
+    var maxHeightClamp: CGFloat? = nil
+    // The laid-out height of the whole container:
+    // what the seat reserves.
+    var totalHeight: CGFloat = 0
+    var items: [TBFlexItem] = []
+    // The seat in the page's text, whose bounds the
+    // arrivals finish corrects to the final height.
+    var seat: TBFlexSeatAttachment? = nil
+    // This container's own flow indents (its margins
+    // and padding as the flow folded them), recorded
+    // so a finalize correcting a nested container can
+    // find the content width inside its seat's line.
+    var flowIndent: CGFloat = 0
+    var flowTailIndent: CGFloat = 0
+
+    init(direction: TBFlexDirection, totalWidth: CGFloat) {
+        self.direction = direction
+        self.totalWidth = totalWidth
+    }
+}
+
 // Parse an element's background-image into a box of
 // layers. The longhand is the primary path; the
 // `background` shorthand is mined for layer chunks that
@@ -872,7 +1071,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.24.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -2911,7 +3110,7 @@ final class TBRenderer {
     private var relDY: CGFloat = 0
     private var lastFlushRange: NSRange? = nil
     var nominalWidth: CGFloat = 1000
-    // Percentage float widths (0.23.2): the horizontal
+    // Percentage float widths (0.24.0): the horizontal
     // padding of the block ancestors currently open,
     // accumulated by walkBlock the way the relative
     // offsets above are — a floated child's containing
@@ -2936,6 +3135,19 @@ final class TBRenderer {
     // its contents, waiting for the arrivals finish to
     // clean and re-balance them, as block floats wait.
     private var pendingColumns: [(spec: TBMultiColumnSpec, sub: TBRenderer)] = []
+
+    // Flexbox (0.24): the flex containers the walk met,
+    // each with the sub-renderers holding its items'
+    // contents, waiting for the arrivals finish to
+    // clean, correct and re-lay them, as block floats
+    // wait. Unlike floats and columns, flex containers
+    // are also met inside sub-renderers — an item that
+    // is itself a flex container, a flex box inside a
+    // floated box — where no layout event is recorded
+    // and the seat's own attribute stamp carries the
+    // spec into the painted contents.
+    private var pendingFlex: [(spec: TBFlexSpec, subs: [TBRenderer])] = []
+    private var flexCount = 0
 
     private func edgeIndex(color: NSColor?, box: TBBackgroundBox?) -> Int? {
         surfaceEdges.lastIndex { edge in
@@ -3449,7 +3661,8 @@ final class TBRenderer {
             || !pendingBlockFloats.isEmpty
             || !positionedImageJobs.isEmpty
             || !pendingPositioned.isEmpty
-            || !pendingColumns.isEmpty { return true }
+            || !pendingColumns.isEmpty
+            || !pendingFlex.isEmpty { return true }
         for box in backgroundBoxes.values {
             for layer in box.layers {
                 if case .image = layer.kind { return true }
@@ -3471,6 +3684,7 @@ final class TBRenderer {
         await finishFloatImages()
         await finishPositioned()
         await finishColumns()
+        await finishFlex()
     }
 
     private func findTag(_ node: TBNode, _ tag: String) -> TBNode? {
@@ -3714,7 +3928,7 @@ final class TBRenderer {
                 padTop: plen(padding[0]), padBottom: plen(padding[2]),
                 topCarry: plen(padding[0])))
         }
-        // Percentage float widths (0.23.2): this block's
+        // Percentage float widths (0.24.0): this block's
         // own horizontal padding joins the accumulation,
         // so a floated child met in the loop below reads
         // its containing block's inset from the spec it
@@ -3728,6 +3942,34 @@ final class TBRenderer {
         if isForm { enterForm(node) }
 
         var buffer = NSMutableAttributedString()
+        // Flexbox (0.24): a block with display:flex hands
+        // its children to the flex layout at once — each
+        // child sub-rendered as an item, the items laid
+        // out and seated in the flow as one block — the
+        // multicolumn bargain, struck for a container
+        // whose children stand in rows or columns of
+        // their own instead of in flowing text. CSS gives
+        // a flex container's contents to flex entirely
+        // (its column properties fall silent), so this
+        // path is tried before the columns'. Unlike the
+        // columns, it is taken inside painted boxes too:
+        // a flex container nested in a float, a column
+        // block or another item records no layout event,
+        // and its seat carries its spec as an attribute
+        // instead — the view finds it when it paints the
+        // box. The entry and closing bookkeeping around
+        // it is shared exactly as it stands.
+        var tookFlex = false
+        if node.tag != "document", flexCount < 60,
+           let flexSpec = flexContainerSpec(own, fontSize: effFont.pointSize,
+                                            metrics: metrics) {
+            tookFlex = renderFlex(
+                node: node, spec: flexSpec, font: effFont,
+                color: effColor, align: effAlign, background: effBackground,
+                backgroundBox: effBox, metrics: metrics,
+                ownSurface: declaresSurface)
+            flushedOwn = tookFlex
+        }
         // Multi-column layout (0.22): a block declaring
         // columns hands its whole contents to the columns
         // at once — sub-rendered, balanced, and seated in
@@ -3742,7 +3984,7 @@ final class TBRenderer {
         // (insideFloat) never takes this path — nested
         // columns simply flow.
         var tookColumns = false
-        if !insideFloat, node.tag != "document",
+        if !tookFlex, !insideFloat, node.tag != "document",
            let columnSpec = multiColumnSpec(
                own, fontSize: effFont.pointSize,
                totalWidth: nominalWidth - metrics.indent - metrics.tailIndent) {
@@ -3756,7 +3998,7 @@ final class TBRenderer {
                 ownSurface: declaresSurface)
             flushedOwn = tookColumns
         }
-        for child in tookColumns ? [] : node.children {
+        for child in (tookFlex || tookColumns) ? [] : node.children {
             if TBRenderSkipTags.contains(child.tag) { continue }
             // Layout step one: the child's computed display decides
             // whether it stands as its own block or flows inline —
@@ -4063,7 +4305,7 @@ final class TBRenderer {
         let fontSize = childFont.pointSize
         let margins = boxLengths(own, "margin", fontSize: fontSize)
         let padding = boxLengths(own, "padding", fontSize: fontSize)
-        // A percentage width (0.23.2) is NOT resolved
+        // A percentage width (0.24.0) is NOT resolved
         // here: tbLengthValue would settle it against a
         // flat thousand points, which is how a declared
         // 44% came out at 44% of a page the float had
@@ -4179,6 +4421,12 @@ final class TBRenderer {
         spec.content = cleaned
         let padH = spec.paddingLeft + spec.paddingRight
         let padV = spec.paddingTop + spec.paddingBottom
+        // Flexbox (0.24): a flex container inside this
+        // box was walked against the page's nominal
+        // width; correct it to the width it stands in
+        // here, now that this box's own width is final.
+        correctFlexSeats(in: cleaned,
+                         availableWidth: max(spec.borderWidth - padH, 10))
         if !spec.widthDeclared {
             let natural = measureText(cleaned, width: nominalWidth).width
             spec.borderWidth = min(max(natural + padH, 1), nominalWidth)
@@ -4519,6 +4767,10 @@ final class TBRenderer {
         cleaned.removeAttribute(.link,
                                 range: NSRange(location: 0, length: cleaned.length))
         spec.content = cleaned
+        // Flexbox (0.24): a flex container inside the
+        // columns was walked against the page's nominal
+        // width; its lines stand one column wide here.
+        correctFlexSeats(in: cleaned, availableWidth: spec.columnWidth)
         spec.columnHeight = balanceColumns(cleaned, count: spec.columnCount,
                                            columnWidth: spec.columnWidth)
         spec.totalHeight = spec.columnHeight
@@ -4538,9 +4790,1086 @@ final class TBRenderer {
         for pending in pendingColumns {
             await pending.sub.finishImages()
             await pending.sub.finishBackgrounds()
+            await pending.sub.finishFlex()
             finalizeColumns(spec: pending.spec, sub: pending.sub)
         }
         pendingColumns = []
+    }
+
+    // MARK: - Flexbox (0.24)
+
+    // One length as flex reads it: a plain percentage
+    // is kept as a percentage (its base is the flex
+    // container's own size, which only the layout pass
+    // knows); anything else resolves to points through
+    // the ordinary length reader. "auto" and the
+    // unreadable yield nil.
+    private func flexLength(_ raw: String?,
+                            fontSize: CGFloat) -> TBInsetValue? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespaces)
+                .lowercased(),
+              !raw.isEmpty, raw != "auto" else { return nil }
+        if raw.hasSuffix("%"), let pct = Double(raw.dropLast()) {
+            return .percent(CGFloat(pct))
+        }
+        if let value = tbLengthValue(raw, fontSize: fontSize) {
+            return .points(value)
+        }
+        return nil
+    }
+
+    // A flex length against its base: points are
+    // themselves; a percentage of an indefinite base
+    // resolves to nothing, and the caller reads that
+    // as the spec directs (usually: as content).
+    private func resolveFlexLength(_ value: TBInsetValue?,
+                                   against base: CGFloat?) -> CGFloat? {
+        guard let value = value else { return nil }
+        switch value {
+        case .points(let v): return v
+        case .percent(let pct): return base.map { $0 * pct / 100 }
+        }
+    }
+
+    // The alignment words align-items and align-self
+    // share, normalized; anything else (or nothing)
+    // yields nil, and the caller substitutes its
+    // default.
+    private func flexAlignWord(_ raw: String?) -> String? {
+        guard let v = raw?.trimmingCharacters(in: .whitespaces)
+                .lowercased() else { return nil }
+        switch v {
+        case "flex-start", "start", "self-start": return "flex-start"
+        case "flex-end", "end", "self-end": return "flex-end"
+        case "center": return "center"
+        case "stretch": return "stretch"
+        case "baseline": return "baseline"
+        default: return nil
+        }
+    }
+
+    // A block's flex declarations, resolved to the
+    // spec the layout pass works from — or nil when
+    // the block is no flex container. The container's
+    // width is the flow's span for the block, capped
+    // by a declared width or max-width (a declared
+    // percentage against the containing block's
+    // content width as this renderer knows it — the
+    // nominal width less the ancestors' padding, the
+    // float widths' own precedent — never the length
+    // parser's flat thousand). A declared height is
+    // kept as the content height it implies; a
+    // percentage height is not read, there being no
+    // definite height above a flow block to resolve
+    // it against.
+    private func flexContainerSpec(_ own: [String: String],
+                                   fontSize: CGFloat,
+                                   metrics: TBBlockMetrics)
+        -> TBFlexSpec? {
+        let display = (own["display"] ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased()
+        guard display == "flex" || display == "inline-flex"
+        else { return nil }
+        var direction: TBFlexDirection = .row
+        var wraps = false
+        func directionWord(_ t: String) {
+            switch t {
+            case "row": direction = .row
+            case "row-reverse": direction = .rowReverse
+            case "column": direction = .column
+            case "column-reverse": direction = .columnReverse
+            default: break
+            }
+        }
+        func wrapWord(_ t: String) {
+            switch t {
+            case "wrap": wraps = true
+            case "nowrap": wraps = false
+            // wrap-reverse is not read: its lines stack
+            // from the cross end, which a seat in a text
+            // flow cannot honestly express; the page
+            // gets wrap, and the header says so.
+            case "wrap-reverse": wraps = true
+            default: break
+            }
+        }
+        if let flow = own["flex-flow"] {
+            for token in valueTokens(flow) {
+                let t = token.lowercased()
+                directionWord(t)
+                wrapWord(t)
+            }
+        }
+        if let raw = own["flex-direction"] {
+            directionWord(raw.trimmingCharacters(in: .whitespaces)
+                            .lowercased())
+        }
+        if let raw = own["flex-wrap"] {
+            wrapWord(raw.trimmingCharacters(in: .whitespaces)
+                        .lowercased())
+        }
+        var justify = "flex-start"
+        switch (own["justify-content"] ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased() {
+        case "flex-end", "end": justify = "flex-end"
+        case "center": justify = "center"
+        case "space-between": justify = "space-between"
+        case "space-around": justify = "space-around"
+        case "space-evenly": justify = "space-evenly"
+        default: break
+        }
+        let alignItems = flexAlignWord(own["align-items"]) ?? "stretch"
+        // The gaps: the shorthand first (one value for
+        // both axes, or row then column), the longhands
+        // over it — the box shorthands' own convention.
+        var gapRow: TBInsetValue? = nil
+        var gapColumn: TBInsetValue? = nil
+        if let raw = own["gap"] {
+            let tokens = valueTokens(raw)
+            if let first = tokens.first,
+               let v = flexLength(first, fontSize: fontSize) {
+                gapRow = v
+                gapColumn = v
+            }
+            if tokens.count > 1,
+               let v = flexLength(tokens[1], fontSize: fontSize) {
+                gapColumn = v
+            }
+        }
+        if let v = flexLength(own["row-gap"], fontSize: fontSize) {
+            gapRow = v
+        }
+        if let v = flexLength(own["column-gap"], fontSize: fontSize) {
+            gapColumn = v
+        }
+        let padding = boxLengths(own, "padding", fontSize: fontSize)
+        let padH = padding.left + padding.right
+        let padV = padding.top + padding.bottom
+        var contentW = nominalWidth - metrics.indent - metrics.tailIndent
+        var widthCap: CGFloat? = nil
+        if let declared = flexLength(own["width"], fontSize: fontSize) {
+            let borderW: CGFloat?
+            switch declared {
+            case .points(let v): borderW = v
+            case .percent(let pct):
+                // The containing block's content width:
+                // the accumulated padding of the
+                // ancestors, without this block's own —
+                // the accumulation the walk keeps
+                // includes it by the time this runs.
+                borderW = pct / 100
+                    * max(nominalWidth - ancestorPaddingH + padH, 10)
+            }
+            if let bw = borderW {
+                contentW = min(contentW, max(bw - padH, 10))
+                widthCap = contentW
+            }
+        }
+        if let maxDecl = flexLength(own["max-width"], fontSize: fontSize),
+           case .points(let v) = maxDecl {
+            contentW = min(contentW, max(v - padH, 10))
+            widthCap = contentW
+        }
+        contentW = max(contentW, 10)
+        var declaredHeight: CGFloat? = nil
+        if let declared = flexLength(own["height"], fontSize: fontSize),
+           case .points(let v) = declared {
+            declaredHeight = max(v - padV, 0)
+        }
+        var minHeightClamp: CGFloat? = nil
+        var maxHeightClamp: CGFloat? = nil
+        if let declared = flexLength(own["min-height"], fontSize: fontSize),
+           case .points(let v) = declared {
+            minHeightClamp = max(v - padV, 0)
+        }
+        if let declared = flexLength(own["max-height"], fontSize: fontSize),
+           case .points(let v) = declared {
+            maxHeightClamp = max(v - padV, 0)
+        }
+        let spec = TBFlexSpec(direction: direction, totalWidth: contentW)
+        spec.wraps = wraps
+        spec.justify = justify
+        spec.alignItems = alignItems
+        spec.gapRow = gapRow
+        spec.gapColumn = gapColumn
+        spec.declaredHeight = declaredHeight
+        spec.minHeightClamp = minHeightClamp
+        spec.maxHeightClamp = maxHeightClamp
+        spec.declaredContentWidth = widthCap
+        spec.flowIndent = metrics.indent
+        spec.flowTailIndent = metrics.tailIndent
+        return spec
+    }
+
+    // An item's flex properties from its declarations:
+    // the flex shorthand first (its standard spellings:
+    // none, auto, initial, a lone grow factor, a lone
+    // basis, or grow, shrink and basis in their
+    // order-flexible forms), the longhands over it —
+    // the order the engine reads every shorthand — then
+    // order, alignment, sizes and clamps, margins and
+    // padding, and the backgrounds the painter needs.
+    private func dressFlexItem(_ item: TBFlexItem,
+                               own: [String: String],
+                               fontSize: CGFloat) {
+        if let raw = own["flex"] {
+            let v = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            if v == "none" {
+                item.grow = 0
+                item.shrink = 0
+                item.basis = nil
+                item.basisContent = false
+            } else if v == "auto" {
+                item.grow = 1
+                item.shrink = 1
+                item.basis = nil
+                item.basisContent = false
+            } else if v == "initial" {
+                item.grow = 0
+                item.shrink = 1
+                item.basis = nil
+                item.basisContent = false
+            } else {
+                var numbers: [Double] = []
+                var basisSet = false
+                for token in valueTokens(v) {
+                    if let n = Double(token) {
+                        numbers.append(n)
+                    } else if token == "auto" {
+                        item.basis = nil
+                        item.basisContent = false
+                        basisSet = true
+                    } else if token == "content" {
+                        item.basis = nil
+                        item.basisContent = true
+                        basisSet = true
+                    } else if let length = flexLength(token,
+                                                      fontSize: fontSize) {
+                        item.basis = length
+                        item.basisContent = false
+                        basisSet = true
+                    }
+                }
+                if let g = numbers.first { item.grow = g }
+                if numbers.count > 1 { item.shrink = numbers[1] }
+                if !basisSet, !numbers.isEmpty {
+                    // A factor alone (or two) leaves the
+                    // basis at the shorthand's own zero.
+                    item.basis = .percent(0)
+                    item.basisContent = false
+                } else if numbers.isEmpty, basisSet {
+                    item.grow = 1
+                    item.shrink = 1
+                }
+            }
+        }
+        if let raw = own["flex-grow"],
+           let n = Double(raw.trimmingCharacters(in: .whitespaces)) {
+            item.grow = n
+        }
+        if let raw = own["flex-shrink"],
+           let n = Double(raw.trimmingCharacters(in: .whitespaces)) {
+            item.shrink = n
+        }
+        item.grow = max(0, item.grow)
+        item.shrink = max(0, item.shrink)
+        if let raw = own["flex-basis"] {
+            let v = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            if v == "auto" {
+                item.basis = nil
+                item.basisContent = false
+            } else if v == "content" {
+                item.basis = nil
+                item.basisContent = true
+            } else if let length = flexLength(v, fontSize: fontSize) {
+                item.basis = length
+                item.basisContent = false
+            }
+        }
+        if let raw = own["order"],
+           let n = Int(raw.trimmingCharacters(in: .whitespaces)) {
+            item.order = n
+        }
+        item.alignSelf = flexAlignWord(own["align-self"])
+        item.widthDecl = flexLength(own["width"], fontSize: fontSize)
+        item.heightDecl = flexLength(own["height"], fontSize: fontSize)
+        item.minWidth = flexLength(own["min-width"], fontSize: fontSize)
+        item.maxWidth = flexLength(own["max-width"], fontSize: fontSize)
+        item.minHeight = flexLength(own["min-height"], fontSize: fontSize)
+        item.maxHeight = flexLength(own["max-height"], fontSize: fontSize)
+        let margins = boxLengths(own, "margin", fontSize: fontSize)
+        item.marginTop = margins.top
+        item.marginRight = margins.right
+        item.marginBottom = margins.bottom
+        item.marginLeft = margins.left
+        let padding = boxLengths(own, "padding", fontSize: fontSize)
+        item.paddingTop = padding.top
+        item.paddingRight = padding.right
+        item.paddingBottom = padding.bottom
+        item.paddingLeft = padding.left
+        item.backgroundColor = tbBackgroundColor(own)
+        item.backgroundBox = backgroundBox(decls: own)
+    }
+
+    // A flex container, walked: its children become
+    // items — each element child an item of its own
+    // (a picture walked inside a holder, since a
+    // picture has no children for the walk to seat),
+    // and each run of text and inline children one
+    // anonymous item, as the spec requires — each item
+    // sub-rendered in a renderer of its own, the
+    // floated box's arrangement, and the container
+    // taking its place in this renderer's flow as a
+    // single seat: one attachment character as wide
+    // and as tall as the laid-out container, in a
+    // paragraph carrying the spacing and surface
+    // stamps flush would have given the block's own
+    // first paragraph, and the spec stamped on the
+    // seat under TBFlexSpecKey for whoever paints it.
+    // Absolutely positioned children are no items:
+    // they register with the ordinary machinery as
+    // the walk meets them. Floated children simply
+    // itemize — CSS computes float away on an item.
+    // Past sixty items, further children flow into
+    // the last item, as past sixty floats the rest
+    // simply flow.
+    private func renderFlex(node: TBNode, spec: TBFlexSpec,
+                            font: NSFont, color: NSColor?,
+                            align: NSTextAlignment,
+                            background: NSColor?,
+                            backgroundBox: TBBackgroundBox?,
+                            metrics: TBBlockMetrics,
+                            ownSurface: Bool) -> Bool {
+        var subs: [TBRenderer] = []
+        var items: [TBFlexItem] = []
+        var run: [TBNode] = []
+
+        func makeItem(walkNode: TBNode, own: [String: String],
+                      baseFont: NSFont, fontSize: CGFloat) {
+            if items.count >= 60, let lastSub = subs.last,
+               let last = items.last {
+                lastSub.walkBlock(node: walkNode,
+                                  style: tbStyle(for: walkNode.tag),
+                                  baseFont: baseFont, color: color,
+                                  align: align, inheritedBackground: nil,
+                                  inheritedBackgroundBox: nil)
+                last.content = lastSub.out
+                return
+            }
+            let item = TBFlexItem()
+            dressFlexItem(item, own: own, fontSize: fontSize)
+            let sub = TBRenderer(base: base)
+            sub.rules = rules
+            sub.visitedURLs = visitedURLs
+            sub.insideFloat = true
+            sub.nominalWidth = nominalWidth
+            sub.walkBlock(node: walkNode, style: tbStyle(for: walkNode.tag),
+                          baseFont: baseFont, color: color, align: align,
+                          inheritedBackground: nil,
+                          inheritedBackgroundBox: nil)
+            item.content = sub.out
+            items.append(item)
+            subs.append(sub)
+        }
+        func flushRun() {
+            guard !run.isEmpty else { return }
+            let meaningful = run.contains {
+                $0.tag != "#text" || !$0.text.allSatisfy { tbIsSpace($0) }
+            }
+            let children = run
+            run = []
+            guard meaningful else { return }
+            let holder = TBNode(tag: "#flexrun")
+            holder.children = children
+            makeItem(walkNode: holder, own: [:], baseFont: font,
+                     fontSize: font.pointSize)
+        }
+
+        for child in node.children {
+            if TBRenderSkipTags.contains(child.tag) { continue }
+            if child.tag == "#text" {
+                run.append(child)
+                continue
+            }
+            let childOwn = resolvedStyle(node: child)
+            if tbIsHidden(childOwn) { continue }
+            if !insideFloat, positionedCount < 60,
+               !["input", "select", "textarea", "button"].contains(child.tag),
+               let kind = positionKind(childOwn["position"]) {
+                flushRun()
+                if child.tag == "img" {
+                    registerPositionedImage(child, own: childOwn, kind: kind,
+                                            font: font)
+                } else {
+                    registerPositionedBlock(child, own: childOwn, kind: kind,
+                                            font: font, color: color,
+                                            align: align)
+                }
+                continue
+            }
+            let display = (childOwn["display"] ?? "").lowercased()
+            let forceBlock = ["block", "flex", "grid", "list-item",
+                              "table", "flow-root"].contains(display)
+            let forceInline = ["inline", "inline-block", "inline-flex",
+                               "inline-grid", "contents"].contains(display)
+            let isItem = child.tag == "img"
+                || ["input", "select", "textarea", "button"].contains(child.tag)
+                || forceBlock
+                || (TBBlockTags.contains(child.tag) && !forceInline)
+            if isItem {
+                flushRun()
+                let childFont = tbFontApplying(childOwn, to: font)
+                if child.tag == "img" {
+                    let holder = TBNode(tag: "#flexrun")
+                    holder.children = [child]
+                    makeItem(walkNode: holder, own: childOwn,
+                             baseFont: font, fontSize: childFont.pointSize)
+                } else {
+                    let baseFont = TBHeadingTags.contains(child.tag)
+                        ? tbFont(for: child.tag) : font
+                    makeItem(walkNode: child, own: childOwn,
+                             baseFont: baseFont,
+                             fontSize: childFont.pointSize)
+                }
+            } else {
+                run.append(child)
+            }
+        }
+        flushRun()
+        guard !items.isEmpty else { return false }
+        spec.items = items
+        computeFlexLayout(spec: spec)
+        let seat = TBFlexSeatAttachment()
+        seat.image = tbClearSeat(width: spec.totalWidth,
+                                 height: spec.totalHeight)
+        seat.bounds = CGRect(x: 0, y: 0, width: spec.totalWidth,
+                             height: spec.totalHeight)
+        spec.seat = seat
+        let para = NSMutableAttributedString(
+            attributedString: NSAttributedString(attachment: seat))
+        para.addAttribute(.font, value: font,
+                          range: NSRange(location: 0, length: para.length))
+        para.addAttribute(TBFlexSpecKey, value: spec,
+                          range: NSRange(location: 0, length: para.length))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .left
+        if spaceCarry > 0 { paragraph.paragraphSpacingBefore = spaceCarry }
+        if metrics.after > 0 { paragraph.paragraphSpacing = metrics.after }
+        if metrics.indent > 0 {
+            paragraph.headIndent = metrics.indent
+            paragraph.firstLineHeadIndent = metrics.indent
+        }
+        if metrics.tailIndent > 0 { paragraph.tailIndent = -metrics.tailIndent }
+        para.addAttribute(.paragraphStyle, value: paragraph,
+                          range: NSRange(location: 0, length: para.length))
+        if let background = background {
+            para.addAttribute(.backgroundColor, value: background,
+                              range: NSRange(location: 0, length: para.length))
+        }
+        let paraStart = out.length
+        spec.anchorCharIndex = paraStart
+        out.append(para)
+        lastFlushRange = NSRange(location: paraStart, length: para.length)
+        if relDX != 0 || relDY != 0 {
+            out.addAttribute(TBRelOffsetKey,
+                             value: NSValue(point: NSPoint(x: relDX, y: relDY)),
+                             range: NSRange(location: paraStart,
+                                            length: para.length))
+        }
+        if !pendingClears.isEmpty {
+            for clearSpec in pendingClears {
+                clearSpec.anchorCharIndex = paraStart
+            }
+            pendingClears = []
+        }
+        var separatorAttrs: [NSAttributedString.Key: Any] = [:]
+        if let background = background {
+            separatorAttrs[.backgroundColor] = background
+        }
+        if let backgroundBox = backgroundBox {
+            separatorAttrs[TBBackgroundKey] = backgroundBox
+        }
+        out.append(NSAttributedString(string: "\n\n",
+                                      attributes: separatorAttrs))
+        noteSurfaceParagraph(
+            range: NSRange(location: paraStart, length: para.length),
+            color: background, box: backgroundBox,
+            after: metrics.after, ownSurface: ownSurface)
+        spaceCarry = 0
+        if !insideFloat {
+            layoutEvents.append(.flex(spec))
+        }
+        pendingFlex.append((spec: spec, subs: subs))
+        flexCount += 1
+        return true
+    }
+
+    // The first text baseline of a string laid out at
+    // a width: the first line fragment's top, plus the
+    // first glyph's own rise from it — the two calls
+    // the float anchor and the column seats are
+    // already resolved with, turned to measuring
+    // instead of placing. Attachments answer with
+    // their foot on the baseline, as replaced elements
+    // do.
+    private func measureFirstBaseline(_ string: NSAttributedString,
+                                      width: CGFloat) -> CGFloat? {
+        guard string.length > 0 else { return nil }
+        let storage = NSTextStorage(attributedString: string)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(
+            size: NSSize(width: max(width, 10),
+                         height: CGFloat.greatestFiniteMagnitude))
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        manager.ensureLayout(for: container)
+        guard manager.numberOfGlyphs > 0 else { return nil }
+        let fragment = manager.lineFragmentRect(forGlyphAt: 0,
+                                                effectiveRange: nil)
+        let spot = manager.location(forGlyphAt: 0)
+        return fragment.minY + spot.y
+    }
+
+    // Lay a flex container out: resolve every item's
+    // border box in the container's content-box
+    // coordinates, and the container's own height.
+    // The shape of CSS's own algorithm, at this
+    // engine's scale: order the items; find each
+    // item's flex base size (its basis, its main-size
+    // property, or its contents — declared sizes read
+    // as the whole box, the floated boxes' convention
+    // throughout this engine) and clamp it to the
+    // hypothetical size; collect the items into lines
+    // when the container wraps; resolve the flexible
+    // lengths line by line — grow sharing the free
+    // space by factor (factors summing under one
+    // share only that much of it), shrink taking the
+    // overflow by shrink-times-base — freezing items
+    // at their min and max clamps as the distribution
+    // reaches them, with an item's own content as its
+    // floor under shrink, as min-width:auto directs;
+    // then measure the cross sizes at the final main
+    // sizes, share each line's leftover by
+    // justify-content, place the items across by
+    // align-items and align-self (baseline groups
+    // sharing the line's deepest baseline), and
+    // mirror the main axis for the reverse directions.
+    private func computeFlexLayout(spec: TBFlexSpec) {
+        let items = spec.items
+        let horizontal = spec.direction == .row
+            || spec.direction == .rowReverse
+        let reversed = spec.direction == .rowReverse
+            || spec.direction == .columnReverse
+        let contentW = spec.totalWidth
+        let gapColumn = resolveFlexLength(spec.gapColumn,
+                                          against: contentW) ?? 0
+        let gapRow = resolveFlexLength(spec.gapRow,
+                                       against: spec.declaredHeight) ?? 0
+        let mainGap = horizontal ? gapColumn : gapRow
+        let crossGap = horizontal ? gapRow : gapColumn
+        let containerMain: CGFloat? = horizontal ? contentW
+            : spec.declaredHeight
+        let containerCross: CGFloat? = horizontal ? spec.declaredHeight
+            : contentW
+        let sorted = items.indices.sorted {
+            (items[$0].order, $0) < (items[$1].order, $1)
+        }
+        var base = [CGFloat](repeating: 0, count: items.count)
+        var hypo = [CGFloat](repeating: 0, count: items.count)
+        var minBound = [CGFloat](repeating: 0, count: items.count)
+        var maxBound = [CGFloat](repeating: .greatestFiniteMagnitude,
+                                 count: items.count)
+        var minContent = [CGFloat](repeating: 0, count: items.count)
+        var cross = [CGFloat](repeating: 0, count: items.count)
+        var crossDeclared = [Bool](repeating: false, count: items.count)
+        var mainSize = [CGFloat](repeating: 0, count: items.count)
+        var mainAt = [CGFloat](repeating: 0, count: items.count)
+        var crossAt = [CGFloat](repeating: 0, count: items.count)
+        var crossBox = [CGFloat](repeating: 0, count: items.count)
+
+        for i in items.indices {
+            let item = items[i]
+            let content = item.content ?? NSAttributedString()
+            let padMain = item.paddingMain(horizontal: horizontal)
+            let padCross = item.paddingCross(horizontal: horizontal)
+            // The natural main size of the contents,
+            // and their minimum: for a row, the longest
+            // unwrapped line and the widest unbreakable
+            // piece; for a column, both are the height
+            // at the item's cross width — a column
+            // item's cross size is settled first, since
+            // its height is measured standing in it.
+            let naturalMain: CGFloat
+            if horizontal {
+                naturalMain = measureText(content, width: 100_000).width
+                    + padMain
+                minContent[i] = measureText(content, width: 10).width
+                    + padMain
+            } else {
+                if let w = resolveFlexLength(item.widthDecl,
+                                             against: contentW) {
+                    cross[i] = w
+                    crossDeclared[i] = true
+                } else {
+                    let natural = measureText(content,
+                                              width: 100_000).width
+                    cross[i] = min(max(natural + padCross, 1), contentW)
+                }
+                crossBox[i] = cross[i]
+                naturalMain = measureText(
+                    content, width: max(cross[i] - padCross, 10)).height
+                    + padMain
+                minContent[i] = naturalMain
+            }
+            // The flex base size: the basis when it
+            // resolves (a percentage of an indefinite
+            // main size does not, and reads as content,
+            // as the spec directs), else — basis auto —
+            // the main-size property, else the contents.
+            var resolved = naturalMain
+            if !item.basisContent {
+                if let b = item.basis,
+                   let v = resolveFlexLength(b, against: containerMain) {
+                    resolved = v
+                } else if item.basis == nil {
+                    let decl = horizontal ? item.widthDecl : item.heightDecl
+                    if let v = resolveFlexLength(decl,
+                                                 against: containerMain) {
+                        resolved = v
+                    }
+                }
+            }
+            base[i] = resolved
+            let minDecl = horizontal ? item.minWidth : item.minHeight
+            let maxDecl = horizontal ? item.maxWidth : item.maxHeight
+            minBound[i] = resolveFlexLength(minDecl,
+                                            against: containerMain) ?? 0
+            maxBound[i] = resolveFlexLength(maxDecl,
+                                            against: containerMain)
+                ?? .greatestFiniteMagnitude
+            hypo[i] = min(max(base[i], minBound[i]), maxBound[i])
+            mainSize[i] = hypo[i]
+        }
+
+        // Collect the items into lines.
+        var lines: [[Int]] = []
+        if !sorted.isEmpty {
+            if !spec.wraps || containerMain == nil {
+                lines = [sorted]
+            } else if let main = containerMain {
+                var line: [Int] = []
+                var used: CGFloat = 0
+                for i in sorted {
+                    let need = hypo[i]
+                        + items[i].marginMain(horizontal: horizontal)
+                    let extra = line.isEmpty ? need : used + mainGap + need
+                    if !line.isEmpty && extra > main + 0.5 {
+                        lines.append(line)
+                        line = [i]
+                        used = need
+                    } else {
+                        line.append(i)
+                        used = extra
+                    }
+                }
+                if !line.isEmpty { lines.append(line) }
+            }
+        }
+
+        var lineCrosses: [CGFloat] = []
+        var crossCursor: CGFloat = 0
+        var mainExtent: CGFloat = containerMain ?? 0
+        for line in lines {
+            // Resolve the flexible lengths of this line.
+            if let main = containerMain {
+                let gapsTotal = mainGap * CGFloat(max(line.count - 1, 0))
+                func usedMain() -> CGFloat {
+                    line.reduce(0) {
+                        $0 + mainSize[$1]
+                            + items[$1].marginMain(horizontal: horizontal)
+                    } + gapsTotal
+                }
+                var free = main - usedMain()
+                if free > 0.5 {
+                    var rounds = 0
+                    while free > 0.5 && rounds <= line.count {
+                        rounds += 1
+                        let active = line.filter {
+                            items[$0].grow > 0
+                                && mainSize[$0] < maxBound[$0] - 0.01
+                        }
+                        if active.isEmpty { break }
+                        let totalGrow = active.reduce(0) {
+                            $0 + items[$1].grow
+                        }
+                        if totalGrow <= 0 { break }
+                        let pool = free * min(1, totalGrow)
+                        var froze = false
+                        for i in active {
+                            var next = mainSize[i]
+                                + pool * CGFloat(items[i].grow / totalGrow)
+                            if next >= maxBound[i] {
+                                next = maxBound[i]
+                                froze = true
+                            }
+                            mainSize[i] = next
+                        }
+                        free = main - usedMain()
+                        if !froze { break }
+                    }
+                } else if free < -0.5 {
+                    var rounds = 0
+                    while free < -0.5 && rounds <= line.count {
+                        rounds += 1
+                        func floorOf(_ i: Int) -> CGFloat {
+                            max(minBound[i], minContent[i])
+                        }
+                        let active = line.filter {
+                            items[$0].shrink > 0
+                                && mainSize[$0] > floorOf($0) + 0.01
+                        }
+                        if active.isEmpty { break }
+                        let totalScaled = active.reduce(0) {
+                            $0 + items[$1].shrink * Double(base[$1])
+                        }
+                        if totalScaled <= 0 { break }
+                        var froze = false
+                        for i in active {
+                            let share = -free * CGFloat(
+                                items[i].shrink * Double(base[i]) / totalScaled)
+                            var next = mainSize[i] - share
+                            if next <= floorOf(i) {
+                                next = floorOf(i)
+                                froze = true
+                            }
+                            mainSize[i] = next
+                        }
+                        free = main - usedMain()
+                        if !froze { break }
+                    }
+                }
+            }
+
+            // Cross sizes at the final main sizes (a
+            // row item's height is the height of its
+            // contents standing at its flexed width),
+            // and the line's cross size.
+            let alignOf: (Int) -> String = {
+                items[$0].alignSelf ?? spec.alignItems
+            }
+            var baselines: [Int: CGFloat] = [:]
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            if horizontal {
+                for i in line {
+                    let item = items[i]
+                    if let h = resolveFlexLength(item.heightDecl,
+                                                 against: containerCross) {
+                        cross[i] = h
+                        crossDeclared[i] = true
+                    } else {
+                        let cw = max(mainSize[i]
+                            - item.paddingMain(horizontal: true), 10)
+                        cross[i] = measureText(
+                            item.content ?? NSAttributedString(),
+                            width: cw).height
+                            + item.paddingCross(horizontal: true)
+                    }
+                    crossBox[i] = cross[i]
+                }
+                for i in line where alignOf(i) == "baseline" {
+                    let item = items[i]
+                    let cw = max(mainSize[i]
+                        - item.paddingMain(horizontal: true), 10)
+                    if let b = measureFirstBaseline(
+                        item.content ?? NSAttributedString(), width: cw) {
+                        let offset = item.paddingTop + b
+                        baselines[i] = offset
+                        ascent = max(ascent, item.marginTop + offset)
+                        descent = max(descent,
+                                      cross[i] - offset + item.marginBottom)
+                    }
+                }
+            }
+            var lineCross: CGFloat = 0
+            for i in line {
+                if baselines[i] != nil {
+                    lineCross = max(lineCross, ascent + descent)
+                } else {
+                    lineCross = max(lineCross, cross[i]
+                        + items[i].marginCross(horizontal: horizontal))
+                }
+            }
+            // A lone line in a container of definite
+            // cross size stands the container's whole
+            // cross size — the spec's own rule, and the
+            // one that makes centering in a declared-
+            // height bar, or stretching across a column
+            // container's width, land where the page
+            // expects. Wrapped lines keep their items'
+            // sizes and pack at the cross start:
+            // align-content is not read.
+            if lines.count == 1, let cc = containerCross {
+                lineCross = cc
+            }
+
+            // Share the line's leftover along the main
+            // axis, as justify-content directs.
+            let gapsTotal = mainGap * CGFloat(max(line.count - 1, 0))
+            let lineUsed = line.reduce(0) {
+                $0 + mainSize[$1]
+                    + items[$1].marginMain(horizontal: horizontal)
+            } + gapsTotal
+            let leftover = max((containerMain ?? lineUsed) - lineUsed, 0)
+            var lead: CGFloat = 0
+            var extra: CGFloat = 0
+            switch spec.justify {
+            case "flex-end": lead = leftover
+            case "center": lead = leftover / 2
+            case "space-between":
+                if line.count > 1 {
+                    extra = leftover / CGFloat(line.count - 1)
+                }
+            case "space-around":
+                if !line.isEmpty {
+                    let unit = leftover / CGFloat(line.count)
+                    lead = unit / 2
+                    extra = unit
+                }
+            case "space-evenly":
+                let unit = leftover / CGFloat(line.count + 1)
+                lead = unit
+                extra = unit
+            default: break
+            }
+            var cursor = lead
+            for i in line {
+                let item = items[i]
+                let mStart = horizontal ? item.marginLeft : item.marginTop
+                let mEnd = horizontal ? item.marginRight : item.marginBottom
+                mainAt[i] = cursor + mStart
+                cursor += mStart + mainSize[i] + mEnd + mainGap + extra
+            }
+            if containerMain == nil {
+                mainExtent = max(mainExtent, lineUsed)
+            }
+
+            // Place the items across the line.
+            for i in line {
+                let item = items[i]
+                let mCrossStart = horizontal ? item.marginTop
+                    : item.marginLeft
+                let mCrossEnd = horizontal ? item.marginBottom
+                    : item.marginRight
+                let align = alignOf(i)
+                var box = cross[i]
+                var pos: CGFloat
+                if let offset = baselines[i], align == "baseline" {
+                    pos = crossCursor + ascent - offset
+                } else if align == "stretch", !crossDeclared[i] {
+                    box = max(lineCross - mCrossStart - mCrossEnd, 0)
+                    pos = crossCursor + mCrossStart
+                } else if align == "flex-end" {
+                    pos = crossCursor + lineCross - mCrossEnd - box
+                } else if align == "center" {
+                    pos = crossCursor
+                        + (lineCross - box - mCrossStart - mCrossEnd) / 2
+                        + mCrossStart
+                } else {
+                    // flex-start — and baseline across a
+                    // column container, whose items stand
+                    // one above another with no shared
+                    // line of text to align to.
+                    pos = crossCursor + mCrossStart
+                }
+                crossAt[i] = pos
+                crossBox[i] = box
+            }
+            lineCrosses.append(lineCross)
+            crossCursor += lineCross + crossGap
+        }
+
+        // The container's own height: across the lines
+        // for a row, along them for a column — the
+        // declared height when the page declared one,
+        // clamped by its own min and max.
+        let crossTotal: CGFloat
+        if let cc = containerCross {
+            crossTotal = cc
+        } else {
+            crossTotal = lineCrosses.reduce(0, +)
+                + crossGap * CGFloat(max(lineCrosses.count - 1, 0))
+        }
+        var total = horizontal ? crossTotal
+            : (spec.declaredHeight ?? mainExtent)
+        if let lo = spec.minHeightClamp { total = max(total, lo) }
+        if let hi = spec.maxHeightClamp { total = min(total, hi) }
+        spec.totalHeight = max(total, 0)
+
+        // The items' border boxes, mirrored for the
+        // reverse directions: the layout above ran
+        // from the main start, and a reversed
+        // container's main start is the other edge —
+        // mirroring every box in the container's main
+        // extent puts the first item at that edge and
+        // justify-content's packing with it, exactly
+        // as the reversed directions direct.
+        let mirrorExtent = horizontal ? contentW
+            : (spec.declaredHeight ?? mainExtent)
+        for i in items.indices {
+            var rect: NSRect
+            if horizontal {
+                rect = NSRect(x: mainAt[i], y: crossAt[i],
+                              width: mainSize[i], height: crossBox[i])
+                if reversed {
+                    rect.origin.x = contentW - (rect.minX + rect.width)
+                }
+            } else {
+                rect = NSRect(x: crossAt[i], y: mainAt[i],
+                              width: crossBox[i], height: mainSize[i])
+                if reversed {
+                    rect.origin.y = mirrorExtent
+                        - (rect.minY + rect.height)
+                }
+            }
+            items[i].rect = rect
+        }
+        if let seat = spec.seat {
+            seat.image = tbClearSeat(width: spec.totalWidth,
+                                     height: spec.totalHeight)
+            seat.bounds = CGRect(x: 0, y: 0, width: spec.totalWidth,
+                                 height: spec.totalHeight)
+        }
+    }
+
+    // A flex container nested in painted contents was
+    // walked against the page's nominal width, but it
+    // stands in the width its box gives it: correct
+    // its span to that width (inside its own flow
+    // indents, and never past a width it declared),
+    // lay it out again there, and do the same for the
+    // containers nested in its items, at the widths
+    // the new layout gives them. Called by every
+    // finalize that settles a painted box's contents,
+    // and by finalizeFlex for its own items.
+    private func correctFlexSeats(in content: NSAttributedString,
+                                  availableWidth: CGFloat,
+                                  depth: Int = 0) {
+        guard depth < 8 else { return }
+        var found: [TBFlexSpec] = []
+        content.enumerateAttribute(
+            TBFlexSpecKey, in: NSRange(location: 0, length: content.length)
+        ) { value, _, _ in
+            if let spec = value as? TBFlexSpec { found.append(spec) }
+        }
+        for spec in found {
+            var width = max(availableWidth - spec.flowIndent
+                - spec.flowTailIndent, 10)
+            if let cap = spec.declaredContentWidth {
+                width = min(width, cap)
+            }
+            spec.totalWidth = width
+            computeFlexLayout(spec: spec)
+            for item in spec.items {
+                guard let itemContent = item.content else { continue }
+                let itemWidth = max(item.rect.width - item.paddingLeft
+                    - item.paddingRight, 10)
+                correctFlexSeats(in: itemContent,
+                                 availableWidth: itemWidth,
+                                 depth: depth + 1)
+            }
+        }
+    }
+
+    // A flex container's items are finished (their
+    // pictures fetched, their failures labelled):
+    // strip what cannot work inside a painted box —
+    // the link targets and their [n] markers, and the
+    // form controls, for which bracketed labels stand
+    // in — exactly the cleaning a floated box's
+    // contents get — then lay the container out on
+    // the finished text, correct the containers
+    // nested in its items to the widths the layout
+    // gave them, and lay out again, twice over, so a
+    // nested container's corrected height settles
+    // into the outer lines before the seat in the
+    // page is corrected the final time.
+    private func finalizeFlex(spec: TBFlexSpec, subs: [TBRenderer]) {
+        for (index, item) in spec.items.enumerated() {
+            guard index < subs.count else { break }
+            let sub = subs[index]
+            let cleaned = NSMutableAttributedString(attributedString: sub.out)
+            var swaps: [(range: NSRange, text: String)] = []
+            cleaned.enumerateAttribute(
+                .attachment, in: NSRange(location: 0, length: cleaned.length)
+            ) { value, range, _ in
+                if let submit = value as? TBSubmitAttachment {
+                    swaps.append((range: range, text: " [\(submit.label)] "))
+                } else if let field = value as? TBFieldAttachment {
+                    let name = sub.fields.first { $0.id == field.fieldID }
+                        .map { $0.placeholder.isEmpty ? "field" : $0.placeholder }
+                        ?? "field"
+                    swaps.append((range: range, text: " [\(name)] "))
+                }
+            }
+            cleaned.enumerateAttribute(
+                .link, in: NSRange(location: 0, length: cleaned.length)
+            ) { _, range, _ in
+                let text = (cleaned.string as NSString).substring(with: range)
+                if text.hasPrefix(" ["), text.hasSuffix("]") {
+                    let digits = text.dropFirst(2).dropLast()
+                    if !digits.isEmpty, digits.allSatisfy({ $0.isNumber }) {
+                        swaps.append((range: range, text: ""))
+                    }
+                }
+            }
+            for swap in swaps.sorted(by: { $0.range.location > $1.range.location }) {
+                cleaned.replaceCharacters(in: swap.range, with: NSAttributedString(
+                    string: swap.text,
+                    attributes: [.font: NSFont.systemFont(ofSize: 12),
+                                 .foregroundColor: NSColor.secondaryLabelColor]))
+            }
+            cleaned.removeAttribute(.link,
+                                    range: NSRange(location: 0,
+                                                   length: cleaned.length))
+            item.content = cleaned
+        }
+        computeFlexLayout(spec: spec)
+        for item in spec.items {
+            guard let content = item.content else { continue }
+            correctFlexSeats(
+                in: content,
+                availableWidth: max(item.rect.width - item.paddingLeft
+                    - item.paddingRight, 10))
+        }
+        computeFlexLayout(spec: spec)
+        for item in spec.items {
+            guard let content = item.content else { continue }
+            correctFlexSeats(
+                in: content,
+                availableWidth: max(item.rect.width - item.paddingLeft
+                    - item.paddingRight, 10))
+        }
+        computeFlexLayout(spec: spec)
+    }
+
+    // Arrivals for the flex containers (0.24): each
+    // item's own pictures and backgrounds land first
+    // (and any containers nested deeper, through the
+    // same pass on the item's renderer), then the
+    // container is cleaned and laid out for the last
+    // time — the two-stage life every painted
+    // construct in this engine leads.
+    func finishFlex() async {
+        for pending in pendingFlex {
+            for sub in pending.subs {
+                await sub.finishImages()
+                await sub.finishBackgrounds()
+                await sub.finishFlex()
+            }
+            finalizeFlex(spec: pending.spec, subs: pending.subs)
+        }
+        pendingFlex = []
     }
 
     // MARK: - Positioned layout (0.21)
@@ -4683,6 +6012,20 @@ final class TBRenderer {
         spec.content = cleaned
         let padH = spec.paddingLeft + spec.paddingRight
         let padV = spec.paddingTop + spec.paddingBottom
+        // Flexbox (0.24): correct any flex container
+        // nested in this box to the width it stands
+        // in — its declared width if it has one, else
+        // this box's content width, as the width
+        // measurement below settles it.
+        if spec.widthDeclared || spec.widthFromInsets {
+            correctFlexSeats(in: cleaned,
+                             availableWidth: max(spec.borderWidth - padH, 10))
+        } else {
+            let natural = measureText(cleaned, width: nominalWidth).width
+            correctFlexSeats(
+                in: cleaned,
+                availableWidth: max(min(natural + padH, nominalWidth) - padH, 10))
+        }
         if !spec.widthDeclared && !spec.widthFromInsets {
             let natural = measureText(cleaned, width: nominalWidth).width
             spec.borderWidth = min(max(natural + padH, 1), nominalWidth)
@@ -4749,6 +6092,7 @@ final class TBRenderer {
         for pending in pendingPositioned {
             await pending.sub.finishImages()
             await pending.sub.finishBackgrounds()
+            await pending.sub.finishFlex()
             finalizePositioned(spec: pending.spec, sub: pending.sub)
         }
         pendingPositioned = []
@@ -4811,6 +6155,7 @@ final class TBRenderer {
         for pending in pendingBlockFloats {
             await pending.sub.finishImages()
             await pending.sub.finishBackgrounds()
+            await pending.sub.finishFlex()
             finalizeBlockFloat(spec: pending.spec, sub: pending.sub)
         }
         pendingBlockFloats = []

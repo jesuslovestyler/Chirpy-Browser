@@ -7,6 +7,107 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.24.0 — FLEXBOX
+------------------------------------------------------
+The first stage of the remaining-CSS program Tyler
+authorized whole on Nov 4: the layout system most
+modern pages are built with. Until now an element
+styled display:flex or display:grid fell back to
+plain block stacking — readable, but every row piled
+into a column. Grid keeps that fallback for one more
+stage (it is 0.25); flex is real now.
+
+* Flexbox — DONE. A block with display:flex (or
+  inline-flex, treated the same) hands its children
+  to the flex layout, built the way this engine
+  builds every out-of-flow construct: each element
+  child is sub-rendered as an item in a renderer of
+  its own — the floated box's arrangement — each run
+  of text and inline children becomes one anonymous
+  item, as the spec requires, the items are laid out
+  by the renderer, and the container takes its place
+  in the flow as a single clear seat, like a
+  multicolumn block, while the view paints the items
+  into the seat's line. Read whole: flex-direction
+  in all four spellings (the reverses mirror the
+  laid-out boxes in the container's main extent, so
+  row-reverse truly packs from the right);
+  flex-wrap: wrap; justify-content in its six
+  distributions (flex-start, flex-end, center,
+  space-between, space-around, space-evenly);
+  align-items and align-self (stretch, flex-start,
+  flex-end, center, baseline); row-gap, column-gap
+  and the gap shorthand; order; and the item
+  properties flex-grow, flex-shrink, flex-basis and
+  the flex shorthand in its standard spellings.
+  The layout runs the spec's own shape: base sizes
+  (basis, else the main-size property, else the
+  contents) clamped to hypothetical sizes; lines
+  collected by them; flexible lengths resolved line
+  by line — grow sharing free space by factor
+  (factors summing under one share only that much
+  of it), shrink taking overflow by shrink-times-
+  base — with items freezing at their declared
+  min/max clamps and at their contents' own size
+  under shrink, as min-width:auto directs; cross
+  sizes measured at the final main sizes; a lone
+  line standing the container's whole cross size
+  when the page declared one. Percentages resolve
+  against the container's true content size in the
+  layout pass, never against a nominal page — the
+  0.23.1 float lesson, applied from the start.
+  Declared sizes read as the whole box, the floated
+  boxes' convention throughout this engine.
+* Baseline — DONE, measured. Items aligned to the
+  baseline share the line's deepest first baseline,
+  each item's measured from its own layout — first
+  line fragment, first glyph — the same calls the
+  float anchors and column seats are resolved with.
+* Nesting — DONE. An item that is itself
+  display:flex sub-renders through the same
+  machinery; its spec rides on its seat as an
+  attribute wherever the painted contents carrying
+  it travel, and the finalize corrects it to the
+  width it truly stands in (the walk inside a
+  painted box runs at the page's nominal width; the
+  box's final width is the truth, and wins). A flex
+  container inside a floated, positioned or column
+  box works the same way. An absolutely positioned
+  child of a flex container is no item — it
+  registers with the positioned machinery as usual.
+  Floated children simply itemize: CSS computes
+  float away on a flex item. Past sixty items in
+  one container, the rest flow into the last item.
+* OUT, named: wrap-reverse (its pages get wrap —
+  the reversed cross stacking is more than a seat
+  in a text flow can honestly express yet);
+  align-content (wrapped lines pack at the cross
+  start); a flex container's percentage height
+  (there is no definite height above a flow block
+  to resolve it against); and grid, which is the
+  next stage and keeps the block fallback until
+  then. Items are paint, not live text — the
+  floated box's bargain, struck again: the link
+  cards on the test page show their colors but do
+  not click.
+
+The drill. Drag flex-test.html onto the window.
+Eleven numbered promises: space-between sharing
+the leftover into its two gaps; a growing middle
+item taking every point of leftover between two
+fixed boxes; three 300-point bases shrinking
+evenly into a 480-wide row; five boxes wrapping
+three-and-two; a column stacking its rows at full
+width; one box centered on both axes of a
+120-tall bar; 24-point gaps between items and
+none at the edges; order re-sorting three boxes
+against their file order; the link cards — a
+nested flex row of three equal cards, each a
+column flex container itself; row-reverse packing
+from the right; and two unlike font sizes sharing
+one baseline, their boxes' tops staggered to make
+it so.
+
 WHAT'S NEW IN 0.23.0 — THE FINISHING SET
 ------------------------------------------------------
 The last stage of the CSS completion: the shorthand, the
