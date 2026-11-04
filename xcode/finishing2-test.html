@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.27 — The Paint &amp; Motion Finishing Set Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+
+  .shadowcard { background-color: #fffdf5; padding: 14px;
+                box-shadow: 0 6px 18px rgba(60, 40, 0, 0.35); }
+  .doubleshadow { background-color: #eef3e0; padding: 14px;
+                box-shadow: 4px 4px 0 #7a9a4d,
+                            10px 14px 22px rgba(0, 0, 0, 0.30); }
+
+  h2.glow { text-shadow: 2px 3px 4px rgba(120, 30, 30, 0.55);
+            color: #7a1020; }
+  p.shadowline { text-shadow: 1px 1px 0 #ffd9a8; }
+
+  .hovercard { background-color: #e8e8e8; padding: 14px; }
+  .hovercard:hover {
+    background-image: linear-gradient(135deg, #ffe9a8, #ffb26b);
+    background-color: #ffd9a8; color: #5b3000; }
+
+  .columns { column-count: 3; column-gap: 26px;
+             column-rule: 1px solid #c9c9c9; }
+  .columns h3 { column-span: all; background-color: #eef3e0;
+                padding: 8px; }
+
+  .clip { width: 250px; white-space: nowrap; overflow: hidden;
+          text-overflow: ellipsis; background-color: #fff0b8;
+          padding: 8px; }
+
+  .badge { background-color: #b3001b; color: #ffffff; padding: 10px;
+           width: 210px; transform: rotate(-7deg); }
+  .grown { background-color: #d7e5ff; padding: 10px; width: 210px;
+           transform: scale(1.18); transform-origin: left center; }
+  .shifted { background-color: #e2f2e2; padding: 10px; width: 210px;
+             transform: translate(34px, 4px); }
+
+  .glide { background-color: #d7e5ff; padding: 14px; width: 300px;
+           transition: background-color 0.4s ease, transform 0.4s ease; }
+  .glide:hover { background-color: #ffb26b;
+                 transform: translate(26px, 0); }
+
+  @keyframes pulse {
+    from { opacity: 1; }
+    50% { opacity: 0.4; }
+    to { opacity: 1; }
+  }
+  .pulse { background-color: #7b1fa2; color: #ffffff; padding: 14px;
+           width: 300px; animation: pulse 2.4s ease-in-out infinite; }
+
+  @keyframes breathe {
+    from { transform: scale(1); }
+    to { transform: scale(1.07); }
+  }
+  .breathe { background-color: #0b5394; color: #ffffff; padding: 14px;
+             width: 300px;
+             animation: breathe 3s ease-in-out infinite alternate; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.27 — the paint &amp; motion finishing set test</h1>
+<p>Every effect on this page is drawn with CSS alone. Read down
+and check each numbered promise. Three honest notes before the
+promises: transforms are paint, never layout — a rotated or
+moved box leaves the words around it exactly where they were,
+and a link inside transformed paint is still found at its
+untransformed place. The ellipsis promise (#5) works by
+shortening the text itself, so selecting or copying that line
+gives you the shortened line, dots and all. And the two motion
+promises (#7 and #8) cannot be proven by a screenshot — they
+need your eyes, watching the page move.</p>
+
+<h2>1 — a soft box-shadow, and two shadows on one card</h2>
+<div class="shadowcard">This card floats on one soft shadow —
+offset down, blurred wide, in a warm translucent brown. The
+shadow belongs under the card: it should never show through
+the card's own face.</div>
+<p></p>
+<div class="doubleshadow">This card carries two shadows at
+once: a hard green offset shadow sitting close, and a soft
+dark blur falling further away. CSS lists the first shadow
+on top, and so should the paint.</div>
+
+<h2>2 — text-shadow under the words</h2>
+<h2 class="glow">A heading with a low red shadow</h2>
+<p class="shadowline">This ordinary line wears a small pale
+shadow of its own, one point down and one across — subtle,
+but the letters should look lifted off the page.</p>
+
+<h2>3 — a hover background that arrives in layers</h2>
+<div class="hovercard">Rest your pointer on this card. At
+rest it is plain grey; on hover a warm diagonal gradient
+arrives over a deeper background color, and the words darken
+with it. Move away and the card is plain grey again — the
+layers lift exactly as they came.</div>
+
+<h2>4 — columns, with a headline that spans them all</h2>
+<div class="columns">
+<p>The article begins in three balanced columns, the way the
+multicolumn set has always laid it out. Read down the first
+column, then the second, then the third, and the words run
+in their proper order.</p>
+<p>Nothing about the opening stretch is new — it is here so
+the break in the middle has something honest to break. The
+headline below belongs to no single column.</p>
+<h3>A headline that spans the whole article</h3>
+<p>After the headline, the columns resume beneath it, taking
+up the story where the opening left off. This stretch and
+the next are a fresh run of columns, balanced between
+themselves, standing below the span.</p>
+<p>That is the whole promise: columns, a full-width break,
+then columns again — one article, read straight through.</p>
+</div>
+
+<h2>5 — the ellipsis line</h2>
+<div class="clip">This sentence is far too long for the
+narrow box that holds it, and it refuses to wrap.</div>
+<p>The line above is set nowrap in a 250-point box with
+overflow hidden and text-overflow: ellipsis. It should end
+in "…" right at the box's edge — and remember the honest note
+from the top: the text itself was shortened to fit, so that
+is the line you would select or copy.</p>
+
+<h2>6 — transforms: a rotated badge, a grown box, a shifted box</h2>
+<div class="badge">Rotated seven degrees, words and all</div>
+<p>The badge's red ground and its white words tilt together;
+the text around it does not move an inch to make room.</p>
+<div class="grown">This box is scaled up from its left edge</div>
+<p></p>
+<div class="shifted">This box is painted 34 points to the right</div>
+<p>Both boxes keep their true places in the flow — only
+their paint travels.</p>
+
+<h2>7 — a hover transition (needs your eyes)</h2>
+<div class="glide">Rest your pointer here and watch: over
+about four-tenths of a second the card warms from blue to
+orange and glides 26 points to the right. Move away and it
+glides home again. No jump, no snap — a slide.</div>
+
+<h2>8 — keyframes that run on their own (needs your eyes)</h2>
+<div class="pulse">This card breathes with a pulse — fading
+to four-tenths and back, forever, two and a half seconds a
+breath.</div>
+<p></p>
+<div class="breathe">And this one slowly grows and settles,
+grows and settles — an alternate-direction keyframe run,
+scaling between its two stops.</div>
+<p>If you have Reduce Motion turned on in macOS, both of
+these cards should simply rest, and the glide above should
+change at once instead of sliding — that stillness is the
+promise kept another way.</p>
+
+</body>
+</html>

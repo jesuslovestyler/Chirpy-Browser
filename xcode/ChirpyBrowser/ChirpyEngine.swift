@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.26.0 (Swift)
+//  Chirpy Browser — engine 0.27.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -328,8 +328,49 @@
 //      flows plain, and a sticky flex, grid or
 //      column container's seat shifts while its
 //      items paint at the flow seat.
-//  Not yet: transforms, column-span, transitions,
-//  JavaScript (the mountain).
+//    * The paint & motion set (0.27): the decoration
+//      and motion traits, all of them paint — layout
+//      never moves for any of them. box-shadow paints
+//      outer shadows under block surfaces and painted
+//      boxes (offset, blur, spread, color; several at
+//      once; inset is read and set aside — there is no
+//      honest inside clip here); text-shadow rides
+//      under the glyphs in every text path. A state's
+//      background layers (a :hover gradient or photo)
+//      paint through the same layer painter as a
+//      resting background and lift away with the state,
+//      exactly as its colors do. column-span: all
+//      breaks a multicolumn block's flow: the content
+//      before a spanner balances into columns, the
+//      spanner stands across the full width, and the
+//      columns resume below it. text-overflow:
+//      ellipsis truncates a nowrap, overflow-hidden
+//      block's line at its content edge — in the text
+//      itself, so selection and copying see the
+//      truncated line and its ellipsis, as the
+//      finishing2 test page states. transform applies
+//      the 2D functions (translate, rotate, scale,
+//      skew, matrix) as a paint-time affine about the
+//      element's transform-origin — surfaces, glyphs
+//      and painted boxes move together; the flow, and
+//      with it link hit-testing, stays at the
+//      untransformed place. opacity joins the stamps
+//      as a paint trait. transition animates colors,
+//      opacity and transforms between the state paints
+//      the engine already tracks (hover, focus,
+//      active), and @keyframes runs its named rules'
+//      paint traits while the page is shown — both
+//      from one view-side timer that exists only while
+//      something animates and repaints only the
+//      animated ranges, and both stand down entirely
+//      when the system asks for reduced motion. Timing
+//      functions are cubic Béziers (the named easings
+//      and cubic-bezier()); steps() reads as ease.
+//      What animation never does here: move layout —
+//      width, height and font traits in a transition
+//      or a keyframe are not read.
+//  Not yet: JavaScript (the mountain), inset
+//  box-shadows, and the outs named in the README.
 //
 
 import Foundation
@@ -431,7 +472,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.27.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -449,7 +490,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.27.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -503,7 +544,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.27.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -581,7 +622,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.27.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -729,6 +770,20 @@ let TBFocusBlockAttrsKey = NSAttributedString.Key("TBFocusBlockAttrs")
 let TBActiveAttrsKey = NSAttributedString.Key("TBActiveAttrs")
 let TBActiveBlockAttrsKey = NSAttributedString.Key("TBActiveBlockAttrs")
 
+// The paint & motion set (0.27): the stamps the new
+// paint traits ride on — shadows on a block's range,
+// text shadows on a paragraph, a paint transform and
+// an opacity on a block's or an element's range, and
+// the transition and animation specs the view's timer
+// works from. All class values, for the hover stamps'
+// reason.
+let TBBoxShadowKey = NSAttributedString.Key("TBBoxShadow")
+let TBTextShadowKey = NSAttributedString.Key("TBTextShadow")
+let TBTransformKey = NSAttributedString.Key("TBTransform")
+let TBOpacityKey = NSAttributedString.Key("TBOpacity")
+let TBTransitionKey = NSAttributedString.Key("TBTransition")
+let TBAnimationKey = NSAttributedString.Key("TBAnimation")
+
 // The interaction set (0.26): position:sticky. A sticky
 // block's paragraphs carry its spec under this key;
 // the layout manager shifts the runs' paint by the
@@ -745,6 +800,302 @@ final class TBHoverStyle {
     var backgroundColor: NSColor? = nil
     var underlineStyle: Int? = nil
     var strikethroughStyle: Int? = nil
+    // The paint & motion set (0.27): the part of a state
+    // style the four traits above cannot hold — its
+    // background layers, its opacity, its paint
+    // transform. The view paints the layers through the
+    // ordinary layer painter while the state is worn and
+    // lifts them with it, and the opacity and transform
+    // ride its effects table.
+    var backgroundBox: TBBackgroundBox? = nil
+    var opacityValue: CGFloat? = nil
+    var transformSpec: TBTransformSpec? = nil
+}
+
+// The paint & motion set (0.27): one box shadow —
+// offsets in points (y down, as the page reads), a
+// blur radius, a spread, and a color. Inset shadows
+// never reach this struct: the parser sets them
+// aside, because the painters draw a shadow under a
+// box and have no honest way to clip one inside it.
+struct TBBoxShadow {
+    var dx: CGFloat
+    var dy: CGFloat
+    var blur: CGFloat
+    var spread: CGFloat
+    var color: NSColor
+}
+
+final class TBBoxShadowSet {
+    var shadows: [TBBoxShadow] = []
+}
+
+// One text shadow: an offset, a blur, a color — a
+// text shadow has no spread and no inset in CSS.
+struct TBTextShadow {
+    var dx: CGFloat
+    var dy: CGFloat
+    var blur: CGFloat
+    var color: NSColor
+}
+
+final class TBTextShadowSet {
+    var shadows: [TBTextShadow] = []
+}
+
+// A transform's numbers before a box is known: a
+// plain number (scale factors, matrix entries), a
+// length (points, or a percentage of the element's
+// own box), and an angle already in radians.
+enum TBTransformValue {
+    case number(CGFloat)
+    case length(TBInsetValue)
+    case angle(CGFloat)
+}
+
+// The standard product of two affine transforms in
+// the (a, b, c, d, tx, ty) layout both CSS's matrix()
+// and CGAffineTransform share: the result applies b
+// to a point first, then a — the order CSS's
+// transform list reads in.
+func tbMatrixMultiply(_ a: CGAffineTransform,
+                      _ b: CGAffineTransform) -> CGAffineTransform {
+    CGAffineTransform(
+        a: a.a * b.a + a.c * b.b,
+        b: a.b * b.a + a.d * b.b,
+        c: a.a * b.c + a.c * b.d,
+        d: a.b * b.c + a.d * b.d,
+        tx: a.a * b.tx + a.c * b.ty + a.tx,
+        ty: a.b * b.tx + a.d * b.ty + a.ty)
+}
+
+func tbTransformLength(_ value: TBTransformValue,
+                       base: CGFloat) -> CGFloat {
+    switch value {
+    case .number(let n): return n
+    case .length(.points(let p)): return p
+    case .length(.percent(let pct)): return base * pct / 100
+    case .angle(let r): return r
+    }
+}
+
+// One transform function resolved against a concrete
+// box: percentages in translates mean part of the
+// box's own size on that axis, as the spec directs.
+func tbTransformMatrix(
+    _ function: (name: String, values: [TBTransformValue]),
+    in box: NSRect) -> CGAffineTransform {
+    let v = function.values
+    func number(_ i: Int) -> CGFloat {
+        guard i < v.count, case .number(let n) = v[i] else { return 0 }
+        return n
+    }
+    func length(_ i: Int, _ base: CGFloat) -> CGFloat {
+        guard i < v.count else { return 0 }
+        return tbTransformLength(v[i], base: base)
+    }
+    func angle(_ i: Int) -> CGFloat {
+        guard i < v.count, case .angle(let r) = v[i] else { return 0 }
+        return r
+    }
+    switch function.name {
+    case "translate":
+        return CGAffineTransform(
+            translationX: length(0, box.width),
+            y: v.count > 1 ? length(1, box.height) : 0)
+    case "translatex":
+        return CGAffineTransform(translationX: length(0, box.width), y: 0)
+    case "translatey":
+        return CGAffineTransform(translationX: 0, y: length(0, box.height))
+    case "scale":
+        let sx = number(0)
+        return CGAffineTransform(scaleX: sx,
+                                 y: v.count > 1 ? number(1) : sx)
+    case "scalex":
+        return CGAffineTransform(scaleX: number(0), y: 1)
+    case "scaley":
+        return CGAffineTransform(scaleX: 1, y: number(0))
+    case "rotate":
+        return CGAffineTransform(rotationAngle: angle(0))
+    case "skewx":
+        return CGAffineTransform(a: 1, b: 0, c: tan(angle(0)),
+                                 d: 1, tx: 0, ty: 0)
+    case "skewy":
+        return CGAffineTransform(a: 1, b: tan(angle(0)), c: 0,
+                                 d: 1, tx: 0, ty: 0)
+    case "skew":
+        return CGAffineTransform(
+            a: 1, b: tan(v.count > 1 ? angle(1) : 0),
+            c: tan(angle(0)), d: 1, tx: 0, ty: 0)
+    case "matrix":
+        guard v.count == 6 else { return .identity }
+        return CGAffineTransform(a: number(0), b: number(1),
+                                 c: number(2), d: number(3),
+                                 tx: number(4), ty: number(5))
+    default:
+        return .identity
+    }
+}
+
+// A 2D transform as the page declared it: the
+// function list, kept unresolved — a percentage
+// translate means part of the element's OWN box,
+// which only the painter knows — plus the
+// transform-origin as two inset values against the
+// box, defaulting to its center. matrix(in:) resolves
+// the list against a concrete box. A painter already
+// holding a resolved matrix (the view, interpolating
+// between two transforms mid-flight) may set
+// resolvedMatrix, and matrix(in:) then answers it as
+// it stands.
+final class TBTransformSpec {
+    var functions: [(name: String, values: [TBTransformValue])] = []
+    var originX: TBInsetValue = .percent(50)
+    var originY: TBInsetValue = .percent(50)
+    var resolvedMatrix: CGAffineTransform? = nil
+
+    func matrix(in box: NSRect) -> CGAffineTransform {
+        if let resolved = resolvedMatrix { return resolved }
+        var result = CGAffineTransform.identity
+        for function in functions {
+            result = tbMatrixMultiply(
+                result, tbTransformMatrix(function, in: box))
+        }
+        return result
+    }
+}
+
+// A CSS timing function as a cubic Bézier: the two
+// control points between (0, 0) and (1, 1).
+// evaluate() answers eased progress for linear
+// progress — the x(t) inversion every browser does,
+// solved by Newton-Raphson with a bisection fallback.
+struct TBTimingFunction {
+    var x1: Double
+    var y1: Double
+    var x2: Double
+    var y2: Double
+    static let linear = TBTimingFunction(x1: 0, y1: 0, x2: 1, y2: 1)
+    static let ease = TBTimingFunction(x1: 0.25, y1: 0.1, x2: 0.25, y2: 1)
+    static let easeIn = TBTimingFunction(x1: 0.42, y1: 0, x2: 1, y2: 1)
+    static let easeOut = TBTimingFunction(x1: 0, y1: 0, x2: 0.58, y2: 1)
+    static let easeInOut = TBTimingFunction(x1: 0.42, y1: 0, x2: 0.58, y2: 1)
+
+    func evaluate(_ x: Double) -> Double {
+        if x <= 0 { return 0 }
+        if x >= 1 { return 1 }
+        if x1 == 0, y1 == 0, x2 == 1, y2 == 1 { return x }
+        var t = x
+        for _ in 0..<8 {
+            let xt = cubic(t, x1, x2) - x
+            if abs(xt) < 0.000001 { break }
+            let slope = cubicSlope(t, x1, x2)
+            if abs(slope) < 0.000001 { break }
+            t -= xt / slope
+        }
+        if t < 0 || t > 1 || abs(cubic(t, x1, x2) - x) > 0.0001 {
+            var lo = 0.0
+            var hi = 1.0
+            t = x
+            for _ in 0..<24 {
+                if cubic(t, x1, x2) < x { lo = t } else { hi = t }
+                t = (lo + hi) / 2
+            }
+        }
+        return cubic(t, y1, y2)
+    }
+
+    private func cubic(_ t: Double, _ p1: Double, _ p2: Double) -> Double {
+        let u = 1 - t
+        return 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t
+    }
+
+    private func cubicSlope(_ t: Double, _ p1: Double, _ p2: Double) -> Double {
+        let u = 1 - t
+        return 3 * u * u * p1 + 6 * u * t * (p2 - p1) + 3 * t * t * (1 - p2)
+    }
+}
+
+// A timing word or a cubic-bezier() — steps() is not
+// read (it answers ease, as the header says).
+func tbTimingFunction(_ token: String) -> TBTimingFunction {
+    let t = token.trimmingCharacters(in: .whitespaces).lowercased()
+    switch t {
+    case "linear": return .linear
+    case "ease": return .ease
+    case "ease-in": return .easeIn
+    case "ease-out": return .easeOut
+    case "ease-in-out": return .easeInOut
+    default:
+        if t.hasPrefix("cubic-bezier("), t.hasSuffix(")") {
+            let parts = t.dropFirst(13).dropLast()
+                .split(separator: ",")
+                .map { Double($0.trimmingCharacters(in: .whitespaces)) }
+            if parts.count == 4, let a = parts[0], let b = parts[1],
+               let c = parts[2], let d = parts[3] {
+                return TBTimingFunction(x1: a, y1: b, x2: c, y2: d)
+            }
+        }
+        return .ease
+    }
+}
+
+struct TBTransitionEntry {
+    var property: String
+    var duration: Double
+    var delay: Double
+    var timing: TBTimingFunction
+}
+
+// A transition as the page declared it, ready for the
+// view's timer: entries by property, "all" answering
+// for any property no entry names.
+final class TBTransitionSpec {
+    var entries: [TBTransitionEntry] = []
+    func entry(for property: String) -> TBTransitionEntry? {
+        entries.first { $0.property == property && $0.duration > 0 }
+            ?? entries.first { $0.property == "all" && $0.duration > 0 }
+    }
+}
+
+// The paint traits one keyframe stop can carry —
+// colors, opacity and a transform; never a layout
+// trait, by the set's founding rule.
+struct TBAnimTraits {
+    var foreground: NSColor? = nil
+    var background: NSColor? = nil
+    var opacity: CGFloat? = nil
+    var transform: TBTransformSpec? = nil
+}
+
+// A resolved @keyframes animation on an element: the
+// rule's stops reduced to paint traits, with the
+// element's own duration, delay, iteration count
+// (.infinity plays forever), direction and timing.
+final class TBAnimationSpec {
+    var stops: [(offset: Double, traits: TBAnimTraits)] = []
+    var duration: Double = 0
+    var delay: Double = 0
+    var iterations: Double = 1
+    var direction: String = "normal"
+    var timing: TBTimingFunction = .ease
+}
+
+// An element's declared opacity, boxed for stamping.
+final class TBOpacitySpec {
+    var value: CGFloat
+    init(_ value: CGFloat) { self.value = value }
+}
+
+// One segment of a multicolumn block's contents
+// (0.27): either a run of columns (isSpanner false)
+// or a column-span: all element standing across the
+// block's full width. The view paints the parts in
+// order, each in its own slice of the seat.
+final class TBColumnPart {
+    var content: NSAttributedString? = nil
+    var height: CGFloat = 0
+    var isSpanner: Bool = false
 }
 
 // Flexbox (0.24): a flex container's spec rides on its
@@ -808,6 +1159,11 @@ final class TBFloatSpec {
     var paddingLeft: CGFloat = 0
     var backgroundColor: NSColor? = nil
     var backgroundBox: TBBackgroundBox? = nil
+    // The paint & motion set (0.27): the box's shadows,
+    // paint transform and opacity, painted with it.
+    var boxShadows: TBBoxShadowSet? = nil
+    var transformSpec: TBTransformSpec? = nil
+    var opacityValue: CGFloat = 1
     // An image float's picture (nil until fetched).
     var image: NSImage? = nil
     var imageFailed = false
@@ -928,6 +1284,11 @@ final class TBPositionedSpec {
     var paddingLeft: CGFloat = 0
     var backgroundColor: NSColor? = nil
     var backgroundBox: TBBackgroundBox? = nil
+    // The paint & motion set (0.27): the box's shadows,
+    // paint transform and opacity, painted with it.
+    var boxShadows: TBBoxShadowSet? = nil
+    var transformSpec: TBTransformSpec? = nil
+    var opacityValue: CGFloat = 1
     // An image box's picture (nil until fetched).
     var image: NSImage? = nil
     var imageFailed = false
@@ -987,6 +1348,18 @@ final class TBStickySpec {
 final class TBColumnSeatAttachment: NSTextAttachment {}
 
 final class TBMultiColumnSpec {
+    // The segments the block's contents were cut into
+    // at its column-span: all children (0.27) — one
+    // part when there is no spanner.
+    var parts: [TBColumnPart] = []
+    // The paint & motion set (0.27): the container's
+    // shadows, paint transform and opacity — its seat's
+    // surface reads the stamps for the shadow; the item
+    // and content painters wrap in the transform and
+    // opacity so the whole container moves together.
+    var boxShadows: TBBoxShadowSet? = nil
+    var transformSpec: TBTransformSpec? = nil
+    var opacityValue: CGFloat = 1
     // Where the seat sits in the text; the view hangs the
     // columns from the top of the line that holds it.
     var anchorCharIndex: Int = 0
@@ -1076,6 +1449,11 @@ final class TBFlexItem {
     var maxHeight: TBInsetValue? = nil
     var backgroundColor: NSColor? = nil
     var backgroundBox: TBBackgroundBox? = nil
+    // The paint & motion set (0.27): the box's shadows,
+    // paint transform and opacity, painted with it.
+    var boxShadows: TBBoxShadowSet? = nil
+    var transformSpec: TBTransformSpec? = nil
+    var opacityValue: CGFloat = 1
     // The item's own rendered contents, painted by the
     // view inside the item's padding — paint, not live
     // text: the floated box's bargain, struck again.
@@ -1099,6 +1477,14 @@ final class TBFlexItem {
 }
 
 final class TBFlexSpec {
+    // The paint & motion set (0.27): the container's
+    // shadows, paint transform and opacity — its seat's
+    // surface reads the stamps for the shadow; the item
+    // and content painters wrap in the transform and
+    // opacity so the whole container moves together.
+    var boxShadows: TBBoxShadowSet? = nil
+    var transformSpec: TBTransformSpec? = nil
+    var opacityValue: CGFloat = 1
     // Where the seat sits in the text; the view hangs
     // the container from the top of the line that
     // holds it.
@@ -1231,6 +1617,11 @@ final class TBGridItem {
     var heightDecl: TBInsetValue? = nil
     var backgroundColor: NSColor? = nil
     var backgroundBox: TBBackgroundBox? = nil
+    // The paint & motion set (0.27): the box's shadows,
+    // paint transform and opacity, painted with it.
+    var boxShadows: TBBoxShadowSet? = nil
+    var transformSpec: TBTransformSpec? = nil
+    var opacityValue: CGFloat = 1
     // The item's own rendered contents, painted by the
     // view inside its padding — paint, not live text:
     // the floated box's bargain, struck a third time.
@@ -1249,6 +1640,14 @@ final class TBGridItem {
 // one, the declared width cap, the height clamps, and
 // the laid-out height the seat reserves.
 final class TBGridSpec {
+    // The paint & motion set (0.27): the container's
+    // shadows, paint transform and opacity — its seat's
+    // surface reads the stamps for the shadow; the item
+    // and content painters wrap in the transform and
+    // opacity so the whole container moves together.
+    var boxShadows: TBBoxShadowSet? = nil
+    var transformSpec: TBTransformSpec? = nil
+    var opacityValue: CGFloat = 1
     // Where the seat sits in the text; the view hangs
     // the container from the top of the line that
     // holds it.
@@ -1364,7 +1763,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.27.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -2070,6 +2469,7 @@ func tbParseCSS(_ css: String, orderStart: Int) -> [TBCSSRule] {
     // tbParseMediaCSS. (Before this, a block's second and
     // later rules leaked into the plain cascade.)
     cleaned = tbStripMediaBlocks(cleaned)
+    cleaned = tbStripKeyframesBlocks(cleaned)
     var rules: [TBCSSRule] = []
     var order = orderStart
     for chunk in cleaned.split(separator: "}") {
@@ -2108,6 +2508,131 @@ struct TBMediaContext {
     var dark: Bool
     var width: CGFloat
     var reducedMotion: Bool
+}
+
+
+// Fill-gaps stamping for a single class value under
+// its own key (0.27) — tbStampHover's sibling: runs
+// already carrying the key (a nearer element's stamp)
+// keep theirs, and the gaps take this value.
+func tbStampValue(_ text: NSMutableAttributedString, range: NSRange,
+                  key: NSAttributedString.Key, value: Any) {
+    var gaps: [NSRange] = []
+    text.enumerateAttribute(key, in: range, options: []) {
+        existing, sub, _ in
+        if existing == nil { gaps.append(sub) }
+    }
+    for gap in gaps {
+        text.addAttribute(key, value: value, range: gap)
+    }
+}
+
+struct TBKeyframeStop {
+    var offset: Double
+    var decls: [String: String]
+}
+
+final class TBKeyframesRule {
+    var stops: [TBKeyframeStop] = []
+}
+
+// The @keyframes rules of a sheet (0.27), found by the
+// same brace-matching scan that finds @media blocks:
+// the name after the at-rule, then stop blocks whose
+// selectors are percentages or from/to.
+func tbParseKeyframes(_ css: String) -> [String: TBKeyframesRule] {
+    var found: [String: TBKeyframesRule] = [:]
+    var searchFrom = css.startIndex
+    while let atRange = css.range(of: "@keyframes",
+                                  options: .caseInsensitive,
+                                  range: searchFrom..<css.endIndex) {
+        guard let braceOpen = css.range(
+                of: "{", range: atRange.upperBound..<css.endIndex)
+        else { break }
+        let name = String(css[atRange.upperBound..<braceOpen.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var depth = 0
+        var j = braceOpen.lowerBound
+        var closedAt: String.Index? = nil
+        while j < css.endIndex {
+            if css[j] == "{" { depth += 1 }
+            else if css[j] == "}" {
+                depth -= 1
+                if depth == 0 { closedAt = j; break }
+            }
+            j = css.index(after: j)
+        }
+        guard let close = closedAt else { break }
+        let body = String(css[css.index(after: braceOpen.lowerBound)..<close])
+        let rule = TBKeyframesRule()
+        for chunk in body.split(separator: "}") {
+            let halves = chunk.split(separator: "{", maxSplits: 1)
+            if halves.count != 2 { continue }
+            let decls = tbParseDeclarations(String(halves[1]))
+            if decls.isEmpty { continue }
+            for rawSelector in halves[0].split(separator: ",") {
+                let word = rawSelector
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                let offset: Double?
+                if word == "from" { offset = 0 }
+                else if word == "to" { offset = 1 }
+                else if word.hasSuffix("%"),
+                        let pct = Double(word.dropLast()) {
+                    offset = pct / 100
+                } else { offset = nil }
+                if let offset = offset {
+                    rule.stops.append(TBKeyframeStop(offset: offset,
+                                                     decls: decls))
+                }
+            }
+        }
+        if !name.isEmpty, !rule.stops.isEmpty {
+            rule.stops.sort { $0.offset < $1.offset }
+            found[name] = rule
+        }
+        searchFrom = css.index(after: close)
+    }
+    return found
+}
+
+// @keyframes blocks never reach the plain rule
+// chunking (their stops would read as rules with odd
+// selectors); strip them whole, as @media blocks are
+// stripped — tbParseKeyframes has already read them
+// from the sheet's raw text by the time this matters.
+func tbStripKeyframesBlocks(_ css: String) -> String {
+    var out = ""
+    var searchFrom = css.startIndex
+    while let atRange = css.range(of: "@keyframes",
+                                  options: .caseInsensitive,
+                                  range: searchFrom..<css.endIndex) {
+        out += css[searchFrom..<atRange.lowerBound]
+        guard let braceOpen = css.range(
+                of: "{", range: atRange.upperBound..<css.endIndex)
+        else {
+            searchFrom = css.endIndex
+            break
+        }
+        var depth = 0
+        var j = braceOpen.lowerBound
+        var closedAt: String.Index? = nil
+        while j < css.endIndex {
+            if css[j] == "{" { depth += 1 }
+            else if css[j] == "}" {
+                depth -= 1
+                if depth == 0 { closedAt = j; break }
+            }
+            j = css.index(after: j)
+        }
+        guard let close = closedAt else {
+            searchFrom = css.endIndex
+            break
+        }
+        searchFrom = css.index(after: close)
+    }
+    out += css[searchFrom..<css.endIndex]
+    return out
 }
 
 // The outermost @media blocks of a sheet: their condition
@@ -3552,7 +4077,25 @@ final class TBRenderer {
     // the walk met, each with the sub-renderer holding
     // its contents, waiting for the arrivals finish to
     // clean and re-balance them, as block floats wait.
-    private var pendingColumns: [(spec: TBMultiColumnSpec, sub: TBRenderer)] = []
+    private var pendingColumns: [(spec: TBMultiColumnSpec,
+                                  subs: [(part: TBColumnPart, sub: TBRenderer)])] = []
+
+    // The paint & motion set (0.27): the walk's running
+    // paint state — the text shadows in force (inherited,
+    // as CSS inherits them), whether the block being
+    // walked clips its lines unwrapped (white-space:
+    // nowrap), the content width an ellipsis block
+    // truncates at when the block qualifies, and the
+    // child filter a segmented columns sub-renderer
+    // walks under, consumed by its first walkBlock.
+    private var textShadowSetCurrent: TBTextShadowSet? = nil
+    private var nowrapClips = false
+    private var ellipsisWidth: CGFloat? = nil
+    var columnChildFilter: Set<ObjectIdentifier>? = nil
+
+    // @keyframes rules collected from the page's sheets
+    // at the first paint (0.27), by name.
+    var keyframes: [String: TBKeyframesRule] = [:]
 
     // Flexbox (0.24): the flex containers the walk met,
     // each with the sub-renderers holding its items'
@@ -3929,6 +4472,397 @@ final class TBRenderer {
         resolvedStateStyle(node: node, flag: .active)
     }
 
+    // MARK: - Paint & motion parsing (0.27)
+
+    // A CSS time: "0.4s" or "400ms", in seconds.
+    private func timeValue(_ token: String) -> Double? {
+        let t = token.trimmingCharacters(in: .whitespaces).lowercased()
+        if t.hasSuffix("ms"), let v = Double(t.dropLast(2)) { return v / 1000 }
+        if t.hasSuffix("s"), let v = Double(t.dropLast()) { return v }
+        return nil
+    }
+
+    // A CSS angle, in radians: deg, rad, turn and grad
+    // by their suffixes; a bare number reads as degrees
+    // (lenient, as this engine reads most things).
+    private func angleValue(_ token: String) -> CGFloat {
+        let t = token.trimmingCharacters(in: .whitespaces).lowercased()
+        if t.hasSuffix("deg"), let v = Double(t.dropLast(3)) {
+            return CGFloat(v) * .pi / 180
+        }
+        if t.hasSuffix("rad"), let v = Double(t.dropLast(3)) {
+            return CGFloat(v)
+        }
+        if t.hasSuffix("turn"), let v = Double(t.dropLast(4)) {
+            return CGFloat(v) * 2 * .pi
+        }
+        if t.hasSuffix("grad"), let v = Double(t.dropLast(4)) {
+            return CGFloat(v) * .pi / 200
+        }
+        if let v = Double(t) { return CGFloat(v) * .pi / 180 }
+        return 0
+    }
+
+    // box-shadow: comma-separated shadows, each a run
+    // of lengths (offset-x, offset-y, blur, spread)
+    // with a color wherever the page put it, and
+    // currentColor — the element's own color, passed
+    // in — when it put none. An inset shadow is
+    // skipped whole: inset is named out for this
+    // engine, whose painters draw a shadow under a
+    // box and cannot clip one inside it.
+    private func boxShadowSet(_ decls: [String: String],
+                              color: NSColor?,
+                              fontSize: CGFloat) -> TBBoxShadowSet? {
+        guard let raw = decls["box-shadow"],
+              raw.trimmingCharacters(in: .whitespaces).lowercased() != "none"
+        else { return nil }
+        let set = TBBoxShadowSet()
+        for layer in tbSplitLayers(raw) {
+            var lengths: [CGFloat] = []
+            var shadowColor: NSColor? = nil
+            var inset = false
+            var valid = true
+            for token in valueTokens(layer) {
+                let word = token.lowercased()
+                if word == "inset" { inset = true; continue }
+                if let parsed = tbParseColor(token) {
+                    shadowColor = parsed
+                    continue
+                }
+                if let length = tbLengthValue(token, fontSize: fontSize) {
+                    lengths.append(length)
+                    continue
+                }
+                if word == "0" { lengths.append(0); continue }
+                valid = false
+            }
+            guard valid, !inset, lengths.count >= 2 else { continue }
+            let blur = lengths.count > 2 ? lengths[2] : 0
+            guard blur >= 0 else { continue }
+            set.shadows.append(TBBoxShadow(
+                dx: lengths[0], dy: lengths[1], blur: blur,
+                spread: lengths.count > 3 ? lengths[3] : 0,
+                color: shadowColor ?? color ?? .black))
+        }
+        return set.shadows.isEmpty ? nil : set
+    }
+
+    // text-shadow: the same reading, minus spread and
+    // inset — a text shadow has neither in CSS.
+    private func textShadowSet(_ decls: [String: String],
+                               color: NSColor?,
+                               fontSize: CGFloat) -> TBTextShadowSet? {
+        guard let raw = decls["text-shadow"],
+              raw.trimmingCharacters(in: .whitespaces).lowercased() != "none"
+        else { return nil }
+        let set = TBTextShadowSet()
+        for layer in tbSplitLayers(raw) {
+            var lengths: [CGFloat] = []
+            var shadowColor: NSColor? = nil
+            var valid = true
+            for token in valueTokens(layer) {
+                if let parsed = tbParseColor(token) {
+                    shadowColor = parsed
+                    continue
+                }
+                if let length = tbLengthValue(token, fontSize: fontSize) {
+                    lengths.append(length)
+                    continue
+                }
+                if token == "0" { lengths.append(0); continue }
+                valid = false
+            }
+            guard valid, lengths.count >= 2 else { continue }
+            let blur = lengths.count > 2 ? lengths[2] : 0
+            guard blur >= 0 else { continue }
+            set.shadows.append(TBTextShadow(
+                dx: lengths[0], dy: lengths[1], blur: blur,
+                color: shadowColor ?? color ?? .black))
+        }
+        return set.shadows.isEmpty ? nil : set
+    }
+
+    // transform: the 2D function list, kept unresolved
+    // (see TBTransformSpec), with transform-origin
+    // riding along — keywords and lengths against the
+    // element's own box, the center by default. An
+    // unrecognized function leaves the whole transform
+    // unread rather than half-applied.
+    private func transformSpec(_ decls: [String: String],
+                               fontSize: CGFloat) -> TBTransformSpec? {
+        guard let raw = decls["transform"],
+              raw.trimmingCharacters(in: .whitespaces).lowercased() != "none"
+        else { return nil }
+        let spec = TBTransformSpec()
+        var i = raw.startIndex
+        while i < raw.endIndex {
+            while i < raw.endIndex, raw[i] == " " || raw[i] == "," {
+                i = raw.index(after: i)
+            }
+            guard i < raw.endIndex else { break }
+            guard let open = raw.range(of: "(", range: i..<raw.endIndex)
+            else { return nil }
+            let name = String(raw[i..<open.lowerBound])
+                .trimmingCharacters(in: .whitespaces).lowercased()
+            guard let close = raw.range(of: ")",
+                                        range: open.upperBound..<raw.endIndex)
+            else { return nil }
+            let args = String(raw[open.upperBound..<close.lowerBound])
+            let tokens = args.split { $0 == "," || $0 == " " || $0 == "\t" }
+                .map { String($0) }
+            func lengths() -> [TBTransformValue] {
+                tokens.map { token in
+                    if let v = insetValue(token, fontSize: fontSize) {
+                        return .length(v)
+                    }
+                    if let n = Double(token) { return .number(CGFloat(n)) }
+                    return .number(0)
+                }
+            }
+            func numbers() -> [TBTransformValue] {
+                tokens.map { .number(CGFloat(Double($0) ?? 0)) }
+            }
+            func angles() -> [TBTransformValue] {
+                tokens.map { .angle(angleValue($0)) }
+            }
+            switch name {
+            case "translate", "translatex", "translatey":
+                spec.functions.append((name: name, values: lengths()))
+            case "scale", "scalex", "scaley", "matrix":
+                spec.functions.append((name: name, values: numbers()))
+            case "rotate", "skewx", "skewy", "skew":
+                spec.functions.append((name: name, values: angles()))
+            default:
+                return nil
+            }
+            i = raw.index(after: close.lowerBound)
+        }
+        if spec.functions.isEmpty { return nil }
+        if let originRaw = decls["transform-origin"] {
+            var x: TBInsetValue? = nil
+            var y: TBInsetValue? = nil
+            for token in valueTokens(originRaw) {
+                switch token.lowercased() {
+                case "left": x = .percent(0)
+                case "right": x = .percent(100)
+                case "top": y = .percent(0)
+                case "bottom": y = .percent(100)
+                case "center":
+                    if x == nil { x = .percent(50) }
+                    else if y == nil { y = .percent(50) }
+                default:
+                    if let v = insetValue(token, fontSize: fontSize) {
+                        if x == nil { x = v }
+                        else if y == nil { y = v }
+                    }
+                }
+            }
+            if let x = x { spec.originX = x }
+            if let y = y { spec.originY = y }
+        }
+        return spec
+    }
+
+    // opacity: a number or a percentage, held to
+    // [0, 1] as the spec directs.
+    private func opacityValue(_ decls: [String: String]) -> CGFloat? {
+        guard let raw = decls["opacity"] else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        if t.hasSuffix("%"), let pct = Double(t.dropLast()) {
+            return min(max(CGFloat(pct) / 100, 0), 1)
+        }
+        guard let value = Double(t) else { return nil }
+        return min(max(CGFloat(value), 0), 1)
+    }
+
+    // transition: the shorthand's layers (property,
+    // duration, timing, delay — the first time is the
+    // duration, the second the delay), with the
+    // longhands combined by index over it when the
+    // page wrote them. Nil when nothing would move.
+    private func transitionSpec(_ decls: [String: String]) -> TBTransitionSpec? {
+        var entries: [TBTransitionEntry] = []
+        if let shorthand = decls["transition"],
+           shorthand.trimmingCharacters(in: .whitespaces).lowercased() != "none" {
+            for layer in tbSplitLayers(shorthand) {
+                var property = "all"
+                var duration: Double? = nil
+                var delay: Double = 0
+                var timing = TBTimingFunction.ease
+                for token in valueTokens(layer) {
+                    if let time = timeValue(token) {
+                        if duration == nil { duration = time }
+                        else { delay = time }
+                        continue
+                    }
+                    let word = token.lowercased()
+                    if word == "linear" || word == "ease"
+                        || word == "ease-in" || word == "ease-out"
+                        || word == "ease-in-out"
+                        || word.hasPrefix("cubic-bezier(")
+                        || word == "step-start" || word == "step-end" {
+                        timing = tbTimingFunction(token)
+                        continue
+                    }
+                    property = word
+                }
+                entries.append(TBTransitionEntry(
+                    property: property, duration: duration ?? 0,
+                    delay: delay, timing: timing))
+            }
+        }
+        if let propsRaw = decls["transition-property"] {
+            let props = tbSplitLayers(propsRaw).map {
+                $0.trimmingCharacters(in: .whitespaces).lowercased()
+            }
+            let durations = (decls["transition-duration"]
+                .map { tbSplitLayers($0) } ?? [])
+                .map { timeValue($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            let delays = (decls["transition-delay"]
+                .map { tbSplitLayers($0) } ?? [])
+                .map { timeValue($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            let timings = (decls["transition-timing-function"]
+                .map { tbSplitLayers($0) } ?? [])
+                .map { tbTimingFunction($0) }
+            entries = props.enumerated().map { i, property in
+                TBTransitionEntry(
+                    property: property,
+                    duration: durations.isEmpty
+                        ? 0 : durations[i % durations.count],
+                    delay: delays.isEmpty ? 0 : delays[i % delays.count],
+                    timing: timings.isEmpty
+                        ? .ease : timings[i % timings.count])
+            }
+        }
+        guard entries.contains(where: { $0.duration > 0 }) else { return nil }
+        let spec = TBTransitionSpec()
+        spec.entries = entries
+        return spec
+    }
+
+    // animation: the element's name, duration, delay,
+    // iteration count, direction and timing, resolved
+    // against the keyframes the sheets carried. The
+    // stops are reduced to paint traits here — layout
+    // traits in a keyframe are simply never read.
+    // Reduced motion stands the whole thing down: no
+    // spec, no stamp, nothing for the view to run.
+    private func animationSpec(_ decls: [String: String],
+                               fontSize: CGFloat) -> TBAnimationSpec? {
+        guard !reducedMotion else { return nil }
+        var name = decls["animation-name"]?
+            .trimmingCharacters(in: .whitespaces)
+        var duration: Double? = decls["animation-duration"]
+            .flatMap { timeValue($0) }
+        var delay: Double = decls["animation-delay"]
+            .flatMap { timeValue($0) } ?? 0
+        var iterations: Double = 1
+        var direction = "normal"
+        var timing = TBTimingFunction.ease
+        if let raw = decls["animation-iteration-count"] {
+            let t = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            iterations = t == "infinite" ? .infinity : (Double(t) ?? 1)
+        }
+        if let raw = decls["animation-direction"] {
+            direction = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        if let raw = decls["animation-timing-function"] {
+            timing = tbTimingFunction(raw)
+        }
+        if let shorthand = decls["animation"] {
+            var shorthandName: String? = nil
+            var shorthandDuration: Double? = nil
+            for token in valueTokens(shorthand) {
+                if let time = timeValue(token) {
+                    if shorthandDuration == nil { shorthandDuration = time }
+                    else { delay = time }
+                    continue
+                }
+                let word = token.lowercased()
+                if word == "infinite" { iterations = .infinity; continue }
+                if let count = Double(word) { iterations = count; continue }
+                if ["normal", "reverse", "alternate",
+                    "alternate-reverse"].contains(word) {
+                    direction = word
+                    continue
+                }
+                if word == "linear" || word.hasPrefix("ease")
+                    || word.hasPrefix("cubic-bezier(") {
+                    timing = tbTimingFunction(token)
+                    continue
+                }
+                if ["none", "forwards", "backwards", "both",
+                    "running", "paused"].contains(word) { continue }
+                shorthandName = token
+            }
+            if let shorthandName = shorthandName { name = shorthandName }
+            if let shorthandDuration = shorthandDuration {
+                duration = shorthandDuration
+            }
+        }
+        guard let name = name, !name.isEmpty,
+              name.lowercased() != "none",
+              let rule = keyframes[name],
+              let duration = duration, duration > 0
+        else { return nil }
+        let spec = TBAnimationSpec()
+        spec.duration = duration
+        spec.delay = delay
+        spec.iterations = iterations
+        spec.direction = direction
+        spec.timing = timing
+        spec.stops = rule.stops.map { stop in
+            var traits = TBAnimTraits()
+            traits.foreground = tbParseColor(stop.decls["color"])
+            traits.background = tbBackgroundColor(stop.decls)
+            traits.opacity = opacityValue(stop.decls)
+            traits.transform = transformSpec(stop.decls,
+                                             fontSize: fontSize)
+            return (offset: stop.offset, traits: traits)
+        }
+        return spec
+    }
+
+    // The part of a state style the 0.23 traits cannot
+    // hold (0.27): background layers, opacity and a
+    // paint transform, attached to the style the plain
+    // traits built — or standing alone when the state
+    // names nothing else paintable. Lengths in a state
+    // transform read against the 16pt reference size:
+    // states overwhelmingly translate in pixels.
+    private func attachStateExtras(_ style: TBHoverStyle?,
+                                   decls: [String: String]) -> TBHoverStyle? {
+        let box = backgroundBox(decls: decls)
+        let opacity = opacityValue(decls)
+        let transform = transformSpec(decls, fontSize: 16)
+        if box == nil, opacity == nil, transform == nil { return style }
+        let s = style ?? TBHoverStyle()
+        if let box = box { s.backgroundBox = box }
+        if let opacity = opacity { s.opacityValue = opacity }
+        if let transform = transform { s.transformSpec = transform }
+        return s
+    }
+
+    // A multicolumn block's spanning child (0.27): a
+    // block-level child declaring column-span: all,
+    // judged by the same display reading the walk's
+    // own child loop makes.
+    private func columnSpanner(_ child: TBNode) -> Bool {
+        guard child.tag != "#text", child.tag != "img" else { return false }
+        let childOwn = resolvedStyle(node: child)
+        guard (childOwn["column-span"] ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased() == "all",
+              !tbIsHidden(childOwn) else { return false }
+        let display = (childOwn["display"] ?? "").lowercased()
+        if ["inline", "inline-block", "inline-flex",
+            "inline-grid", "contents"].contains(display) { return false }
+        return TBBlockTags.contains(child.tag)
+            || ["block", "flex", "grid", "list-item",
+                "table", "flow-root"].contains(display)
+            || hasBlock(child)
+    }
+
     // The element's hover paint (0.23), ready to stamp: the
     // resolved hover declarations reduced to the traits the
     // view can repaint without moving any text. Nil when no
@@ -3940,7 +4874,7 @@ final class TBRenderer {
         guard hoverRulePresent else { return nil }
         let decls = resolvedHoverStyle(node: node)
         if decls.isEmpty { return nil }
-        return tbHoverPaintAttrs(decls)
+        return attachStateExtras(tbHoverPaintAttrs(decls), decls: decls)
     }
 
     // The element's focus paint (0.26), ready to stamp —
@@ -3951,7 +4885,7 @@ final class TBRenderer {
         guard focusRulePresent else { return nil }
         let decls = resolvedFocusStyle(node: node)
         if decls.isEmpty { return nil }
-        return tbHoverPaintAttrs(decls)
+        return attachStateExtras(tbHoverPaintAttrs(decls), decls: decls)
     }
 
     // The element's active paint (0.26) — the third twin,
@@ -3960,7 +4894,7 @@ final class TBRenderer {
         guard activeRulePresent else { return nil }
         let decls = resolvedActiveStyle(node: node)
         if decls.isEmpty { return nil }
-        return tbHoverPaintAttrs(decls)
+        return attachStateExtras(tbHoverPaintAttrs(decls), decls: decls)
     }
 
     // Fetch every registered image — with bounded
@@ -4133,6 +5067,13 @@ final class TBRenderer {
             case .external: cssText = sheetTexts[index]
             }
             guard let text = cssText else { continue }
+            // @keyframes rules (0.27) are collected from
+            // the sheet's raw text before the cascade
+            // parse strips them; a later sheet's rule of
+            // the same name replaces an earlier one's.
+            for (name, rule) in tbParseKeyframes(text) {
+                keyframes[name] = rule
+            }
             let parsed = tbParseCSS(text, orderStart: order)
             rules.append(contentsOf: parsed)
             order += parsed.count
@@ -4230,10 +5171,45 @@ final class TBRenderer {
             if style == "li" {
                 buffer.insert(NSAttributedString(string: "\u{2022} ", attributes: [.font: font]), at: 0)
             }
+            // The paint & motion set (0.27): text-overflow:
+            // ellipsis — a nowrap block whose overflow is
+            // not visible and whose line runs past its
+            // content width is cut at the edge and closed
+            // with an ellipsis. The cut is made in the
+            // text itself: the page's string truly ends
+            // at the ellipsis, so selection and copying
+            // give the truncated words — the honesty the
+            // finishing2 test page states.
+            if let avail = ellipsisWidth,
+               measureText(buffer, width: 100000).width > avail {
+                var lo = 0
+                var hi = buffer.length
+                while lo < hi {
+                    let mid = (lo + hi + 1) / 2
+                    let prefix = NSMutableAttributedString(
+                        attributedString: buffer.attributedSubstring(
+                            from: NSRange(location: 0, length: mid)))
+                    prefix.append(NSAttributedString(string: "\u{2026}"))
+                    if measureText(prefix, width: 100000).width <= avail {
+                        lo = mid
+                    } else {
+                        hi = mid - 1
+                    }
+                }
+                let kept = NSMutableAttributedString(
+                    attributedString: buffer.attributedSubstring(
+                        from: NSRange(location: 0, length: lo)))
+                kept.append(NSAttributedString(
+                    string: "\u{2026}",
+                    attributes: buffer.attributes(
+                        at: lo > 0 ? lo - 1 : 0, effectiveRange: nil)))
+                buffer = kept
+            }
             let blockRange = NSRange(location: 0, length: buffer.length)
-            if align != .left || metrics.hasAny || spaceCarry > 0 {
+            if align != .left || metrics.hasAny || spaceCarry > 0 || nowrapClips {
                 let paragraph = NSMutableParagraphStyle()
                 paragraph.alignment = align
+                if nowrapClips { paragraph.lineBreakMode = .byClipping }
                 if spaceCarry > 0 { paragraph.paragraphSpacingBefore = spaceCarry }
                 if metrics.after > 0 { paragraph.paragraphSpacing = metrics.after }
                 if metrics.lineMultiple > 0 { paragraph.lineHeightMultiple = metrics.lineMultiple }
@@ -4274,6 +5250,14 @@ final class TBRenderer {
             if !pendingClears.isEmpty {
                 for spec in pendingClears { spec.anchorCharIndex = paraStart }
                 pendingClears = []
+            }
+            // The paint & motion set (0.27): the text
+            // shadows in force ride on the paragraph, for
+            // the glyph painters to draw beneath it.
+            if let shadows = textShadowSetCurrent {
+                out.addAttribute(TBTextShadowKey, value: shadows,
+                                 range: NSRange(location: paraStart,
+                                                length: buffer.length))
             }
             // The gap between blocks belongs to the same box:
             // paint it too, so a background reads as one band.
@@ -4383,6 +5367,32 @@ final class TBRenderer {
         let savedRelDX = relDX
         let savedRelDY = relDY
         let savedAncestorPaddingH = ancestorPaddingH
+        // The paint & motion set (0.27): this block's
+        // paint state — text-shadow inherits, so a
+        // declared set replaces the inherited one for
+        // the block's subtree; nowrap and the ellipsis
+        // width are the block's own, read by flush()
+        // while its paragraphs land. Restored at the
+        // close, beside the relative offsets.
+        let savedTextShadows = textShadowSetCurrent
+        if let shadows = textShadowSet(own, color: effColor,
+                                       fontSize: effFont.pointSize) {
+            textShadowSetCurrent = shadows
+        }
+        let savedNowrapClips = nowrapClips
+        nowrapClips = (own["white-space"] ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased() == "nowrap"
+        let savedEllipsisWidth = ellipsisWidth
+        ellipsisWidth = nil
+        if nowrapClips, !insideFloat, node.tag != "document",
+           let overflow = (own["overflow"] ?? own["overflow-x"])?
+            .trimmingCharacters(in: .whitespaces).lowercased(),
+           ["hidden", "clip", "scroll", "auto"].contains(overflow),
+           (own["text-overflow"] ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased() == "ellipsis" {
+            ellipsisWidth = max(10, nominalWidth - metrics.indent
+                                - metrics.tailIndent)
+        }
         if let offset = relativeOffset(own, fontSize: effFont.pointSize) {
             relDX += offset.dx
             relDY += offset.dy
@@ -4494,6 +5504,11 @@ final class TBRenderer {
         if node.tag != "document", flexCount < 60,
            let flexSpec = flexContainerSpec(own, fontSize: effFont.pointSize,
                                             metrics: metrics) {
+            flexSpec.boxShadows = boxShadowSet(
+                own, color: effColor, fontSize: effFont.pointSize)
+            flexSpec.transformSpec = transformSpec(
+                own, fontSize: effFont.pointSize)
+            flexSpec.opacityValue = opacityValue(own) ?? 1
             tookFlex = renderFlex(
                 node: node, spec: flexSpec, font: effFont,
                 color: effColor, align: effAlign, background: effBackground,
@@ -4515,6 +5530,11 @@ final class TBRenderer {
         if !tookFlex, node.tag != "document", gridCount < 60,
            let gridSpec = gridContainerSpec(own, fontSize: effFont.pointSize,
                                             metrics: metrics) {
+            gridSpec.boxShadows = boxShadowSet(
+                own, color: effColor, fontSize: effFont.pointSize)
+            gridSpec.transformSpec = transformSpec(
+                own, fontSize: effFont.pointSize)
+            gridSpec.opacityValue = opacityValue(own) ?? 1
             tookGrid = renderGrid(
                 node: node, spec: gridSpec, font: effFont,
                 color: effColor, align: effAlign, background: effBackground,
@@ -4543,6 +5563,11 @@ final class TBRenderer {
             if columnSpec.ruleColor == nil {
                 columnSpec.ruleColor = effColor
             }
+            columnSpec.boxShadows = boxShadowSet(
+                own, color: effColor, fontSize: effFont.pointSize)
+            columnSpec.transformSpec = transformSpec(
+                own, fontSize: effFont.pointSize)
+            columnSpec.opacityValue = opacityValue(own) ?? 1
             tookColumns = renderColumns(
                 node: node, spec: columnSpec, font: effFont,
                 color: color, align: align, background: effBackground,
@@ -4550,7 +5575,11 @@ final class TBRenderer {
                 ownSurface: declaresSurface)
             flushedOwn = tookColumns
         }
+        let segmentFilter = columnChildFilter
+        columnChildFilter = nil
         for child in (tookFlex || tookGrid || tookColumns) ? [] : node.children {
+            if let segmentFilter = segmentFilter,
+               !segmentFilter.contains(ObjectIdentifier(child)) { continue }
             if TBRenderSkipTags.contains(child.tag) { continue }
             // Layout step one: the child's computed display decides
             // whether it stands as its own block or flows inline —
@@ -4656,6 +5685,9 @@ final class TBRenderer {
         relDX = savedRelDX
         relDY = savedRelDY
         ancestorPaddingH = savedAncestorPaddingH
+        textShadowSetCurrent = savedTextShadows
+        nowrapClips = savedNowrapClips
+        ellipsisWidth = savedEllipsisWidth
 
         // A block-level anchor (a card styled display:grid, say)
         // never passes through inline(), where links are made —
@@ -4717,6 +5749,40 @@ final class TBRenderer {
                          range: NSRange(location: entryLength,
                                         length: out.length - entryLength),
                          key: TBActiveBlockAttrsKey, style: active)
+        }
+
+        // The paint & motion set (0.27): the block's
+        // shadows, paint transform, opacity, transition
+        // and animation specs stamp as the block closes,
+        // under their own keys, fill-gaps like the state
+        // stamps — a child block's own declarations keep
+        // their ground inside it.
+        if node.tag != "document", out.length > entryLength {
+            let range = NSRange(location: entryLength,
+                                length: out.length - entryLength)
+            if let shadows = boxShadowSet(own, color: effColor,
+                                          fontSize: effFont.pointSize) {
+                tbStampValue(out, range: range, key: TBBoxShadowKey,
+                             value: shadows)
+            }
+            if let transform = transformSpec(own,
+                                             fontSize: effFont.pointSize) {
+                tbStampValue(out, range: range, key: TBTransformKey,
+                             value: transform)
+            }
+            if let opacity = opacityValue(own) {
+                tbStampValue(out, range: range, key: TBOpacityKey,
+                             value: TBOpacitySpec(opacity))
+            }
+            if let transition = transitionSpec(own) {
+                tbStampValue(out, range: range, key: TBTransitionKey,
+                             value: transition)
+            }
+            if let animation = animationSpec(own,
+                                             fontSize: effFont.pointSize) {
+                tbStampValue(out, range: range, key: TBAnimationKey,
+                             value: animation)
+            }
         }
 
         // The interaction set (0.26): a sticky block's
@@ -4882,6 +5948,11 @@ final class TBRenderer {
         let absolute = src.hasPrefix("data:")
             ? src
             : (URL(string: src, relativeTo: URL(string: base))?.absoluteString ?? src)
+        spec.boxShadows = boxShadowSet(own, color: nil,
+                                       fontSize: ownFont.pointSize)
+        spec.transformSpec = transformSpec(own,
+                                           fontSize: ownFont.pointSize)
+        spec.opacityValue = opacityValue(own) ?? 1
         layoutEvents.append(.float(spec))
         floatCount += 1
         floatImageJobs.append((spec: spec, url: absolute))
@@ -4932,6 +6003,10 @@ final class TBRenderer {
         spec.paddingLeft = padding.left
         spec.backgroundColor = tbBackgroundColor(own)
         spec.backgroundBox = backgroundBox(decls: own)
+        spec.boxShadows = boxShadowSet(own, color: color,
+                                       fontSize: fontSize)
+        spec.transformSpec = transformSpec(own, fontSize: fontSize)
+        spec.opacityValue = opacityValue(own) ?? 1
         // The float's contents render in a renderer of their
         // own — same rules, same base — which records no
         // layout events: a float inside a float simply flows.
@@ -5362,21 +6437,66 @@ final class TBRenderer {
                                backgroundBox: TBBackgroundBox?,
                                metrics: TBBlockMetrics,
                                ownSurface: Bool) -> Bool {
-        let sub = TBRenderer(base: base)
-        sub.rules = rules
-        sub.visitedURLs = visitedURLs
-        sub.insideFloat = true
-        sub.nominalWidth = nominalWidth
-        sub.walkBlock(node: node, style: tbStyle(for: node.tag),
-                      baseFont: font, color: color, align: align,
-                      inheritedBackground: nil, inheritedBackgroundBox: nil)
-        let visible = (sub.out.string as NSString)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !visible.isEmpty else { return false }
-        spec.content = sub.out
-        spec.columnHeight = balanceColumns(sub.out, count: spec.columnCount,
-                                           columnWidth: spec.columnWidth)
-        spec.totalHeight = spec.columnHeight
+        // The paint & motion set (0.27): column-span:
+        // all — a block child declaring it breaks the
+        // column flow, so the children are first cut
+        // into segments at each spanner. Every segment
+        // is rendered by a sub-renderer of its own that
+        // walks this node under a filter admitting only
+        // its segment's children, and the segments
+        // become the spec's parts in order: column runs
+        // balanced at the column width, spanners
+        // measured at the full width. With no spanner
+        // there is one segment, and the path below is
+        // the one 0.22 built.
+        var segments: [(children: [TBNode], isSpanner: Bool)] = []
+        var current: [TBNode] = []
+        for child in node.children {
+            if columnSpanner(child) {
+                segments.append((children: current, isSpanner: false))
+                current = []
+                segments.append((children: [child], isSpanner: true))
+            } else {
+                current.append(child)
+            }
+        }
+        segments.append((children: current, isSpanner: false))
+        var parts: [TBColumnPart] = []
+        var subs: [(part: TBColumnPart, sub: TBRenderer)] = []
+        var totalHeight: CGFloat = 0
+        for segment in segments {
+            if segment.children.isEmpty { continue }
+            let sub = TBRenderer(base: base)
+            sub.rules = rules
+            sub.visitedURLs = visitedURLs
+            sub.insideFloat = true
+            sub.nominalWidth = segment.isSpanner
+                ? spec.totalWidth : nominalWidth
+            sub.columnChildFilter = Set(
+                segment.children.map { ObjectIdentifier($0) })
+            sub.walkBlock(node: node, style: tbStyle(for: node.tag),
+                          baseFont: font, color: color, align: align,
+                          inheritedBackground: nil,
+                          inheritedBackgroundBox: nil)
+            let visible = (sub.out.string as NSString)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if visible.isEmpty { continue }
+            let part = TBColumnPart()
+            part.isSpanner = segment.isSpanner
+            part.content = sub.out
+            part.height = segment.isSpanner
+                ? ceil(measureText(sub.out, width: spec.totalWidth).height)
+                : balanceColumns(sub.out, count: spec.columnCount,
+                                 columnWidth: spec.columnWidth)
+            parts.append(part)
+            subs.append((part: part, sub: sub))
+            totalHeight += part.height
+        }
+        guard !parts.isEmpty else { return false }
+        spec.parts = parts
+        spec.content = parts.first?.content
+        spec.columnHeight = parts.first(where: { !$0.isSpanner })?.height ?? 0
+        spec.totalHeight = totalHeight
         let seat = TBColumnSeatAttachment()
         seat.image = tbClearSeat(width: spec.totalWidth,
                                  height: spec.totalHeight)
@@ -5431,7 +6551,7 @@ final class TBRenderer {
             after: metrics.after, ownSurface: ownSurface)
         spaceCarry = 0
         layoutEvents.append(.columns(spec))
-        pendingColumns.append((spec: spec, sub: sub))
+        pendingColumns.append((spec: spec, subs: subs))
         return true
     }
 
@@ -5441,10 +6561,11 @@ final class TBRenderer {
     // targets and their [n] markers, and the form
     // controls, for which bracketed labels stand in —
     // exactly the cleaning a floated box's contents get —
-    // then balance the columns again on the finished
-    // text and correct the seat in the page to the final
-    // height, so the re-installed page reserves the truth.
-    private func finalizeColumns(spec: TBMultiColumnSpec, sub: TBRenderer) {
+    // then measure the part again on the finished text:
+    // a column run re-balances, a spanner re-measures
+    // at the full width (0.27).
+    private func finalizeColumnPart(spec: TBMultiColumnSpec,
+                                    part: TBColumnPart, sub: TBRenderer) {
         let cleaned = NSMutableAttributedString(attributedString: sub.out)
         var swaps: [(range: NSRange, text: String)] = []
         cleaned.enumerateAttribute(
@@ -5477,37 +6598,50 @@ final class TBRenderer {
         }
         cleaned.removeAttribute(.link,
                                 range: NSRange(location: 0, length: cleaned.length))
-        spec.content = cleaned
-        // Flexbox (0.24): a flex container inside the
-        // columns was walked against the page's nominal
-        // width; its lines stand one column wide here.
-        // Grid (0.25): a grid container inside the
-        // columns is corrected to the column's width by
-        // the same pass.
-        correctFlexSeats(in: cleaned, availableWidth: spec.columnWidth)
-        correctGridSeats(in: cleaned, availableWidth: spec.columnWidth)
-        spec.columnHeight = balanceColumns(cleaned, count: spec.columnCount,
-                                           columnWidth: spec.columnWidth)
-        spec.totalHeight = spec.columnHeight
-        if let seat = spec.seat {
-            seat.image = tbClearSeat(width: spec.totalWidth,
-                                     height: spec.totalHeight)
-            seat.bounds = CGRect(x: 0, y: 0, width: spec.totalWidth,
-                                 height: spec.totalHeight)
-        }
+        part.content = cleaned
+        // Flexbox (0.24) and grid (0.25): a container
+        // inside the part was walked against the page's
+        // nominal width; it is corrected to the width
+        // the part truly stands in — the column's for a
+        // column run, the block's whole width for a
+        // spanner.
+        let partWidth = part.isSpanner ? spec.totalWidth : spec.columnWidth
+        correctFlexSeats(in: cleaned, availableWidth: partWidth)
+        correctGridSeats(in: cleaned, availableWidth: partWidth)
+        part.height = part.isSpanner
+            ? ceil(measureText(cleaned, width: spec.totalWidth).height)
+            : balanceColumns(cleaned, count: spec.columnCount,
+                             columnWidth: spec.columnWidth)
     }
 
     // Arrivals for the multicolumn blocks (0.22): each
-    // block's own pictures and backgrounds land first,
-    // then its contents are cleaned and re-balanced —
-    // the same two-stage life the block floats lead.
+    // part's own pictures and backgrounds land first,
+    // then its contents are cleaned and re-measured —
+    // the same two-stage life the block floats lead —
+    // and the seat in the page is corrected to the
+    // final height, so the re-installed page reserves
+    // the truth.
     func finishColumns() async {
         for pending in pendingColumns {
-            await pending.sub.finishImages()
-            await pending.sub.finishBackgrounds()
-            await pending.sub.finishFlex()
-            await pending.sub.finishGrid()
-            finalizeColumns(spec: pending.spec, sub: pending.sub)
+            for entry in pending.subs {
+                await entry.sub.finishImages()
+                await entry.sub.finishBackgrounds()
+                await entry.sub.finishFlex()
+                await entry.sub.finishGrid()
+                finalizeColumnPart(spec: pending.spec, part: entry.part,
+                                   sub: entry.sub)
+            }
+            let spec = pending.spec
+            spec.totalHeight = spec.parts.reduce(0) { $0 + $1.height }
+            spec.columnHeight = spec.parts
+                .first(where: { !$0.isSpanner })?.height ?? 0
+            spec.content = spec.parts.first?.content
+            if let seat = spec.seat {
+                seat.image = tbClearSeat(width: spec.totalWidth,
+                                         height: spec.totalHeight)
+                seat.bounds = CGRect(x: 0, y: 0, width: spec.totalWidth,
+                                     height: spec.totalHeight)
+            }
         }
         pendingColumns = []
     }
@@ -5825,6 +6959,10 @@ final class TBRenderer {
         item.paddingLeft = padding.left
         item.backgroundColor = tbBackgroundColor(own)
         item.backgroundBox = backgroundBox(decls: own)
+        item.boxShadows = boxShadowSet(own, color: nil,
+                                       fontSize: fontSize)
+        item.transformSpec = transformSpec(own, fontSize: fontSize)
+        item.opacityValue = opacityValue(own) ?? 1
     }
 
     // A flex container, walked: its children become
@@ -7080,6 +8218,10 @@ final class TBRenderer {
         item.paddingLeft = padding.left
         item.backgroundColor = tbBackgroundColor(own)
         item.backgroundBox = backgroundBox(decls: own)
+        item.boxShadows = boxShadowSet(own, color: nil,
+                                       fontSize: fontSize)
+        item.transformSpec = transformSpec(own, fontSize: fontSize)
+        item.opacityValue = opacityValue(own) ?? 1
     }
 
     // A grid container, walked: its children become
@@ -7959,6 +9101,10 @@ final class TBRenderer {
         spec.paddingLeft = padding.left
         spec.backgroundColor = tbBackgroundColor(own)
         spec.backgroundBox = backgroundBox(decls: own)
+        spec.boxShadows = boxShadowSet(own, color: nil,
+                                       fontSize: fontSize)
+        spec.transformSpec = transformSpec(own, fontSize: fontSize)
+        spec.opacityValue = opacityValue(own) ?? 1
         spec.widthFromInsets = !spec.widthDeclared
             && spec.left != nil && spec.right != nil
         spec.heightFromInsets = !spec.heightDeclared
@@ -8422,6 +9568,34 @@ final class TBRenderer {
             tbStampHover(result,
                          range: NSRange(location: 0, length: result.length),
                          key: TBActiveAttrsKey, style: active)
+        }
+        // The paint & motion set (0.27): the element's
+        // own shadows, paint transform, opacity,
+        // transition and animation specs stamp onto its
+        // run the same way, under their own keys.
+        if result.length > 0 {
+            let range = NSRange(location: 0, length: result.length)
+            if let shadows = boxShadowSet(own, color: effColor,
+                                          fontSize: f.pointSize) {
+                tbStampValue(result, range: range, key: TBBoxShadowKey,
+                             value: shadows)
+            }
+            if let transform = transformSpec(own, fontSize: f.pointSize) {
+                tbStampValue(result, range: range, key: TBTransformKey,
+                             value: transform)
+            }
+            if let opacity = opacityValue(own) {
+                tbStampValue(result, range: range, key: TBOpacityKey,
+                             value: TBOpacitySpec(opacity))
+            }
+            if let transition = transitionSpec(own) {
+                tbStampValue(result, range: range, key: TBTransitionKey,
+                             value: transition)
+            }
+            if let animation = animationSpec(own, fontSize: f.pointSize) {
+                tbStampValue(result, range: range, key: TBAnimationKey,
+                             value: animation)
+            }
         }
         return result
     }

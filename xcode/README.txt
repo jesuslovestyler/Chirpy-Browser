@@ -7,6 +7,177 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.27.0 — PAINT & MOTION
+------------------------------------------------------
+The fourth and final stage of the remaining-CSS
+program: how surfaces cast shadows, how paint
+itself moves — and, with it, the end of the CSS
+roadmap. After this build the engine header's
+"Not yet" holds only JavaScript.
+
+* box-shadow — DONE, outer shadows. Offset,
+  blur, spread and color; several shadows on one
+  box, first-listed on top as CSS paints them.
+  Each shadow is its shape filled under its own
+  blur, clipped to everywhere except the box it
+  belongs to, so a shadow never shows through its
+  own box's face. Shadows ride block surfaces and
+  painted boxes alike — floats, positioned boxes,
+  flex and grid items and their containers,
+  multicolumn blocks, fixed overlays. Inset
+  shadows are NOT read — named out, not faked.
+* text-shadow — DONE. Offset, blur and color,
+  inherited as CSS inherits it, drawn under the
+  glyphs in every text paint path: the main text,
+  floated and positioned boxes, flex and grid item
+  contents, column and spanner contents, fixed
+  overlays. A held (sticky) element's above-pass
+  does not re-draw its text shadows — its glyphs
+  ride above, the shadows stay with the ordinary
+  pass, the same bracket the sticky set already
+  keeps for photo bands.
+* State background layers — DONE. Since 0.23 a
+  state (hover, and since 0.26 focus and active)
+  could change colors; now a state's background
+  photo and gradient layers paint too, through the
+  same layer painter the resting background uses,
+  and lift exactly when the state lifts, restoring
+  the covered paint as the colors always have.
+* column-span: all — DONE. A multicolumn block is
+  cut at its spanning children: the content before
+  a spanner balances into columns, the spanner
+  paints across the full width, and the content
+  after resumes in fresh columns below — as many
+  segments as the page declares, each balanced on
+  its own. The spanner's own contents paint like
+  any column content, nested containers included.
+* text-overflow: ellipsis — DONE, engine-side.
+  A block that is nowrap, clips its overflow
+  (hidden, clip, scroll or auto) and declares
+  text-overflow: ellipsis has an over-long line
+  shortened at flush time to the widest prefix
+  that fits with "…" at the content edge. Honest
+  cost, stated on the test page too: the text
+  itself is shortened, so selecting or copying the
+  line yields the shortened line. Lines inside
+  floated boxes keep their clipping instead — the
+  float's own width governs there.
+* transform — DONE, paint-time only. The 2D
+  functions (translate, translateX/Y, scale,
+  scaleX/Y, rotate, skewX/Y, matrix) resolve to
+  one affine at paint; transform-origin is
+  honored (default 50% 50%). A transformed
+  element's backgrounds, layers, shadows and
+  glyphs move together — block surfaces, painted
+  boxes, flex and grid items and containers,
+  multicolumn blocks, fixed overlays, and inline
+  elements' own fills and glyphs. Flow positions
+  never move; nested transforms compose where the
+  paint paths nest (a transformed item inside a
+  transformed container). Named outs: link
+  hit-testing stays at flow positions inside
+  transformed paint; a transformed element's
+  floated children do not inherit its transform
+  (the float seats are resolved outside its paint
+  wrap); an inline element's transform moves its
+  own paint only, never an ancestor's surface.
+* opacity — DONE as a paint trait: a block's or
+  box's whole paint (surface, contents, shadows)
+  takes its alpha, and it is the trait transitions
+  and keyframes animate.
+* transition — DONE, for paint traits only:
+  color, background-color, border-color (on
+  painted boxes), opacity and transform, with
+  duration, delay and the timing functions
+  (linear, ease, ease-in, ease-out, ease-in-out,
+  and cubic-bezier() itself; steps() is read as
+  ease — the one approximation, named). Triggered
+  by the state changes the engine already tracks:
+  when a state starts or stops wearing a trait,
+  the trait travels between what the page showed
+  and what it should show, from the value on
+  screen — an interrupted transition hands its
+  current value to the next. The shorthand and
+  the longhands are both read.
+* @keyframes — DONE, for the same paint traits.
+  Named rules with percentage, from and to stops
+  (a trait a stop omits reads from the element's
+  resting paint); animation-name, duration,
+  delay, iteration-count (infinite included) and
+  direction (normal, reverse, alternate,
+  alternate-reverse) are read; timing functions
+  apply across the whole cycle. A finished run
+  puts its resting paint back exactly. Animation
+  fill modes are NOT read — a finished animation
+  returns to rest, as above.
+* The motion discipline: ONE timer, created only
+  while something is actually animating and
+  invalidated by its own tick the moment nothing
+  remains — a page with no motion has no timer and
+  spends no cycles. Each tick repaints only the
+  animated elements' own ranges, and a hidden
+  window's animations simply wait. Colors are
+  blended in sRGB; transform interpolation is
+  component-wise between resolved matrices, not a
+  decomposition — honest arithmetic, named.
+* prefers-reduced-motion — WIRED THROUGH. With
+  Reduce Motion on, the engine stamps no
+  animation, transitions land instantly instead of
+  travelling, and nothing moves: the stillness is
+  the feature working.
+* Named out, plainly: animating anything that
+  moves layout (width, height, font size, margins
+  — text would have to reflow per frame, and this
+  engine does not pretend otherwise); animating
+  paint inside painted boxes (a float's or flex
+  item's CONTENTS rest while their box traits —
+  the box's own opacity and transform — do
+  animate); inset box-shadows.
+
+The drill (finishing2-test.html, in this folder):
+1 is a soft-shadowed card and a card with two
+shadows at once; 2 is a text-shadow heading and
+line; 3 is a hover card whose gradient layer
+arrives on hover and lifts on exit; 4 is a
+three-column article with a headline spanning all
+of it mid-way, columns resuming below; 5 is the
+nowrap ellipsis line in its narrow box; 6 is a
+rotated badge, a scaled box and a translated box;
+7 is a hover transition — color warming and a
+26-point glide over ~0.4s; 8 is two keyframe runs,
+an opacity pulse and an alternate-direction scale,
+running on their own. The checks that need Tyler's
+eyes: 7 and 8 entire (motion cannot be
+screenshot-proven), and 3's arrival and lifting.
+
+THE FINAL DRILL — this is the build to compile
+------------------------------------------------------
+0.27.0 is the stage Tyler builds: 0.24, 0.25 and
+0.26 were pushed uncompiled, by the standing
+workflow, so this one build carries all four
+stages to his screen. In order:
+1. Build and run. The status line should read
+   "Chirpy Engine 0.27.0 (Swift)" and name
+   shadows, transforms, transitions, animations
+   among the features.
+2. flex-test.html — the whole 0.24 flexbox drill
+   (see its section below).
+3. grid-test.html — the whole 0.25 grid drill.
+4. interaction-test.html — the 0.26 drill above:
+   the dressed form with its click-focus and
+   press-and-hold checks, the focus and active
+   links, the sticky bars (scroll them).
+5. finishing-test.html — the 0.23 finishing set
+   (font shorthand, media gates, structural
+   selectors, hover colors) as a regression pass.
+6. finishing2-test.html — the 0.27 drill above.
+7. Regression passes: floats-test.html,
+   positioning-test.html and multicolumn-test.html
+   end to end, then the home page — its verse,
+   its cards, and a scroll from top to bottom.
+Anything that fails, fails on Tyler's screen
+first — that report is the one that counts.
+
 WHAT'S NEW IN 0.26.0 — THE INTERACTION SET
 ------------------------------------------------------
 The third stage of the remaining-CSS program: the

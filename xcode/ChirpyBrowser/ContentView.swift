@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.26.0 (Swift)
+//  Chirpy Browser — prototype 0.27.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.26.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.27.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -180,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.26.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.27.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -299,6 +299,7 @@ struct PageTextView: NSViewRepresentable {
             context.coordinator.clearFixedViews()
             (textView as? TBPageTextView)?.pageTextReplaced()
             textView.textStorage?.setAttributedString(model.pageText)
+            (textView as? TBPageTextView)?.pageTextInstalled()
             textView.scrollToBeginningOfDocument(nil)
             context.coordinator.rebuildFormViews()
             context.coordinator.layoutEvents = model.pageLayoutEvents
@@ -556,6 +557,7 @@ struct PageTextView: NSViewRepresentable {
             for (id, field) in fieldViews { typed[id] = field.stringValue }
             (textView as? TBPageTextView)?.pageTextReplaced()
             storage.setAttributedString(model.pageText)
+            (textView as? TBPageTextView)?.pageTextInstalled()
             rebuildFormViews()
             for (id, value) in typed {
                 fieldViews[id]?.stringValue = value
@@ -1616,6 +1618,85 @@ final class TBPageTextView: NSTextView {
                               range: NSRange, value: Any?)] = []
     private var stateTextLength = -1
 
+    // The paint & motion set (0.27): transitions and
+    // @keyframes animations of paint traits, driven by
+    // ONE timer that exists only while something is
+    // actually animating — started when a transition
+    // or a keyframe run begins, stopped the moment
+    // none remain, and never ticking an idle page.
+    // Transitions run between the trait sets the state
+    // layers wear (wornTargets); keyframe runs are
+    // discovered from the text's animation stamps.
+    // Colors are written as attributes frame by frame;
+    // opacity and transforms ride the layout manager's
+    // effects table, recomposed by rebuildFXOverrides.
+    private struct TBTransition {
+        var key: String
+        var range: NSRange
+        var property: String
+        var fromColor: NSColor? = nil
+        var toColor: NSColor? = nil
+        var fromOpacity: CGFloat? = nil
+        var toOpacity: CGFloat? = nil
+        var fromTransform: TBTransformSpec? = nil
+        var toTransform: TBTransformSpec? = nil
+        var start: Date
+        var duration: Double
+        var delay: Double
+        var timing: TBTimingFunction
+
+        func progress(at now: Date) -> Double {
+            let t = now.timeIntervalSince(start) - delay
+            if t <= 0 { return 0 }
+            if duration <= 0 { return 1 }
+            return min(t / duration, 1)
+        }
+
+        func currentColor(at now: Date) -> NSColor? {
+            guard let from = fromColor, let to = toColor
+            else { return fromColor }
+            return tbLerpColor(
+                from, to, CGFloat(timing.evaluate(progress(at: now))))
+        }
+
+        func currentOpacity(at now: Date) -> CGFloat? {
+            guard fromOpacity != nil || toOpacity != nil else { return nil }
+            let from = fromOpacity ?? 1
+            let to = toOpacity ?? 1
+            return from + (to - from)
+                * CGFloat(timing.evaluate(progress(at: now)))
+        }
+    }
+
+    private struct TBKeyframeAnim {
+        var range: NSRange
+        var spec: TBAnimationSpec
+        var start: Date
+        var resting: [(range: NSRange, fg: NSColor?, bg: NSColor?)]
+        var restingOpacity: CGFloat?
+        var restingTransform: TBTransformSpec?
+    }
+
+    private struct TBWornTraits {
+        var fg: NSColor? = nil
+        var bg: NSColor? = nil
+        var opacity: CGFloat? = nil
+        var transform: TBTransformSpec? = nil
+    }
+
+    private var fxTimer: Timer? = nil
+    private var transitions: [TBTransition] = []
+    private var transitionFX: [String: (opacity: CGFloat?,
+                                        transform: TBTransformSpec?)] = [:]
+    private var keyframeAnims: [TBKeyframeAnim] = []
+    private var keyframeFX: [(range: NSRange, opacity: CGFloat?,
+                              transform: TBTransformSpec?)] = []
+    private var wornTargets: [String: TBWornTraits] = [:]
+
+    deinit {
+        fxTimer?.invalidate()
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let area = hoverTrackingArea { removeTrackingArea(area) }
@@ -1714,6 +1795,33 @@ final class TBPageTextView: NSTextView {
         activeRange = nil
         stateSaved = []
         stateTextLength = -1
+        // The paint & motion set (0.27): the old text's
+        // motion dies with it — its transitions, its
+        // keyframe runs, the timer — and the layout
+        // manager's registrations are cleared; the new
+        // text's keyframe animations are then
+        // discovered fresh from its stamps.
+        transitions = []
+        transitionFX = [:]
+        wornTargets = [:]
+        keyframeFX = []
+        fxTimer?.invalidate()
+        fxTimer = nil
+        if let band = layoutManager as? TBBandLayoutManager {
+            band.fxOverrides = []
+            band.stateLayerPaints = []
+            band.transformPivots = [:]
+        }
+    }
+
+    // The counterpart the window calls once the new
+    // text is actually in: pageTextReplaced runs
+    // BEFORE the install at both call sites (nothing
+    // of the old page may touch the new text), so the
+    // new page's keyframe animations are discovered
+    // here, from the text as installed.
+    func pageTextInstalled() {
+        discoverAnimations()
     }
 
     // The hover layer's extent at a character (0.23's
@@ -1798,22 +1906,116 @@ final class TBPageTextView: NSTextView {
             }
         }
         stateSaved = []
+        // The paint & motion set (0.27): the worn
+        // layers' full traits — colors, background
+        // layers, opacity, transforms — are collected
+        // BEFORE anything is applied, so transitions
+        // can start from what the page currently shows
+        // (the restore above has just put the resting
+        // paint back, which is the honest "from" for a
+        // trait no state wore before), and the layout
+        // manager can be handed the layers to paint.
+        var targets: [String: TBWornTraits] = [:]
+        var layerPaints: [(range: NSRange, box: TBBackgroundBox,
+                           widen: Bool)] = []
+        let layers: [(extent: NSRange?,
+                      element: NSAttributedString.Key,
+                      block: NSAttributedString.Key)] = [
+            (hoverRange, TBHoverAttrsKey, TBHoverBlockAttrsKey),
+            (focusRange, TBFocusAttrsKey, TBFocusBlockAttrsKey),
+            (activeRange, TBActiveAttrsKey, TBActiveBlockAttrsKey)]
+        for layer in layers {
+            guard let extent = layer.extent else { continue }
+            collectStateTraits(extent: extent, elementKey: layer.element,
+                               blockKey: layer.block, storage: storage,
+                               into: &targets, layerPaints: &layerPaints)
+        }
+        startTransitions(old: wornTargets, new: targets, storage: storage)
+        wornTargets = targets
+        let skips = transitionColorSkips()
         if let extent = hoverRange {
             stateSaved += applyStatePaint(
                 extent: extent, elementKey: TBHoverAttrsKey,
-                blockKey: TBHoverBlockAttrsKey, storage: storage)
+                blockKey: TBHoverBlockAttrsKey, storage: storage,
+                skips: skips)
         }
         if let extent = focusRange {
             stateSaved += applyStatePaint(
                 extent: extent, elementKey: TBFocusAttrsKey,
-                blockKey: TBFocusBlockAttrsKey, storage: storage)
+                blockKey: TBFocusBlockAttrsKey, storage: storage,
+                skips: skips)
         }
         if let extent = activeRange {
             stateSaved += applyStatePaint(
                 extent: extent, elementKey: TBActiveAttrsKey,
-                blockKey: TBActiveBlockAttrsKey, storage: storage)
+                blockKey: TBActiveBlockAttrsKey, storage: storage,
+                skips: skips)
         }
+        if let band = layoutManager as? TBBandLayoutManager {
+            band.stateLayerPaints = layerPaints
+        }
+        rebuildFXOverrides()
         stateTextLength = storage.length
+        // A change that moves no attribute — a
+        // transform arriving with no color trait —
+        // damages nothing through the storage; ask for
+        // the worn extents' repaint directly.
+        for layer in layers {
+            if let extent = layer.extent {
+                invalidateTextRange(extent)
+            }
+        }
+    }
+
+    private func rangeKey(_ range: NSRange) -> String {
+        "\(range.location):\(range.length)"
+    }
+
+    private func rangeFromKey(_ key: String) -> NSRange? {
+        let parts = key.split(separator: ":")
+        guard parts.count == 2, let location = Int(parts[0]),
+              let length = Int(parts[1]) else { return nil }
+        return NSRange(location: location, length: length)
+    }
+
+    // One worn layer's traits, run by run, in the same
+    // shape applyStatePaint paints them: the element
+    // stamp's traits over the block's, trait by trait.
+    // Later layers override earlier ones property by
+    // property, as their paint does.
+    private func collectStateTraits(
+        extent: NSRange, elementKey: NSAttributedString.Key,
+        blockKey: NSAttributedString.Key, storage: NSTextStorage,
+        into targets: inout [String: TBWornTraits],
+        layerPaints: inout [(range: NSRange, box: TBBackgroundBox,
+                             widen: Bool)]
+    ) {
+        let block = storage.attribute(blockKey, at: extent.location,
+                                      effectiveRange: nil) as? TBHoverStyle
+        storage.enumerateAttribute(elementKey, in: extent,
+                                   options: []) { value, range, _ in
+            let style = value as? TBHoverStyle
+            var traits = targets[rangeKey(range)] ?? TBWornTraits()
+            if let fg = style?.foregroundColor ?? block?.foregroundColor {
+                traits.fg = fg
+            }
+            if let bg = style?.backgroundColor ?? block?.backgroundColor {
+                traits.bg = bg
+            }
+            if let opacity = style?.opacityValue ?? block?.opacityValue {
+                traits.opacity = opacity
+            }
+            if let transform = style?.transformSpec ?? block?.transformSpec {
+                traits.transform = transform
+            }
+            targets[rangeKey(range)] = traits
+            if let box = style?.backgroundBox ?? block?.backgroundBox {
+                layerPaints.append((
+                    range: range, box: box,
+                    widen: style?.backgroundBox == nil
+                        && block?.backgroundBox != nil))
+            }
+        }
     }
 
     // One layer's paint (0.23's applyHover, keyed since
@@ -1823,7 +2025,8 @@ final class TBPageTextView: NSTextView {
     // back by the next repaint.
     private func applyStatePaint(
         extent: NSRange, elementKey: NSAttributedString.Key,
-        blockKey: NSAttributedString.Key, storage: NSTextStorage
+        blockKey: NSAttributedString.Key, storage: NSTextStorage,
+        skips: Set<String> = []
     ) -> [(key: NSAttributedString.Key, range: NSRange, value: Any?)] {
         let block = storage.attribute(blockKey, at: extent.location,
                                       effectiveRange: nil) as? TBHoverStyle
@@ -1857,11 +2060,16 @@ final class TBPageTextView: NSTextView {
             let ul = run.style?.underlineStyle ?? block?.underlineStyle
             let st = run.style?.strikethroughStyle
                 ?? block?.strikethroughStyle
-            if let fg = fg {
+            // The paint & motion set (0.27): a color
+            // property a running transition owns is not
+            // applied here — the timer is writing it,
+            // frame by frame, and will land it exactly.
+            let runKey = "\(run.range.location):\(run.range.length)|"
+            if let fg = fg, !skips.contains(runKey + "color") {
                 storage.addAttribute(.foregroundColor, value: fg,
                                      range: run.range)
             }
-            if let bg = bg {
+            if let bg = bg, !skips.contains(runKey + "background-color") {
                 storage.addAttribute(.backgroundColor, value: bg,
                                      range: run.range)
             }
@@ -1875,6 +2083,524 @@ final class TBPageTextView: NSTextView {
             }
         }
         return saved
+    }
+
+    // MARK: - Paint & motion (0.27)
+
+    // The "range|property" keys of the color
+    // transitions currently running — applyStatePaint
+    // leaves those properties to the timer.
+    private func transitionColorSkips() -> Set<String> {
+        Set(transitions
+            .filter { $0.property == "color"
+                || $0.property == "background-color" }
+            .map { "\($0.key)|\($0.property)" })
+    }
+
+    // Hand one property's transition over: build the
+    // new run from the value currently shown (the
+    // build closure reads the in-flight run before it
+    // is replaced), then let it replace the old. No
+    // spec entry for the property, or reduced motion,
+    // and the change simply lands at once.
+    private func replaceTransition(
+        key: String, range: NSRange, property: String,
+        spec: TBTransitionSpec?, reduced: Bool,
+        build: (TBTransitionEntry) -> TBTransition
+    ) {
+        let built = (!reduced ? spec?.entry(for: property) : nil)
+            .map(build)
+        transitions.removeAll { $0.key == key && $0.property == property }
+        if let built = built {
+            transitions.append(built)
+            ensureFXTimer()
+        }
+    }
+
+    // Start (or hand off) the transitions a change of
+    // worn traits calls for: for every run whose
+    // traits changed, property by property, from what
+    // the page currently shows to the new target —
+    // the resting paint when a state has lifted.
+    private func startTransitions(old: [String: TBWornTraits],
+                                  new: [String: TBWornTraits],
+                                  storage: NSTextStorage) {
+        let reduced = NSWorkspace.shared
+            .accessibilityDisplayShouldReduceMotion
+        var keys = Set(old.keys)
+        keys.formUnion(new.keys)
+        for key in keys {
+            guard let range = rangeFromKey(key),
+                  NSMaxRange(range) <= storage.length else { continue }
+            let oldT = old[key]
+            let newT = new[key]
+            let spec = storage.attribute(TBTransitionKey,
+                                         at: range.location,
+                                         effectiveRange: nil)
+                as? TBTransitionSpec
+            func restingColor(_ attr: NSAttributedString.Key) -> NSColor? {
+                storage.attribute(attr, at: range.location,
+                                  effectiveRange: nil) as? NSColor
+            }
+            func restingOpacity() -> CGFloat? {
+                (storage.attribute(TBOpacityKey, at: range.location,
+                                   effectiveRange: nil)
+                    as? TBOpacitySpec)?.value
+            }
+            func restingTransform() -> TBTransformSpec? {
+                storage.attribute(TBTransformKey, at: range.location,
+                                  effectiveRange: nil) as? TBTransformSpec
+            }
+            if !tbColorsEqual(oldT?.fg, newT?.fg) {
+                replaceTransition(key: key, range: range, property: "color",
+                                  spec: spec, reduced: reduced) { entry in
+                    TBTransition(
+                        key: key, range: range, property: "color",
+                        fromColor: transitions.first {
+                            $0.key == key && $0.property == "color"
+                        }?.currentColor(at: Date())
+                            ?? oldT?.fg ?? restingColor(.foregroundColor),
+                        toColor: newT?.fg ?? restingColor(.foregroundColor),
+                        start: Date(), duration: entry.duration,
+                        delay: entry.delay, timing: entry.timing)
+                }
+            }
+            if !tbColorsEqual(oldT?.bg, newT?.bg) {
+                replaceTransition(key: key, range: range,
+                                  property: "background-color",
+                                  spec: spec, reduced: reduced) { entry in
+                    TBTransition(
+                        key: key, range: range,
+                        property: "background-color",
+                        fromColor: transitions.first {
+                            $0.key == key
+                                && $0.property == "background-color"
+                        }?.currentColor(at: Date())
+                            ?? oldT?.bg ?? restingColor(.backgroundColor),
+                        toColor: newT?.bg
+                            ?? restingColor(.backgroundColor),
+                        start: Date(), duration: entry.duration,
+                        delay: entry.delay, timing: entry.timing)
+                }
+            }
+            if oldT?.opacity != newT?.opacity {
+                replaceTransition(key: key, range: range, property: "opacity",
+                                  spec: spec, reduced: reduced) { entry in
+                    TBTransition(
+                        key: key, range: range, property: "opacity",
+                        fromOpacity: transitions.first {
+                            $0.key == key && $0.property == "opacity"
+                        }?.currentOpacity(at: Date())
+                            ?? oldT?.opacity ?? restingOpacity(),
+                        toOpacity: newT?.opacity ?? restingOpacity(),
+                        start: Date(), duration: entry.duration,
+                        delay: entry.delay, timing: entry.timing)
+                }
+            }
+            if oldT?.transform !== newT?.transform {
+                replaceTransition(key: key, range: range,
+                                  property: "transform",
+                                  spec: spec, reduced: reduced) { entry in
+                    TBTransition(
+                        key: key, range: range, property: "transform",
+                        fromTransform: transitionFX[key]?.transform
+                            ?? oldT?.transform ?? restingTransform(),
+                        toTransform: newT?.transform ?? restingTransform(),
+                        start: Date(), duration: entry.duration,
+                        delay: entry.delay, timing: entry.timing)
+                }
+            }
+        }
+    }
+
+    // Recompose the layout manager's effects table
+    // from its three sources, in paint order: keyframe
+    // runs at the bottom, the worn states' traits over
+    // them, and running transitions on top — a
+    // property a transition owns is the transition's
+    // current value, never the state's resting target.
+    private func rebuildFXOverrides() {
+        guard let band = layoutManager as? TBBandLayoutManager
+        else { return }
+        var list: [(range: NSRange, opacity: CGFloat?,
+                    transform: TBTransformSpec?)] = []
+        list += keyframeFX
+        for (key, traits) in wornTargets {
+            guard let range = rangeFromKey(key) else { continue }
+            let opacityOwned = transitions.contains {
+                $0.key == key && $0.property == "opacity"
+            }
+            let transformOwned = transitions.contains {
+                $0.key == key && $0.property == "transform"
+            }
+            let opacity = opacityOwned ? nil : traits.opacity
+            let transform = transformOwned ? nil : traits.transform
+            if opacity != nil || transform != nil {
+                list.append((range: range, opacity: opacity,
+                             transform: transform))
+            }
+        }
+        for (key, fx) in transitionFX {
+            guard let range = rangeFromKey(key) else { continue }
+            if fx.opacity != nil || fx.transform != nil {
+                list.append((range: range, opacity: fx.opacity,
+                             transform: fx.transform))
+            }
+        }
+        band.fxOverrides = list
+    }
+
+    // The one timer: created on demand, and — the
+    // discipline the set stands on — invalidated by
+    // the tick itself the moment nothing is left
+    // animating. A page with no motion has no timer.
+    private func ensureFXTimer() {
+        if fxTimer != nil { return }
+        fxTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0,
+                                       repeats: true) { [weak self] _ in
+            self?.fxTick()
+        }
+    }
+
+    private func fxTick() {
+        guard let storage = textStorage else {
+            fxTimer?.invalidate()
+            fxTimer = nil
+            return
+        }
+        // A hidden window's animations wait — the tick
+        // costs a guard and nothing else.
+        if let window = window,
+           !window.occlusionState.contains(.visible) { return }
+        let now = Date()
+        var dirty: [NSRange] = []
+        var running: [TBTransition] = []
+        for tr in transitions {
+            let p = tr.progress(at: now)
+            let e = tr.timing.evaluate(p)
+            dirty.append(tr.range)
+            switch tr.property {
+            case "color", "background-color":
+                let attr: NSAttributedString.Key = tr.property == "color"
+                    ? .foregroundColor : .backgroundColor
+                if p >= 1 {
+                    if let to = tr.toColor {
+                        storage.addAttribute(attr, value: to,
+                                             range: tr.range)
+                    } else {
+                        storage.removeAttribute(attr, range: tr.range)
+                    }
+                } else if let from = tr.fromColor, let to = tr.toColor {
+                    storage.addAttribute(
+                        attr, value: tbLerpColor(from, to, CGFloat(e)),
+                        range: tr.range)
+                    running.append(tr)
+                } else if let from = tr.fromColor {
+                    // A color leaving for no color fades
+                    // out through its own alpha.
+                    storage.addAttribute(
+                        attr,
+                        value: tbLerpColor(
+                            from, from.withAlphaComponent(0), CGFloat(e)),
+                        range: tr.range)
+                    running.append(tr)
+                } else if let to = tr.toColor {
+                    storage.addAttribute(
+                        attr,
+                        value: tbLerpColor(
+                            to.withAlphaComponent(0), to, CGFloat(e)),
+                        range: tr.range)
+                    running.append(tr)
+                } else if p < 1 {
+                    running.append(tr)
+                }
+            case "opacity":
+                if p >= 1 {
+                    if var fx = transitionFX[tr.key] {
+                        fx.opacity = nil
+                        transitionFX[tr.key] = fx
+                    }
+                } else {
+                    let from = tr.fromOpacity ?? 1
+                    let to = tr.toOpacity ?? 1
+                    transitionFX[tr.key] = (
+                        opacity: from + (to - from) * CGFloat(e),
+                        transform: transitionFX[tr.key]?.transform)
+                    running.append(tr)
+                }
+            case "transform":
+                if p >= 1 {
+                    if var fx = transitionFX[tr.key] {
+                        fx.transform = nil
+                        transitionFX[tr.key] = fx
+                    }
+                } else {
+                    transitionFX[tr.key] = (
+                        opacity: transitionFX[tr.key]?.opacity,
+                        transform: tbLerpTransforms(
+                            tr.fromTransform, tr.toTransform, CGFloat(e),
+                            pivotRect: fxPivotRect(for: tr.range)))
+                    running.append(tr)
+                }
+            default:
+                if p < 1 { running.append(tr) }
+            }
+        }
+        transitions = running
+        advanceKeyframes(now: now, storage: storage, dirty: &dirty)
+        rebuildFXOverrides()
+        for range in dirty {
+            invalidateTextRange(range)
+        }
+        if transitions.isEmpty && keyframeAnims.isEmpty {
+            fxTimer?.invalidate()
+            fxTimer = nil
+        }
+    }
+
+    // Advance every keyframe run to now: the cycle
+    // position through the spec's direction and
+    // timing, the surrounding stops' traits
+    // interpolated — a trait a stop does not name
+    // reads from the element's resting paint, as CSS
+    // directs — colors written over the resting
+    // snapshot's own runs, opacity and transforms
+    // through the effects table. A finished run puts
+    // its resting paint back and is gone (fill modes
+    // are not read).
+    private func advanceKeyframes(now: Date, storage: NSTextStorage,
+                                  dirty: inout [NSRange]) {
+        guard !keyframeAnims.isEmpty else { return }
+        var alive: [TBKeyframeAnim] = []
+        for anim in keyframeAnims {
+            let spec = anim.spec
+            let elapsed = now.timeIntervalSince(anim.start) - spec.delay
+            if elapsed < 0 {
+                alive.append(anim)
+                continue
+            }
+            let cycle = elapsed / spec.duration
+            if spec.iterations.isFinite && cycle >= spec.iterations {
+                restoreKeyframeResting(anim, storage: storage)
+                keyframeFX.removeAll { $0.range == anim.range }
+                dirty.append(anim.range)
+                continue
+            }
+            dirty.append(anim.range)
+            let iteration = cycle.rounded(.down)
+            var frac = cycle - iteration
+            let reversed: Bool
+            switch spec.direction {
+            case "reverse": reversed = true
+            case "alternate":
+                reversed = iteration.truncatingRemainder(dividingBy: 2) == 1
+            case "alternate-reverse":
+                reversed = iteration.truncatingRemainder(dividingBy: 2) == 0
+            default: reversed = false
+            }
+            if reversed { frac = 1 - frac }
+            let eased = spec.timing.evaluate(frac)
+            var lower = spec.stops.first
+            var upper = spec.stops.last
+            for stop in spec.stops {
+                if stop.offset <= eased { lower = stop }
+                if stop.offset >= eased { upper = stop; break }
+            }
+            let span = (upper?.offset ?? 1) - (lower?.offset ?? 0)
+            let local = span > 0
+                ? CGFloat((eased - (lower?.offset ?? 0)) / span) : 1
+            let lt = lower?.traits
+            let ut = upper?.traits
+            if lt?.foreground != nil || ut?.foreground != nil
+                || lt?.background != nil || ut?.background != nil {
+                for rest in anim.resting {
+                    if lt?.foreground != nil || ut?.foreground != nil {
+                        let a = lt?.foreground ?? rest.fg
+                        let b = ut?.foreground ?? rest.fg
+                        if let a = a, let b = b {
+                            storage.addAttribute(
+                                .foregroundColor,
+                                value: tbLerpColor(a, b, local),
+                                range: rest.range)
+                        }
+                    }
+                    if lt?.background != nil || ut?.background != nil {
+                        let a = lt?.background ?? rest.bg
+                        let b = ut?.background ?? rest.bg
+                        if let a = a, let b = b {
+                            storage.addAttribute(
+                                .backgroundColor,
+                                value: tbLerpColor(a, b, local),
+                                range: rest.range)
+                        }
+                    }
+                }
+            }
+            var fxOpacity: CGFloat? = nil
+            var fxTransform: TBTransformSpec? = nil
+            if lt?.opacity != nil || ut?.opacity != nil {
+                let a = lt?.opacity ?? anim.restingOpacity ?? 1
+                let b = ut?.opacity ?? anim.restingOpacity ?? 1
+                fxOpacity = a + (b - a) * local
+            }
+            if lt?.transform != nil || ut?.transform != nil {
+                fxTransform = tbLerpTransforms(
+                    lt?.transform ?? anim.restingTransform,
+                    ut?.transform ?? anim.restingTransform,
+                    local, pivotRect: fxPivotRect(for: anim.range))
+            }
+            keyframeFX.removeAll { $0.range == anim.range }
+            if fxOpacity != nil || fxTransform != nil {
+                keyframeFX.append((range: anim.range, opacity: fxOpacity,
+                                   transform: fxTransform))
+            }
+            alive.append(anim)
+        }
+        keyframeAnims = alive
+    }
+
+    private func restoreKeyframeResting(_ anim: TBKeyframeAnim,
+                                        storage: NSTextStorage) {
+        for rest in anim.resting {
+            if let fg = rest.fg {
+                storage.addAttribute(.foregroundColor, value: fg,
+                                     range: rest.range)
+            } else {
+                storage.removeAttribute(.foregroundColor,
+                                        range: rest.range)
+            }
+            if let bg = rest.bg {
+                storage.addAttribute(.backgroundColor, value: bg,
+                                     range: rest.range)
+            } else {
+                storage.removeAttribute(.backgroundColor,
+                                        range: rest.range)
+            }
+        }
+    }
+
+    // Find the new text's keyframe runs and snapshot
+    // the resting paint each will borrow traits from
+    // and return to. Reduced motion discovers
+    // nothing — and the engine stamps nothing then
+    // either, so the page simply rests.
+    private func discoverAnimations() {
+        keyframeAnims = []
+        keyframeFX = []
+        guard let storage = textStorage, storage.length > 0,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else { return }
+        let full = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(TBAnimationKey, in: full,
+                                   options: []) { value, range, _ in
+            guard let spec = value as? TBAnimationSpec else { return }
+            var cuts = Set<Int>([range.location, NSMaxRange(range)])
+            for attr in [NSAttributedString.Key.foregroundColor,
+                         .backgroundColor] {
+                storage.enumerateAttribute(attr, in: range,
+                                           options: []) { _, r, _ in
+                    cuts.insert(r.location)
+                    cuts.insert(NSMaxRange(r))
+                }
+            }
+            let points = cuts.sorted()
+            var resting: [(range: NSRange, fg: NSColor?,
+                           bg: NSColor?)] = []
+            for i in 0..<(points.count - 1)
+            where points[i + 1] > points[i] {
+                let sub = NSRange(location: points[i],
+                                  length: points[i + 1] - points[i])
+                resting.append((
+                    range: sub,
+                    fg: storage.attribute(.foregroundColor, at: sub.location,
+                                          effectiveRange: nil) as? NSColor,
+                    bg: storage.attribute(.backgroundColor, at: sub.location,
+                                          effectiveRange: nil) as? NSColor))
+            }
+            let restingOpacity = (storage.attribute(
+                TBOpacityKey, at: range.location,
+                effectiveRange: nil) as? TBOpacitySpec)?.value
+            let restingTransform = storage.attribute(
+                TBTransformKey, at: range.location,
+                effectiveRange: nil) as? TBTransformSpec
+            keyframeAnims.append(TBKeyframeAnim(
+                range: range, spec: spec, start: Date(),
+                resting: resting, restingOpacity: restingOpacity,
+                restingTransform: restingTransform))
+        }
+        if !keyframeAnims.isEmpty {
+            ensureFXTimer()
+        }
+    }
+
+    // A transform interpolation (0.27): the two
+    // specs' matrices resolved at the range's own
+    // rect and blended component by component — the
+    // working approximation every small engine makes;
+    // true matrix decomposition is not attempted.
+    private func tbLerpTransforms(_ a: TBTransformSpec?,
+                                  _ b: TBTransformSpec?,
+                                  _ t: CGFloat,
+                                  pivotRect: NSRect) -> TBTransformSpec? {
+        guard a != nil || b != nil else { return nil }
+        let ma = a?.matrix(in: pivotRect) ?? .identity
+        let mb = b?.matrix(in: pivotRect) ?? .identity
+        func mix(_ x: CGFloat, _ y: CGFloat) -> CGFloat {
+            x + (y - x) * t
+        }
+        let spec = TBTransformSpec()
+        spec.resolvedMatrix = CGAffineTransform(
+            a: mix(ma.a, mb.a), b: mix(ma.b, mb.b),
+            c: mix(ma.c, mb.c), d: mix(ma.d, mb.d),
+            tx: mix(ma.tx, mb.tx), ty: mix(ma.ty, mb.ty))
+        spec.originX = (a ?? b)?.originX ?? .percent(50)
+        spec.originY = (a ?? b)?.originY ?? .percent(50)
+        return spec
+    }
+
+    // The range's own rect in container coordinates,
+    // from its line fragments — the box a transform
+    // interpolation resolves percentages against.
+    private func fxPivotRect(for range: NSRange) -> NSRect {
+        guard let band = layoutManager as? TBBandLayoutManager,
+              let storage = textStorage, storage.length > 0,
+              range.location < storage.length else { return .zero }
+        let glyphs = band.glyphRange(forCharacterRange: range,
+                                     actualCharacterRange: nil)
+        var union = NSRect.null
+        if glyphs.length > 0 {
+            band.enumerateLineFragments(forGlyphRange: glyphs) {
+                _, usedRect, _, _, _ in
+                union = union.union(usedRect)
+            }
+        }
+        return union.isNull ? .zero : union
+    }
+
+    // Ask for one range's repaint, widened past its
+    // fragments — a transform or a shadow spills
+    // beyond the glyphs' own boxes.
+    private func invalidateTextRange(_ range: NSRange) {
+        guard let band = layoutManager as? TBBandLayoutManager,
+              let storage = textStorage, storage.length > 0,
+              range.location < storage.length else { return }
+        let clamped = NSIntersectionRange(
+            range, NSRange(location: 0, length: storage.length))
+        guard clamped.length > 0 else { return }
+        let glyphs = band.glyphRange(forCharacterRange: clamped,
+                                     actualCharacterRange: nil)
+        guard glyphs.length > 0 else { return }
+        var union = NSRect.null
+        band.enumerateLineFragments(forGlyphRange: glyphs) {
+            _, usedRect, _, _, _ in
+            union = union.union(usedRect)
+        }
+        guard !union.isNull else { return }
+        let rect = NSRect(x: textContainerOrigin.x + union.minX,
+                          y: textContainerOrigin.y + union.minY,
+                          width: union.width, height: union.height)
+            .insetBy(dx: -28, dy: -28)
+        setNeedsDisplayInRect(rect, avoidAdditionalLayout: true)
     }
 }
 
@@ -1896,6 +2622,49 @@ protocol TBBoxPaintSource: AnyObject {
     var imageFailed: Bool { get }
     var alt: String { get }
     var content: NSAttributedString? { get }
+    // The paint & motion set (0.27): the box's shadows,
+    // paint transform and opacity.
+    var boxShadows: TBBoxShadowSet? { get }
+    var transformSpec: TBTransformSpec? { get }
+    var opacityValue: CGFloat { get }
+}
+
+// A transform-origin component against its base
+// (0.27): points are themselves; a percentage is that
+// share of the base.
+func tbInsetPoints(_ value: TBInsetValue, base: CGFloat) -> CGFloat {
+    switch value {
+    case .points(let p): return p
+    case .percent(let pct): return base * pct / 100
+    }
+}
+
+// Interpolate two colors in sRGB (0.27), the space
+// the paint traits are compared and blended in.
+func tbLerpColor(_ a: NSColor, _ b: NSColor, _ t: CGFloat) -> NSColor {
+    guard let ca = a.usingColorSpace(.sRGB),
+          let cb = b.usingColorSpace(.sRGB)
+    else { return t < 0.5 ? a : b }
+    func mix(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x + (y - x) * t }
+    return NSColor(srgbRed: mix(ca.redComponent, cb.redComponent),
+                   green: mix(ca.greenComponent, cb.greenComponent),
+                   blue: mix(ca.blueComponent, cb.blueComponent),
+                   alpha: mix(ca.alphaComponent, cb.alphaComponent))
+}
+
+func tbColorsEqual(_ a: NSColor?, _ b: NSColor?) -> Bool {
+    switch (a, b) {
+    case (nil, nil): return true
+    case let (x?, y?):
+        guard let cx = x.usingColorSpace(.sRGB),
+              let cy = y.usingColorSpace(.sRGB)
+        else { return x.isEqual(y) }
+        return abs(cx.redComponent - cy.redComponent) < 0.004
+            && abs(cx.greenComponent - cy.greenComponent) < 0.004
+            && abs(cx.blueComponent - cy.blueComponent) < 0.004
+            && abs(cx.alphaComponent - cy.alphaComponent) < 0.004
+    default: return false
+    }
 }
 
 extension TBFloatSpec: TBBoxPaintSource {}
@@ -1943,6 +2712,131 @@ final class TBBandLayoutManager: NSLayoutManager {
     // the coordinator resolves the shifts against the
     // scroll position (repositionStickyElements) and
     // hands them over in stickyShifts.
+    // The paint & motion set (0.27): what the text
+    // view hands this manager to paint — the state
+    // background layers currently worn (in wearing
+    // order), and the effects table: opacity and
+    // transform overrides over ranges, composed by the
+    // view from worn states, running transitions and
+    // keyframe animations, later entries winning. The
+    // surface rect of each stamped transform is also
+    // recorded as its band paints, for the glyph
+    // path's pivot.
+    var stateLayerPaints: [(range: NSRange, box: TBBackgroundBox,
+                            widen: Bool)] = []
+    var fxOverrides: [(range: NSRange, opacity: CGFloat?,
+                       transform: TBTransformSpec?)] = []
+    var transformPivots: [ObjectIdentifier: NSRect] = [:]
+
+    func fxTraits(at charIndex: Int)
+        -> (opacity: CGFloat?, transform: TBTransformSpec?) {
+        var opacity: CGFloat? = nil
+        var transform: TBTransformSpec? = nil
+        for entry in fxOverrides.reversed()
+        where charIndex >= entry.range.location
+            && charIndex < NSMaxRange(entry.range) {
+            if opacity == nil { opacity = entry.opacity }
+            if transform == nil { transform = entry.transform }
+            if opacity != nil && transform != nil { break }
+        }
+        return (opacity, transform)
+    }
+
+    // The full paint affine for a transform about a
+    // pivot rect, in the rect's own coordinate space:
+    // translate(pivot) · matrix · translate(−pivot),
+    // composed arithmetically, so drawing code only
+    // ever concatenates one finished transform.
+    static func fxAffine(for spec: TBTransformSpec,
+                         pivotRect: NSRect) -> CGAffineTransform {
+        let m = spec.matrix(in: pivotRect)
+        let px = pivotRect.minX
+            + tbInsetPoints(spec.originX, base: pivotRect.width)
+        let py = pivotRect.minY
+            + tbInsetPoints(spec.originY, base: pivotRect.height)
+        return CGAffineTransform(
+            a: m.a, b: m.b, c: m.c, d: m.d,
+            tx: m.tx + px - m.a * px - m.c * py,
+            ty: m.ty + py - m.b * px - m.d * py)
+    }
+
+    // Outer box shadows under a box (0.27): each
+    // shadow is its rect outset by the spread and
+    // shifted by the offset, filled with the shadow
+    // color under the shadow's own blur — but clipped
+    // to everywhere EXCEPT the box itself, so the
+    // shadow never paints inside the box it belongs
+    // to, exactly as CSS draws it. First-listed
+    // shadows paint last (on top). No shadow is ever
+    // issued for a rect with no area.
+    static func paintBoxShadows(_ set: TBBoxShadowSet, in rect: NSRect) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        for shadow in set.shadows.reversed() {
+            let shape = rect.insetBy(dx: -shadow.spread,
+                                     dy: -shadow.spread)
+                .offsetBy(dx: shadow.dx, dy: shadow.dy)
+            guard shape.width > 0, shape.height > 0 else { continue }
+            let cover = shape.insetBy(dx: -(shadow.blur * 2 + 8),
+                                      dy: -(shadow.blur * 2 + 8))
+            NSGraphicsContext.saveGraphicsState()
+            let clip = NSBezierPath(rect: cover)
+            clip.append(NSBezierPath(rect: rect))
+            clip.windingRule = .evenOdd
+            clip.clip()
+            if shadow.blur > 0 {
+                let ns = NSShadow()
+                ns.shadowColor = shadow.color
+                ns.shadowBlurRadius = shadow.blur
+                ns.shadowOffset = .zero
+                ns.set()
+            }
+            shadow.color.setFill()
+            NSBezierPath(rect: shape).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    // Text shadows under a private layout's glyphs
+    // (0.27): for each stamped run, the glyphs drawn
+    // once per shadow, shifted by the shadow's offset,
+    // blurred by its radius when it has one, and
+    // colored by the shadow's color through the
+    // manager's temporary attributes — the text
+    // storage itself is never touched.
+    static func paintTextShadows(manager: NSLayoutManager,
+                                 glyphRange: NSRange, at origin: NSPoint) {
+        guard let storage = manager.textStorage, storage.length > 0
+        else { return }
+        let chars = manager.characterRange(forGlyphRange: glyphRange,
+                                           actualGlyphRange: nil)
+        storage.enumerateAttribute(TBTextShadowKey, in: chars) {
+            value, range, _ in
+            guard let set = value as? TBTextShadowSet else { return }
+            let glyphs = manager.glyphRange(forCharacterRange: range,
+                                            actualCharacterRange: nil)
+            guard glyphs.length > 0 else { return }
+            for shadow in set.shadows.reversed() {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current?.cgContext
+                    .translateBy(x: shadow.dx, y: shadow.dy)
+                if shadow.blur > 0 {
+                    let ns = NSShadow()
+                    ns.shadowColor = shadow.color
+                    ns.shadowBlurRadius = shadow.blur
+                    ns.shadowOffset = .zero
+                    ns.set()
+                }
+                manager.setTemporaryAttributes(
+                    [.foregroundColor: shadow.color],
+                    forCharacterRange: range)
+                manager.drawGlyphs(forGlyphRange: glyphs, at: origin)
+                manager.removeTemporaryAttributes(
+                    forCharacterRange: range)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+    }
+
     private func paintOffset(at charIndex: Int, in storage: NSTextStorage) -> NSPoint {
         guard storage.length > 0 else { return .zero }
         let clamped = min(max(charIndex, 0), storage.length - 1)
@@ -1960,7 +2854,89 @@ final class TBBandLayoutManager: NSLayoutManager {
         return point
     }
 
+    // The paint & motion set (0.27): a run's
+    // background fill takes its element's opacity and
+    // paint transform with it — the transform about
+    // the run's own surface rect where one was
+    // recorded, else about the run's line fragments,
+    // in the coordinates the fills are handed over
+    // in. The fill below is the one this class has
+    // always made, wrapped.
     override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>,
+                                          count rectCount: Int,
+                                          forCharacterRange charRange: NSRange,
+                                          color: NSColor) {
+        guard rectCount > 0, let storage = textStorage,
+              storage.length > 0, charRange.location < storage.length
+        else {
+            super.fillBackgroundRectArray(rectArray, count: rectCount,
+                                          forCharacterRange: charRange,
+                                          color: color)
+            return
+        }
+        let fx = fxTraits(at: charRange.location)
+        let transform = fx.transform
+            ?? storage.attribute(TBTransformKey, at: charRange.location,
+                                 effectiveRange: nil) as? TBTransformSpec
+        let opacity = fx.opacity
+            ?? (storage.attribute(TBOpacityKey, at: charRange.location,
+                                  effectiveRange: nil)
+                as? TBOpacitySpec)?.value
+        guard transform != nil || (opacity != nil && opacity! < 1) else {
+            fillBackgroundRectArrayUnwrapped(
+                rectArray, count: rectCount,
+                forCharacterRange: charRange, color: color)
+            return
+        }
+        NSGraphicsContext.saveGraphicsState()
+        if let opacity = opacity, opacity < 1 {
+            NSGraphicsContext.current?.cgContext.setAlpha(opacity)
+        }
+        if let transform = transform {
+            NSGraphicsContext.current?.cgContext.concatenate(
+                TBBandLayoutManager.fxAffine(
+                    for: transform,
+                    pivotRect: fillPivotRect(charRange: charRange,
+                                             spec: transform)))
+        }
+        fillBackgroundRectArrayUnwrapped(
+            rectArray, count: rectCount,
+            forCharacterRange: charRange, color: color)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    // The pivot rect for a run's fill transform: the
+    // band rect recorded when its surface painted,
+    // else the union of the run's line fragments —
+    // both in the fills' own coordinates (the band
+    // painter's convention: the origin joins x, the
+    // fragments carry y).
+    private func fillPivotRect(charRange: NSRange,
+                               spec: TBTransformSpec) -> NSRect {
+        if let cached = transformPivots[ObjectIdentifier(spec)],
+           let view = textContainers.first?.textView {
+            return NSRect(x: view.textContainerOrigin.x + cached.minX,
+                          y: cached.minY,
+                          width: cached.width, height: cached.height)
+        }
+        let glyphs = glyphRange(forCharacterRange: charRange,
+                                actualCharacterRange: nil)
+        var union = NSRect.null
+        if glyphs.length > 0 {
+            enumerateLineFragments(forGlyphRange: glyphs) {
+                _, usedRect, _, _, _ in
+                union = union.union(usedRect)
+            }
+        }
+        guard !union.isNull,
+              let view = textContainers.first?.textView
+        else { return .zero }
+        return NSRect(x: view.textContainerOrigin.x + union.minX,
+                      y: union.minY,
+                      width: union.width, height: union.height)
+    }
+
+    private func fillBackgroundRectArrayUnwrapped(_ rectArray: UnsafePointer<NSRect>,
                                           count rectCount: Int,
                                           forCharacterRange charRange: NSRange,
                                           color: NSColor) {
@@ -2048,6 +3024,44 @@ final class TBBandLayoutManager: NSLayoutManager {
         paintColumns(at: origin)
         paintFlex(at: origin)
         paintGrid(at: origin)
+        paintStateLayers(at: origin)
+    }
+
+    // State background layers (0.27): the layer boxes
+    // the text view registered for the states currently
+    // worn, painted in wearing order over everything
+    // else the background pass drew — the layers belong
+    // to the worn state, as its colors do, and they
+    // lift with it. Each paints into its range's line
+    // fragments; a box that came from a block stamp
+    // widens to the container, as the state's color
+    // does on a band.
+    private func paintStateLayers(at origin: NSPoint) {
+        guard !stateLayerPaints.isEmpty,
+              let storage = textStorage, storage.length > 0,
+              let container = textContainers.first else { return }
+        for entry in stateLayerPaints {
+            let range = NSIntersectionRange(
+                entry.range, NSRange(location: 0, length: storage.length))
+            guard range.length > 0 else { continue }
+            let glyphs = glyphRange(forCharacterRange: range,
+                                    actualCharacterRange: nil)
+            guard glyphs.length > 0 else { continue }
+            enumerateLineFragments(forGlyphRange: glyphs) {
+                _, usedRect, _, _, _ in
+                var rect = NSRect(x: origin.x + usedRect.minX,
+                                  y: origin.y + usedRect.minY,
+                                  width: usedRect.width,
+                                  height: usedRect.height)
+                if entry.widen {
+                    rect = NSRect(x: origin.x, y: rect.minY,
+                                  width: container.size.width,
+                                  height: rect.height)
+                }
+                TBBandLayoutManager.paintBackgroundLayers(entry.box,
+                                                          in: rect)
+            }
+        }
     }
 
     private func paintContinuousSurfaces(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -2063,7 +3077,12 @@ final class TBBandLayoutManager: NSLayoutManager {
         // (photos and gradients, 0.10).
         var bands: [(color: NSColor?, box: TBBackgroundBox?,
                      boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat,
-                     dx: CGFloat, dy: CGFloat)] = []
+                     dx: CGFloat, dy: CGFloat,
+                     shadowSet: TBBoxShadowSet?,
+                     shadowID: ObjectIdentifier?,
+                     transform: TBTransformSpec?,
+                     transformID: ObjectIdentifier?,
+                     opacity: CGFloat)] = []
         var index = charRange.location
         let end = min(NSMaxRange(charRange), string.length)
         while index < end {
@@ -2074,7 +3093,15 @@ final class TBBandLayoutManager: NSLayoutManager {
                                         effectiveRange: nil) as? TBBackgroundBox
             let surface = surfaceColor(storage: storage, paragraph: paragraph)
             let fill = (surface != nil && !surface!.isEqual(canvas)) ? surface : nil
-            if fill != nil || box != nil {
+            // The paint & motion set (0.27): a paragraph
+            // can carry a surface for its shadow's sake
+            // alone — the stamps ride at its last
+            // character, where the layer box rides.
+            let shadowSet = storage.attribute(TBBoxShadowKey,
+                                              at: lastIndex,
+                                              effectiveRange: nil)
+                as? TBBoxShadowSet
+            if fill != nil || box != nil || shadowSet != nil {
                 var top: CGFloat? = nil
                 var bottom: CGFloat = 0
                 let pGlyphs = glyphRange(forCharacterRange: paragraph, actualCharacterRange: nil)
@@ -2094,6 +3121,22 @@ final class TBBandLayoutManager: NSLayoutManager {
                     let extBottom = (storage.attribute(TBExtBottomKey, at: paragraph.location,
                                                        effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0
                     let boxID = box.map { ObjectIdentifier($0) }
+                    // The effects table (worn states,
+                    // transitions, keyframe runs) overrides
+                    // the paragraph's own stamps — an
+                    // animated surface fades and moves as
+                    // one piece, band and glyphs together.
+                    let bandFX = fxTraits(at: lastIndex)
+                    let transform = bandFX.transform
+                        ?? storage.attribute(TBTransformKey,
+                                             at: lastIndex,
+                                             effectiveRange: nil)
+                        as? TBTransformSpec
+                    let opacity = bandFX.opacity
+                        ?? (storage.attribute(TBOpacityKey,
+                                              at: lastIndex,
+                                              effectiveRange: nil)
+                        as? TBOpacitySpec)?.value ?? 1
                     // Positioned layout (0.17): a relatively
                     // offset surface paints shifted, as one
                     // band of its own.
@@ -2101,7 +3144,14 @@ final class TBBandLayoutManager: NSLayoutManager {
                     bands.append((color: fill, box: box, boxID: boxID,
                                   top: top - CGFloat(extTop),
                                   bottom: bottom + CGFloat(extBottom),
-                                  dx: offset.x, dy: offset.y))
+                                  dx: offset.x, dy: offset.y,
+                                  shadowSet: shadowSet,
+                                  shadowID: shadowSet.map {
+                                      ObjectIdentifier($0) },
+                                  transform: transform,
+                                  transformID: transform.map {
+                                      ObjectIdentifier($0) },
+                                  opacity: opacity))
                 }
             }
             index = NSMaxRange(paragraph)
@@ -2114,9 +3164,17 @@ final class TBBandLayoutManager: NSLayoutManager {
         // background reads as one continuous surface.
         var surfaces: [(color: NSColor?, box: TBBackgroundBox?,
                         boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat,
-                        dx: CGFloat, dy: CGFloat)] = []
+                        dx: CGFloat, dy: CGFloat,
+                        shadowSet: TBBoxShadowSet?,
+                        shadowID: ObjectIdentifier?,
+                        transform: TBTransformSpec?,
+                        transformID: ObjectIdentifier?,
+                        opacity: CGFloat)] = []
         for band in bands {
             if let last = surfaces.last, last.boxID == band.boxID,
+               last.shadowID == band.shadowID,
+               last.transformID == band.transformID,
+               last.opacity == band.opacity,
                last.dx == band.dx, last.dy == band.dy,
                (last.color == nil && band.color == nil)
                 || (last.color != nil && band.color != nil
@@ -2140,12 +3198,44 @@ final class TBBandLayoutManager: NSLayoutManager {
             // and a rect with no area paints nothing
             // in any case.
             guard rect.width > 0, rect.height > 0 else { continue }
+            // The paint & motion set (0.27): the band's
+            // shadows paint under its fill, and its
+            // opacity and transform wrap the whole band —
+            // fill, layers and shadow together, about the
+            // band's own rect, its transform-origin
+            // against the surface it stands on. The
+            // band's container-space rect is recorded for
+            // the glyph path's pivot.
+            let bandFX = band.shadowSet != nil
+                || band.transform != nil || band.opacity < 1
+            if bandFX {
+                NSGraphicsContext.saveGraphicsState()
+                if band.opacity < 1 {
+                    NSGraphicsContext.current?.cgContext
+                        .setAlpha(band.opacity)
+                }
+                if let transform = band.transform {
+                    transformPivots[ObjectIdentifier(transform)] =
+                        NSRect(x: band.dx, y: band.top + band.dy,
+                               width: container.size.width,
+                               height: band.bottom - band.top)
+                    NSGraphicsContext.current?.cgContext.concatenate(
+                        TBBandLayoutManager.fxAffine(for: transform,
+                                                     pivotRect: rect))
+                }
+                if let shadows = band.shadowSet {
+                    TBBandLayoutManager.paintBoxShadows(shadows, in: rect)
+                }
+            }
             if let color = band.color {
                 color.setFill()
                 rect.fill()
             }
             if let box = band.box {
                 TBBandLayoutManager.paintBackgroundLayers(box, in: rect)
+            }
+            if bandFX {
+                NSGraphicsContext.restoreGraphicsState()
             }
         }
         NSGraphicsContext.restoreGraphicsState()
@@ -2183,79 +3273,129 @@ final class TBBandLayoutManager: NSLayoutManager {
                               y: origin.y + paint.rect.minY,
                               width: paint.rect.width,
                               height: paint.rect.height)
-            // One rule per gap, as tall as the columns,
-            // centered in the gap. Of the border styles,
-            // solid paints as a fill — and double, groove,
-            // ridge, inset and outset paint solid too: a
-            // rule a point or three wide has no bevel to
-            // show. Dotted and dashed stroke a line with
-            // a dash pattern instead. A rule of no height
-            // is not drawn at all (0.25.0): a zero-height
-            // fill, or a path from a point to itself, is
-            // a zero-size draw.
-            if spec.columnCount > 1, spec.ruleWidth > 0,
-               spec.columnHeight > 0,
-               spec.ruleStyle != "none", spec.ruleStyle != "hidden",
-               let color = spec.ruleColor {
-                for i in 1..<spec.columnCount {
-                    let centerX = rect.minX + CGFloat(i) * spec.columnWidth
-                        + CGFloat(i - 1) * spec.gap + spec.gap / 2
-                    if spec.ruleStyle == "dotted"
-                        || spec.ruleStyle == "dashed" {
-                        let path = NSBezierPath()
-                        path.move(to: NSPoint(x: centerX, y: rect.minY))
-                        path.line(to: NSPoint(x: centerX,
-                                              y: rect.minY + spec.columnHeight))
-                        path.lineWidth = spec.ruleWidth
-                        let dash: CGFloat = spec.ruleStyle == "dotted"
-                            ? spec.ruleWidth : spec.ruleWidth * 3
-                        path.setLineDash([dash, dash], count: 2, phase: 0)
-                        color.setStroke()
-                        path.stroke()
-                    } else {
-                        color.setFill()
-                        NSRect(x: centerX - spec.ruleWidth / 2,
-                               y: rect.minY, width: spec.ruleWidth,
-                               height: spec.columnHeight).fill()
-                    }
+            // The paint & motion set (0.27): the
+            // container's opacity and transform wrap the
+            // whole block — rules, columns and spanners
+            // together — about the seat's rect.
+            let containerFX = spec.transformSpec != nil
+                || spec.opacityValue < 1
+            if containerFX {
+                NSGraphicsContext.saveGraphicsState()
+                if spec.opacityValue < 1 {
+                    NSGraphicsContext.current?.cgContext
+                        .setAlpha(spec.opacityValue)
+                }
+                if let transform = spec.transformSpec {
+                    NSGraphicsContext.current?.cgContext.concatenate(
+                        TBBandLayoutManager.fxAffine(for: transform,
+                                                     pivotRect: rect))
                 }
             }
-            drawColumnContent(spec, in: rect)
+            // The block's parts in order (0.27): column
+            // runs and spanning elements, each in its
+            // own slice of the seat, the rules standing
+            // under each run's columns. A spec with no
+            // parts — none should arrive; the renderer
+            // always cuts them — paints as the single
+            // column run 0.22 knew.
+            var parts = spec.parts
+            if parts.isEmpty {
+                let legacy = TBColumnPart()
+                legacy.content = spec.content
+                legacy.height = spec.columnHeight
+                parts = [legacy]
+            }
+            var y = rect.minY
+            for part in parts {
+                let partRect = NSRect(x: rect.minX, y: y,
+                                      width: rect.width,
+                                      height: part.height)
+                if part.isSpanner {
+                    drawSpannerPart(part, spec: spec, in: partRect)
+                } else {
+                    paintColumnRules(spec, in: partRect)
+                    drawColumnPart(part, spec: spec, in: partRect)
+                }
+                y += part.height
+            }
+            if containerFX {
+                NSGraphicsContext.restoreGraphicsState()
+            }
         }
     }
 
-    // Lay a multicolumn block's contents out across its
+    // One rule per gap in a column part, as tall as
+    // the part, centered in the gap. Of the border
+    // styles, solid paints as a fill — and double,
+    // groove, ridge, inset and outset paint solid
+    // too: a rule a point or three wide has no bevel
+    // to show. Dotted and dashed stroke a line with a
+    // dash pattern instead. A rule of no height is
+    // not drawn at all (0.25.0): a zero-height fill,
+    // or a path from a point to itself, is a
+    // zero-size draw.
+    private func paintColumnRules(_ spec: TBMultiColumnSpec,
+                                  in rect: NSRect) {
+        if spec.columnCount > 1, spec.ruleWidth > 0,
+           rect.height > 0,
+           spec.ruleStyle != "none", spec.ruleStyle != "hidden",
+           let color = spec.ruleColor {
+            for i in 1..<spec.columnCount {
+                let centerX = rect.minX + CGFloat(i) * spec.columnWidth
+                    + CGFloat(i - 1) * spec.gap + spec.gap / 2
+                if spec.ruleStyle == "dotted"
+                    || spec.ruleStyle == "dashed" {
+                    let path = NSBezierPath()
+                    path.move(to: NSPoint(x: centerX, y: rect.minY))
+                    path.line(to: NSPoint(x: centerX,
+                                          y: rect.minY + rect.height))
+                    path.lineWidth = spec.ruleWidth
+                    let dash: CGFloat = spec.ruleStyle == "dotted"
+                        ? spec.ruleWidth : spec.ruleWidth * 3
+                    path.setLineDash([dash, dash], count: 2, phase: 0)
+                    color.setStroke()
+                    path.stroke()
+                } else {
+                    color.setFill()
+                    NSRect(x: centerX - spec.ruleWidth / 2,
+                           y: rect.minY, width: spec.ruleWidth,
+                           height: rect.height).fill()
+                }
+            }
+        }
+    }
+
+    // Lay one column part's contents out across its
     // containers — one per column, each the column's
-    // width and the balanced height the renderer
-    // measured — and paint them side by side: the text
-    // flows down one column and continues at the top of
-    // the next, the layout manager's own chaining. The
-    // layout is cached per block until the page resolves
-    // again, as a floated box's contents are.
-    private func drawColumnContent(_ spec: TBMultiColumnSpec, in rect: NSRect) {
-        guard let content = spec.content, content.length > 0,
+    // width and the part's height — and paint them
+    // side by side: the text flows down one column and
+    // continues at the top of the next, the layout
+    // manager's own chaining. The layout is cached per
+    // part until the page resolves again, as a floated
+    // box's contents are.
+    private func drawColumnPart(_ part: TBColumnPart,
+                                spec: TBMultiColumnSpec, in rect: NSRect) {
+        guard let content = part.content, content.length > 0,
               spec.columnCount > 0 else { return }
-        let key = ObjectIdentifier(spec)
+        let key = ObjectIdentifier(part)
         let manager: NSLayoutManager
         let containers: [NSTextContainer]
         if let cached = columnLayouts[key],
            cached.2.count == spec.columnCount, !cached.2.isEmpty,
            cached.2[0].size == NSSize(width: spec.columnWidth,
-                                      height: spec.columnHeight) {
+                                      height: part.height) {
             manager = cached.1
             containers = cached.2
         } else {
-            // 0.25.0: the storage is built first and
-            // attached to the manager before its
-            // containers — the floated-box painter's
-            // established order — and the cache keeps
-            // the storage itself, not just the manager
-            // and containers. A layout manager holds
-            // its text storage weakly, so the old cache
-            // outlived the very text it was meant to
-            // paint: the columns' rules and backgrounds
-            // (plain fills) showed, and their words
-            // never did.
+            // The storage is built first and attached
+            // to the manager before its containers —
+            // the floated-box painter's established
+            // order (0.25.0) — and the cache keeps the
+            // storage itself, not just the manager and
+            // containers: a layout manager holds its
+            // text storage only weakly, and a cache that
+            // kept only the manager left every repaint
+            // holding no text at all.
             let storage = NSTextStorage(attributedString: content)
             manager = NSLayoutManager()
             storage.addLayoutManager(manager)
@@ -2263,7 +3403,7 @@ final class TBBandLayoutManager: NSLayoutManager {
             for _ in 0..<spec.columnCount {
                 let container = NSTextContainer(
                     size: NSSize(width: spec.columnWidth,
-                                 height: spec.columnHeight))
+                                 height: part.height))
                 manager.addTextContainer(container)
                 built.append(container)
             }
@@ -2279,12 +3419,14 @@ final class TBBandLayoutManager: NSLayoutManager {
                 x: rect.minX + CGFloat(index) * (spec.columnWidth + spec.gap),
                 y: rect.minY)
             manager.drawBackground(forGlyphRange: glyphs, at: at)
+            TBBandLayoutManager.paintTextShadows(manager: manager,
+                                                 glyphRange: glyphs,
+                                                 at: at)
             manager.drawGlyphs(forGlyphRange: glyphs, at: at)
-            // Flexbox (0.24): a flex container nested
-            // in the columns paints at its seat in this
-            // column, like one nested anywhere else.
-            // Grid (0.25): a grid container nested in
-            // the columns paints the same way.
+            // Flexbox (0.24) and grid (0.25): a
+            // container nested in the columns paints
+            // at its seat in this column, like one
+            // nested anywhere else.
             let chars = manager.characterRange(forGlyphRange: glyphs,
                                                actualGlyphRange: nil)
             paintFlexSeats(in: content, manager: manager, at: at,
@@ -2292,6 +3434,49 @@ final class TBBandLayoutManager: NSLayoutManager {
             paintGridSeats(in: content, manager: manager, at: at,
                            charRange: chars)
         }
+    }
+
+    // A spanning part (0.27): the spanner's contents
+    // laid out once, at the block's full width, in a
+    // single container of the part's own height, and
+    // painted where the part stands in the seat.
+    private func drawSpannerPart(_ part: TBColumnPart,
+                                 spec: TBMultiColumnSpec,
+                                 in rect: NSRect) {
+        guard let content = part.content, content.length > 0
+        else { return }
+        let key = ObjectIdentifier(part)
+        let manager: NSLayoutManager
+        let container: NSTextContainer
+        if let cached = columnLayouts[key], cached.2.count == 1,
+           cached.2[0].size == NSSize(width: spec.totalWidth,
+                                      height: part.height) {
+            manager = cached.1
+            container = cached.2[0]
+        } else {
+            let storage = NSTextStorage(attributedString: content)
+            manager = NSLayoutManager()
+            storage.addLayoutManager(manager)
+            container = NSTextContainer(
+                size: NSSize(width: spec.totalWidth,
+                             height: part.height))
+            manager.addTextContainer(container)
+            columnLayouts[key] = (storage, manager, [container])
+        }
+        manager.ensureLayout(for: container)
+        let glyphs = manager.glyphRange(for: container)
+        guard glyphs.length > 0 else { return }
+        manager.drawBackground(forGlyphRange: glyphs, at: rect.origin)
+        TBBandLayoutManager.paintTextShadows(manager: manager,
+                                             glyphRange: glyphs,
+                                             at: rect.origin)
+        manager.drawGlyphs(forGlyphRange: glyphs, at: rect.origin)
+        let chars = manager.characterRange(forGlyphRange: glyphs,
+                                           actualGlyphRange: nil)
+        paintFlexSeats(in: content, manager: manager, at: rect.origin,
+                       charRange: chars)
+        paintGridSeats(in: content, manager: manager, at: rect.origin,
+                       charRange: chars)
     }
 
     // Flexbox (0.24): the flex containers the
@@ -2334,11 +3519,55 @@ final class TBBandLayoutManager: NSLayoutManager {
     // Metal's debug validation asserts on), then its
     // contents inside its padding.
     func paintFlexContainer(_ spec: TBFlexSpec, at origin: NSPoint) {
+        // The paint & motion set (0.27): the container's
+        // opacity and transform wrap its items whole,
+        // about the union of their boxes.
+        var union = NSRect.null
+        for item in spec.items { union = union.union(item.rect) }
+        let containerFX = (spec.transformSpec != nil
+            || spec.opacityValue < 1) && !union.isNull
+        if containerFX {
+            NSGraphicsContext.saveGraphicsState()
+            if spec.opacityValue < 1 {
+                NSGraphicsContext.current?.cgContext
+                    .setAlpha(spec.opacityValue)
+            }
+            if let transform = spec.transformSpec {
+                NSGraphicsContext.current?.cgContext.concatenate(
+                    TBBandLayoutManager.fxAffine(
+                        for: transform,
+                        pivotRect: NSRect(x: origin.x + union.minX,
+                                          y: origin.y + union.minY,
+                                          width: union.width,
+                                          height: union.height)))
+            }
+        }
         for item in spec.items {
             let rect = NSRect(x: origin.x + item.rect.minX,
                               y: origin.y + item.rect.minY,
                               width: item.rect.width,
                               height: item.rect.height)
+            // The paint & motion set (0.27): the item's
+            // shadows under it, its opacity and
+            // transform around it — background, layers
+            // and contents together, about its own rect.
+            let itemFX = item.transformSpec != nil
+                || item.opacityValue < 1 || item.boxShadows != nil
+            if itemFX {
+                NSGraphicsContext.saveGraphicsState()
+                if item.opacityValue < 1 {
+                    NSGraphicsContext.current?.cgContext
+                        .setAlpha(item.opacityValue)
+                }
+                if let transform = item.transformSpec {
+                    NSGraphicsContext.current?.cgContext.concatenate(
+                        TBBandLayoutManager.fxAffine(for: transform,
+                                                     pivotRect: rect))
+                }
+                if let shadows = item.boxShadows {
+                    TBBandLayoutManager.paintBoxShadows(shadows, in: rect)
+                }
+            }
             if let color = item.backgroundColor,
                rect.width > 0, rect.height > 0 {
                 color.setFill()
@@ -2358,6 +3587,12 @@ final class TBBandLayoutManager: NSLayoutManager {
                contentRect.width > 0, contentRect.height > 0 {
                 drawFlexItemContent(item, in: contentRect)
             }
+            if itemFX {
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+        if containerFX {
+            NSGraphicsContext.restoreGraphicsState()
         }
     }
 
@@ -2390,6 +3625,9 @@ final class TBBandLayoutManager: NSLayoutManager {
         let glyphs = manager.glyphRange(for: container)
         guard glyphs.length > 0 else { return }
         manager.drawBackground(forGlyphRange: glyphs, at: rect.origin)
+        TBBandLayoutManager.paintTextShadows(manager: manager,
+                                             glyphRange: glyphs,
+                                             at: rect.origin)
         manager.drawGlyphs(forGlyphRange: glyphs, at: rect.origin)
         paintFlexSeats(in: content, manager: manager, at: rect.origin)
         // Grid (0.25): a grid container nested in a
@@ -2476,11 +3714,55 @@ final class TBBandLayoutManager: NSLayoutManager {
     // Metal's debug validation asserts on), then its
     // contents inside its padding.
     func paintGridContainer(_ spec: TBGridSpec, at origin: NSPoint) {
+        // The paint & motion set (0.27): the container's
+        // opacity and transform wrap its items whole,
+        // about the union of their boxes.
+        var union = NSRect.null
+        for item in spec.items { union = union.union(item.rect) }
+        let containerFX = (spec.transformSpec != nil
+            || spec.opacityValue < 1) && !union.isNull
+        if containerFX {
+            NSGraphicsContext.saveGraphicsState()
+            if spec.opacityValue < 1 {
+                NSGraphicsContext.current?.cgContext
+                    .setAlpha(spec.opacityValue)
+            }
+            if let transform = spec.transformSpec {
+                NSGraphicsContext.current?.cgContext.concatenate(
+                    TBBandLayoutManager.fxAffine(
+                        for: transform,
+                        pivotRect: NSRect(x: origin.x + union.minX,
+                                          y: origin.y + union.minY,
+                                          width: union.width,
+                                          height: union.height)))
+            }
+        }
         for item in spec.items {
             let rect = NSRect(x: origin.x + item.rect.minX,
                               y: origin.y + item.rect.minY,
                               width: item.rect.width,
                               height: item.rect.height)
+            // The paint & motion set (0.27): the item's
+            // shadows under it, its opacity and
+            // transform around it — background, layers
+            // and contents together, about its own rect.
+            let itemFX = item.transformSpec != nil
+                || item.opacityValue < 1 || item.boxShadows != nil
+            if itemFX {
+                NSGraphicsContext.saveGraphicsState()
+                if item.opacityValue < 1 {
+                    NSGraphicsContext.current?.cgContext
+                        .setAlpha(item.opacityValue)
+                }
+                if let transform = item.transformSpec {
+                    NSGraphicsContext.current?.cgContext.concatenate(
+                        TBBandLayoutManager.fxAffine(for: transform,
+                                                     pivotRect: rect))
+                }
+                if let shadows = item.boxShadows {
+                    TBBandLayoutManager.paintBoxShadows(shadows, in: rect)
+                }
+            }
             if let color = item.backgroundColor,
                rect.width > 0, rect.height > 0 {
                 color.setFill()
@@ -2500,6 +3782,12 @@ final class TBBandLayoutManager: NSLayoutManager {
                contentRect.width > 0, contentRect.height > 0 {
                 drawGridItemContent(item, in: contentRect)
             }
+            if itemFX {
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+        if containerFX {
+            NSGraphicsContext.restoreGraphicsState()
         }
     }
 
@@ -2534,6 +3822,9 @@ final class TBBandLayoutManager: NSLayoutManager {
         let glyphs = manager.glyphRange(for: container)
         guard glyphs.length > 0 else { return }
         manager.drawBackground(forGlyphRange: glyphs, at: rect.origin)
+        TBBandLayoutManager.paintTextShadows(manager: manager,
+                                             glyphRange: glyphs,
+                                             at: rect.origin)
         manager.drawGlyphs(forGlyphRange: glyphs, at: rect.origin)
         paintFlexSeats(in: content, manager: manager, at: rect.origin)
         paintGridSeats(in: content, manager: manager, at: rect.origin)
@@ -2582,6 +3873,28 @@ final class TBBandLayoutManager: NSLayoutManager {
     // its padding. A picture that never arrived leaves a
     // labelled frame, as a failed in-flow image does.
     func paintBox(rect: NSRect, source: TBBoxPaintSource) {
+        // The paint & motion set (0.27): the box's
+        // shadows paint first, under everything the box
+        // will draw, and its opacity and transform wrap
+        // the whole box — background, picture or
+        // contents — about the box's own rect.
+        let boxFX = source.transformSpec != nil
+            || source.opacityValue < 1 || source.boxShadows != nil
+        if boxFX {
+            NSGraphicsContext.saveGraphicsState()
+            if source.opacityValue < 1 {
+                NSGraphicsContext.current?.cgContext
+                    .setAlpha(source.opacityValue)
+            }
+            if let transform = source.transformSpec {
+                NSGraphicsContext.current?.cgContext.concatenate(
+                    TBBandLayoutManager.fxAffine(for: transform,
+                                                 pivotRect: rect))
+            }
+            if let shadows = source.boxShadows {
+                TBBandLayoutManager.paintBoxShadows(shadows, in: rect)
+            }
+        }
         // No fill for an empty rect (0.25.0): a box
         // resolved to no width or no height paints
         // nothing anyway, and a zero-size fill is
@@ -2623,6 +3936,9 @@ final class TBBandLayoutManager: NSLayoutManager {
             }
         } else if let content = source.content, content.length > 0 {
             drawBoxContent(content, key: ObjectIdentifier(source), in: contentRect)
+        }
+        if boxFX {
+            NSGraphicsContext.restoreGraphicsState()
         }
     }
 
@@ -2749,6 +4065,9 @@ final class TBBandLayoutManager: NSLayoutManager {
         let glyphs = manager.glyphRange(for: container)
         guard glyphs.length > 0 else { return }
         manager.drawBackground(forGlyphRange: glyphs, at: rect.origin)
+        TBBandLayoutManager.paintTextShadows(manager: manager,
+                                             glyphRange: glyphs,
+                                             at: rect.origin)
         manager.drawGlyphs(forGlyphRange: glyphs, at: rect.origin)
         // Flexbox (0.24): a flex container nested in
         // this box paints at its seat, recursively.
@@ -2779,14 +4098,14 @@ final class TBBandLayoutManager: NSLayoutManager {
         }
         let charRange = characterRange(forGlyphRange: glyphsToShow,
                                        actualGlyphRange: nil)
-        // The interaction set (0.26): a sticky shift can
-        // change inside a relative-offset run (a sticky
-        // nested in a relative ancestor, or the reverse),
-        // so the segments are cut at both stamps' run
-        // boundaries and each elementary segment wears
-        // the combined offset paintOffset resolves. With
-        // no offset anywhere the whole range draws in
-        // one call, exactly as before.
+        // The segments are cut at every stamp boundary
+        // that changes a segment's paint: the relative
+        // and sticky offsets (0.26), and — the paint &
+        // motion set (0.27) — the transform, opacity and
+        // text-shadow stamps, plus the effects table's
+        // edges. With no paint of any kind in the range
+        // the whole range draws in one call, exactly as
+        // before.
         var cuts: Set<Int> = [charRange.location, NSMaxRange(charRange)]
         storage.enumerateAttribute(TBRelOffsetKey, in: charRange) { _, range, _ in
             cuts.insert(range.location)
@@ -2796,6 +4115,28 @@ final class TBBandLayoutManager: NSLayoutManager {
             storage.enumerateAttribute(TBStickyKey, in: charRange) { _, range, _ in
                 cuts.insert(range.location)
                 cuts.insert(NSMaxRange(range))
+            }
+        }
+        var hasPaint = false
+        for key in [TBTransformKey, TBOpacityKey, TBTextShadowKey] {
+            storage.enumerateAttribute(key, in: charRange) { value, range, _ in
+                cuts.insert(range.location)
+                cuts.insert(NSMaxRange(range))
+                if value != nil { hasPaint = true }
+            }
+        }
+        for entry in fxOverrides {
+            if entry.range.location > charRange.location,
+               entry.range.location < NSMaxRange(charRange) {
+                cuts.insert(entry.range.location)
+            }
+            let entryEnd = NSMaxRange(entry.range)
+            if entryEnd > charRange.location,
+               entryEnd < NSMaxRange(charRange) {
+                cuts.insert(entryEnd)
+            }
+            if NSIntersectionRange(entry.range, charRange).length > 0 {
+                hasPaint = true
             }
         }
         let points = cuts.filter {
@@ -2813,7 +4154,7 @@ final class TBBandLayoutManager: NSLayoutManager {
                 segments.append((range: range, offset: offset))
             }
         }
-        guard hasOffset else {
+        guard hasOffset || hasPaint else {
             super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
             return
         }
@@ -2821,16 +4162,108 @@ final class TBBandLayoutManager: NSLayoutManager {
             let segment = glyphRange(forCharacterRange: entry.range,
                                      actualCharacterRange: nil)
             guard segment.length > 0 else { continue }
-            if entry.offset == .zero {
+            // Text shadows first, under the glyphs they
+            // belong to (0.27).
+            paintTextShadowPass(charRange: entry.range, at: origin,
+                                offset: entry.offset)
+            let fx = fxTraits(at: entry.range.location)
+            let transform = fx.transform
+                ?? storage.attribute(TBTransformKey,
+                                     at: entry.range.location,
+                                     effectiveRange: nil)
+                    as? TBTransformSpec
+            let opacity = fx.opacity
+                ?? (storage.attribute(TBOpacityKey,
+                                      at: entry.range.location,
+                                      effectiveRange: nil)
+                    as? TBOpacitySpec)?.value
+            if entry.offset == .zero, transform == nil,
+               opacity == nil || opacity! >= 1 {
                 super.drawGlyphs(forGlyphRange: segment, at: origin)
             } else {
                 NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current?.cgContext
-                    .translateBy(x: entry.offset.x, y: entry.offset.y)
+                let context = NSGraphicsContext.current?.cgContext
+                if entry.offset != .zero {
+                    context?.translateBy(x: entry.offset.x,
+                                         y: entry.offset.y)
+                }
+                if let opacity = opacity, opacity < 1 {
+                    context?.setAlpha(opacity)
+                }
+                if let transform = transform {
+                    context?.concatenate(TBBandLayoutManager.fxAffine(
+                        for: transform,
+                        pivotRect: glyphPivotRect(charRange: entry.range,
+                                                  at: origin,
+                                                  spec: transform)))
+                }
                 super.drawGlyphs(forGlyphRange: segment, at: origin)
                 NSGraphicsContext.restoreGraphicsState()
             }
         }
+    }
+
+    // Text shadows under this manager's own glyphs
+    // (0.27): the static painter's twin, drawing
+    // through super — the override above must not
+    // recurse into itself — with the segment's offset
+    // riding along, so a shadow follows its glyphs
+    // wherever their paint goes.
+    private func paintTextShadowPass(charRange: NSRange, at origin: NSPoint,
+                                     offset: NSPoint) {
+        guard let storage = textStorage else { return }
+        storage.enumerateAttribute(TBTextShadowKey, in: charRange) {
+            value, range, _ in
+            guard let set = value as? TBTextShadowSet else { return }
+            let glyphs = glyphRange(forCharacterRange: range,
+                                    actualCharacterRange: nil)
+            guard glyphs.length > 0 else { return }
+            for shadow in set.shadows.reversed() {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current?.cgContext.translateBy(
+                    x: offset.x + shadow.dx, y: offset.y + shadow.dy)
+                if shadow.blur > 0 {
+                    let ns = NSShadow()
+                    ns.shadowColor = shadow.color
+                    ns.shadowBlurRadius = shadow.blur
+                    ns.shadowOffset = .zero
+                    ns.set()
+                }
+                setTemporaryAttributes([.foregroundColor: shadow.color],
+                                       forCharacterRange: range)
+                super.drawGlyphs(forGlyphRange: glyphs, at: origin)
+                removeTemporaryAttributes(forCharacterRange: range)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+    }
+
+    // The pivot rect for a glyph segment's transform,
+    // in view coordinates: the band rect its surface
+    // recorded, where it has one, else the union of
+    // the segment's own line fragments.
+    private func glyphPivotRect(charRange: NSRange, at origin: NSPoint,
+                                spec: TBTransformSpec) -> NSRect {
+        if let cached = transformPivots[ObjectIdentifier(spec)] {
+            return NSRect(x: origin.x + cached.minX,
+                          y: origin.y + cached.minY,
+                          width: cached.width, height: cached.height)
+        }
+        let glyphs = glyphRange(forCharacterRange: charRange,
+                                actualCharacterRange: nil)
+        var union = NSRect.null
+        if glyphs.length > 0 {
+            enumerateLineFragments(forGlyphRange: glyphs) {
+                _, usedRect, _, _, _ in
+                union = union.union(usedRect)
+            }
+        }
+        if union.isNull {
+            return NSRect(x: origin.x, y: origin.y, width: 0, height: 0)
+        }
+        return NSRect(x: origin.x + union.minX,
+                      y: origin.y + union.minY,
+                      width: union.width, height: union.height)
     }
 
     // Paint a surface's background layers: CSS lists the
@@ -3153,6 +4586,30 @@ final class TBFixedOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let spec = spec else { return }
+        // The paint & motion set (0.27): the fixed box's
+        // shadows under it, its opacity and transform
+        // around the whole box — restored by defer, on
+        // every way out of this draw.
+        let fx = spec.opacityValue < 1 || spec.transformSpec != nil
+            || spec.boxShadows != nil
+        if fx {
+            NSGraphicsContext.saveGraphicsState()
+            if spec.opacityValue < 1 {
+                NSGraphicsContext.current?.cgContext
+                    .setAlpha(spec.opacityValue)
+            }
+            if let transform = spec.transformSpec {
+                NSGraphicsContext.current?.cgContext.concatenate(
+                    TBBandLayoutManager.fxAffine(for: transform,
+                                                 pivotRect: bounds))
+            }
+            if let shadows = spec.boxShadows {
+                TBBandLayoutManager.paintBoxShadows(shadows, in: bounds)
+            }
+        }
+        defer {
+            if fx { NSGraphicsContext.restoreGraphicsState() }
+        }
         if let color = spec.backgroundColor,
            bounds.width > 0, bounds.height > 0 {
             color.setFill()
@@ -3204,6 +4661,9 @@ final class TBFixedOverlayView: NSView {
         let glyphs = manager.glyphRange(for: container)
         guard glyphs.length > 0 else { return }
         manager.drawBackground(forGlyphRange: glyphs, at: contentRect.origin)
+        TBBandLayoutManager.paintTextShadows(manager: manager,
+                                             glyphRange: glyphs,
+                                             at: contentRect.origin)
         manager.drawGlyphs(forGlyphRange: glyphs, at: contentRect.origin)
         // Flexbox (0.24): a flex container nested in
         // this box paints at its seat, as in any
