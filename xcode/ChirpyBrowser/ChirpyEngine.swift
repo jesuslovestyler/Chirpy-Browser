@@ -4367,7 +4367,7 @@ final class TBRenderer {
         seat.bounds = CGRect(x: 0, y: 0, width: spec.totalWidth,
                              height: spec.totalHeight)
         spec.seat = seat
-        let para = NSMutableAttributedString(NSAttributedString(attachment: seat))
+        let para = NSMutableAttributedString(attributedString: NSAttributedString(attachment: seat))
         para.addAttribute(.font, value: font,
                           range: NSRange(location: 0, length: para.length))
         let paragraph = NSMutableParagraphStyle()

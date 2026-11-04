@@ -119,6 +119,21 @@ coordinates. Nothing else changed; the three yellow
 warnings his build showed are warnings, not errors,
 and were left alone.
 
+0.23.0 build fix 2 (Nov 4): the rebuild cleared
+ContentView entirely and stopped on one last error,
+this time in the engine — in the 0.22 multi-column
+seat code, a NSMutableAttributedString was built from
+another attributed string without its argument label.
+The call now reads NSMutableAttributedString(
+attributedString: NSAttributedString(attachment:
+seat)), and every other attributed-string and
+text-storage construction in both files was swept and
+verified to carry a label that exists. The mistake
+sat in code written for 0.22 that was never compiled
+until this build, and no static check — balance,
+header scan, grep — can see a missing argument label;
+only the first real compile could, and did.
+
 WHAT'S NEW IN 0.22.0 — MULTI-COLUMN & COLOR-MIX
 ------------------------------------------------------
 Stage two of the CSS completion: the column properties
