@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.25.0 (Swift)
+//  Chirpy Browser — engine 0.26.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -280,8 +280,55 @@
 //      flex-inside-grid travel the one shared
 //      finalize path. Items are paint, not live
 //      text — the bargain, struck a third time.
-//  Not yet: position: sticky, transforms,
-//  :focus and :active, column-span, transitions,
+//    * The interaction set (0.26): the states and the
+//      sticking place. :focus and :active join the
+//      selector grammar as states like :hover's —
+//      out of the resting cascade, resolved apart
+//      and reduced to the same four paint traits
+//      (foreground, background color, underline,
+//      strikethrough), stamped under their own keys
+//      beside hover's. The view wears them in
+//      layers — hover under focus under active,
+//      each layer's covered paint snapshotted and
+//      restored as one stack — for the element the
+//      pointer rests on, the link the reader has
+//      focused (a press focuses a link, as in a
+//      real browser; a live control taking focus
+//      releases the text's), and the element being
+//      pressed, respectively. Live form controls
+//      are styled by the page: a field takes its
+//      font, text color, background, border and
+//      corner radius from its computed style (the
+//      native bezel stands down when the page
+//      paints its own), a submit button takes its
+//      background as its bezel tint and its color
+//      as its title's; a focused control wears its
+//      :focus background or border, a declared
+//      outline riding as its border ring for the
+//      focus's duration; a button being pressed
+//      wears its :active colors for the press.
+//      Checkbox and radio glyphs take their
+//      element's color. Selects and textareas
+//      still render as their text — no live
+//      control is built for them. position:sticky
+//      is read on block boxes: the element flows
+//      and reserves its space like a relative box,
+//      the renderer records its range and its
+//      containing block's, and the view shifts its
+//      paint as the page scrolls — held at its
+//      top inset once scrolling would carry it
+//      past, pushed off by its containing block's
+//      bottom edge (bottom mirrors it from below;
+//      top wins when both are declared). The shift
+//      rides the relative offsets' paint path, so
+//      surfaces and glyphs move together and the
+//      flow never does. Horizontal sticking is
+//      not read (the page does not scroll
+//      sideways), a sticky inside a painted box
+//      flows plain, and a sticky flex, grid or
+//      column container's seat shifts while its
+//      items paint at the flow seat.
+//  Not yet: transforms, column-span, transitions,
 //  JavaScript (the mountain).
 //
 
@@ -384,7 +431,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.25.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -402,7 +449,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.25.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -456,7 +503,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.25.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -534,7 +581,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.25.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -669,6 +716,30 @@ let TBRelOffsetKey = NSAttributedString.Key("TBRelOffset")
 let TBHoverAttrsKey = NSAttributedString.Key("TBHoverAttrs")
 let TBHoverBlockAttrsKey = NSAttributedString.Key("TBHoverBlockAttrs")
 
+// The interaction set (0.26): :focus and :active wear
+// the same paint as :hover — the same TBHoverStyle
+// traits, reduced by the same hand — stamped under
+// their own keys, element and block, exactly as
+// hover's are. The view keeps the three states as
+// layers (hover under focus under active) over the
+// same characters and puts the covered paint back
+// as one stack when they lift.
+let TBFocusAttrsKey = NSAttributedString.Key("TBFocusAttrs")
+let TBFocusBlockAttrsKey = NSAttributedString.Key("TBFocusBlockAttrs")
+let TBActiveAttrsKey = NSAttributedString.Key("TBActiveAttrs")
+let TBActiveBlockAttrsKey = NSAttributedString.Key("TBActiveBlockAttrs")
+
+// The interaction set (0.26): position:sticky. A sticky
+// block's paragraphs carry its spec under this key;
+// the layout manager shifts the runs' paint by the
+// amount the view's coordinator last resolved for
+// that spec (its stickyShifts), through the same
+// paint path the relative offsets travel. The flow
+// position never changes — a form control seated in
+// a sticky element stays at its flow seat, exactly
+// as it does inside a relative offset.
+let TBStickyKey = NSAttributedString.Key("TBSticky")
+
 final class TBHoverStyle {
     var foregroundColor: NSColor? = nil
     var backgroundColor: NSColor? = nil
@@ -779,6 +850,7 @@ enum TBLayoutEvent {
     case columns(TBMultiColumnSpec)
     case flex(TBFlexSpec)
     case grid(TBGridSpec)
+    case sticky(TBStickySpec)
 }
 
 // Positioned layout (0.21): an element with position
@@ -873,6 +945,34 @@ final class TBPositionedSpec {
         self.isImage = isImage
         self.borderWidth = borderWidth
         self.borderHeight = borderHeight
+    }
+}
+
+// The interaction set (0.26): a block lifted by
+// position:sticky — lifted in paint only, never in
+// the flow: it stands where the walk put it and
+// reserves its space like any block, and the view
+// shifts its paint as the page scrolls. The spec
+// carries the element's own character range and its
+// containing block's (the nearest block ancestor's
+// range, recorded the same way — nil when the
+// parent is the page itself, whose extent is the
+// whole text), and the insets it sticks by: top
+// holds it below the viewport's top edge once
+// scrolling would carry it above, until the
+// containing block's bottom edge pushes it off;
+// bottom mirrors that from below. Left and right
+// are not read — the page does not scroll sideways.
+final class TBStickySpec {
+    let rangeBlock: TBContainingBlock
+    let containingBlock: TBContainingBlock?
+    var top: TBInsetValue? = nil
+    var bottom: TBInsetValue? = nil
+
+    init(rangeBlock: TBContainingBlock,
+         containingBlock: TBContainingBlock?) {
+        self.rangeBlock = rangeBlock
+        self.containingBlock = containingBlock
     }
 }
 
@@ -1264,7 +1364,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.25.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.26.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1519,14 +1619,16 @@ final class TBNotBox {
 // reads: the structural ones (:first-child and family, :nth-child
 // and :nth-of-type with their formulas, :empty, :not with a
 // compound argument), the link states (:link, :visited) and
-// :hover. :focus and :active stay outside the grammar, so a
-// selector using them does not parse and its rule never applies.
+// :hover. The interaction set (0.26) adds :focus and :active —
+// states like :hover's, matched only in their own resolutions.
 struct TBCompound {
     var tag: String? = nil
     var classes: [String] = []
     var id: String? = nil
     var isRoot = false   // :root — matches the <html> element
     var isHover = false  // :hover — matches only in a hover resolution
+    var isFocus = false  // :focus (0.26) — matches only in a focus resolution
+    var isActive = false  // :active (0.26) — matches only in an active resolution
     var isLink = false   // :link — an anchor not yet visited
     var isVisited = false   // :visited — an anchor in the session's visited set
     var firstChild = false
@@ -1544,6 +1646,8 @@ struct TBCompound {
         var s = (id != nil ? 100 : 0) + classes.count * 10 + (tag != nil ? 1 : 0)
         if isRoot { s += 10 }
         if isHover { s += 10 }
+        if isFocus { s += 10 }
+        if isActive { s += 10 }
         if isLink { s += 10 }
         if isVisited { s += 10 }
         if firstChild { s += 10 }
@@ -1689,6 +1793,8 @@ func tbParseCompound(_ token: String) -> TBCompound? {
             case "link": compound.isLink = true
             case "visited": compound.isVisited = true
             case "hover": compound.isHover = true
+            case "focus": compound.isFocus = true
+            case "active": compound.isActive = true
             case "nth-child", "nth-of-type":
                 guard let (arg, next) = tbParenArgument(chars, openIndex: i),
                       let nth = tbParseNth(arg) else { return nil }
@@ -1709,7 +1815,7 @@ func tbParseCompound(_ token: String) -> TBCompound? {
                 compound.notBox = TBNotBox(inner)
                 i = next
             default:
-                return nil   // :focus, :active, :lang, … — not read
+                return nil   // :lang, :checked, … — not read
             }
         } else {
             return nil
@@ -1813,7 +1919,9 @@ func tbIsEmptyElement(_ node: TBNode) -> Bool {
 }
 
 func tbCompoundMatches(_ compound: TBCompound, node: TBNode,
-                       hoverSatisfied: Bool = false) -> Bool {
+                       hoverSatisfied: Bool = false,
+                       focusSatisfied: Bool = false,
+                       activeSatisfied: Bool = false) -> Bool {
     if node.tag == "#text" || node.tag == "document" { return false }
     // :hover is a state, not a shape: in an ordinary match it
     // is never true (so hover rules stay out of the resting
@@ -1822,6 +1930,10 @@ func tbCompoundMatches(_ compound: TBCompound, node: TBNode,
     // the hovered element itself, or an ancestor of it in a
     // selector like `.card:hover .title`.
     if compound.isHover && !hoverSatisfied { return false }
+    // :focus and :active (0.26) are states the same way,
+    // each satisfied only in its own resolution.
+    if compound.isFocus && !focusSatisfied { return false }
+    if compound.isActive && !activeSatisfied { return false }
     if compound.isRoot && node.tag != "html" { return false }
     if let tag = compound.tag, tag != node.tag { return false }
     if let id = compound.id, node.attrs["id"] != id { return false }
@@ -1834,7 +1946,9 @@ func tbCompoundMatches(_ compound: TBCompound, node: TBNode,
     }
     if let notBox = compound.notBox,
        tbCompoundMatches(notBox.compound, node: node,
-                         hoverSatisfied: hoverSatisfied) {
+                         hoverSatisfied: hoverSatisfied,
+                         focusSatisfied: focusSatisfied,
+                         activeSatisfied: activeSatisfied) {
         return false
     }
     if compound.isLink || compound.isVisited {
@@ -1876,10 +1990,14 @@ func tbCompoundMatches(_ compound: TBCompound, node: TBNode,
 // Selector matching walks right to left: the element itself must
 // match the last compound; combinators then climb the ancestors.
 func tbSelectorMatches(_ selector: TBSelector, node: TBNode,
-                       hoverSatisfied: Bool = false) -> Bool {
+                       hoverSatisfied: Bool = false,
+                       focusSatisfied: Bool = false,
+                       activeSatisfied: Bool = false) -> Bool {
     func matchFrom(_ index: Int, _ current: TBNode) -> Bool {
         guard tbCompoundMatches(selector.compounds[index], node: current,
-                                hoverSatisfied: hoverSatisfied) else {
+                                hoverSatisfied: hoverSatisfied,
+                                focusSatisfied: focusSatisfied,
+                                activeSatisfied: activeSatisfied) else {
             return false
         }
         if index == 0 { return true }
@@ -2451,22 +2569,42 @@ func tbResolveStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
     return out
 }
 
-// Does any compound in this selector carry :hover?
-func tbSelectorHasHover(_ selector: TBSelector) -> Bool {
-    selector.compounds.contains { $0.isHover }
+// The interactive states (0.23, 0.26): :hover first, and
+// :focus and :active beside it — each a state an element
+// wears for a while, each resolved apart from the resting
+// cascade in the same shape.
+enum TBStateFlag { case hover, focus, active }
+
+// Does any compound in this selector carry the state?
+func tbSelectorHasState(_ selector: TBSelector,
+                        _ flag: TBStateFlag) -> Bool {
+    switch flag {
+    case .hover: return selector.compounds.contains { $0.isHover }
+    case .focus: return selector.compounds.contains { $0.isFocus }
+    case .active: return selector.compounds.contains { $0.isActive }
+    }
 }
 
-// The hover resolution (0.23): the declarations an element
-// wears while the pointer is over it — only rules carrying
-// :hover, matched with the state treated as satisfied, in
+// Does any compound in this selector carry :hover?
+func tbSelectorHasHover(_ selector: TBSelector) -> Bool {
+    tbSelectorHasState(selector, .hover)
+}
+
+// A state resolution: the declarations an element wears
+// while it is in the state — only rules carrying the
+// state, matched with the state treated as satisfied, in
 // the same cascade order as the resting resolution. What
 // the view does with them is paint, not layout: see
 // tbHoverPaintAttrs.
-func tbResolveHoverStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
+func tbResolveStateStyle(node: TBNode, rules: [TBCSSRule],
+                         flag: TBStateFlag) -> [String: String] {
     if node.tag == "#text" { return [:] }
     var matched: [TBCSSRule] = []
-    for rule in rules where tbSelectorHasHover(rule.selector)
-        && tbSelectorMatches(rule.selector, node: node, hoverSatisfied: true) {
+    for rule in rules where tbSelectorHasState(rule.selector, flag)
+        && tbSelectorMatches(rule.selector, node: node,
+                             hoverSatisfied: flag == .hover,
+                             focusSatisfied: flag == .focus,
+                             activeSatisfied: flag == .active) {
         matched.append(rule)
     }
     matched.sort {
@@ -2477,6 +2615,12 @@ func tbResolveHoverStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
         tbMergeDeclarations(rule.declarations, into: &out)
     }
     return out
+}
+
+// The hover resolution (0.23): the declarations an element
+// wears while the pointer is over it.
+func tbResolveHoverStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
+    tbResolveStateStyle(node: node, rules: rules, flag: .hover)
 }
 
 // MARK: - CSS variables
@@ -2802,15 +2946,17 @@ func tbBackgroundColor(_ decls: [String: String]) -> NSColor? {
     return nil
 }
 
-// The paint a :hover resolution contributes (0.23), as a
-// TBHoverStyle — or nil when the resolution names nothing
-// the hover machinery can paint. Paint only, by design:
-// foreground color, the background color behind the
-// glyphs (the color layer only — tbBackgroundColor, so a
-// shorthand background contributes its color; photo and
-// gradient hover backgrounds are not painted), and the
-// underline / strikethrough switches — including `none`,
-// which switches one OFF for the hover. A hover rule that
+// The paint a state resolution contributes (0.23; the
+// reduction serves :focus and :active identically since
+// 0.26), as a TBHoverStyle — or nil when the resolution
+// names nothing the state machinery can paint. Paint
+// only, by design: foreground color, the background
+// color behind the glyphs (the color layer only —
+// tbBackgroundColor, so a shorthand background
+// contributes its color; photo and gradient state
+// backgrounds are not painted), and the underline /
+// strikethrough switches — including `none`, which
+// switches one OFF for the state. A state rule that
 // changes a font or a size is read and set aside:
 // restyling must never move the text.
 func tbHoverPaintAttrs(_ decls: [String: String]) -> TBHoverStyle? {
@@ -2870,6 +3016,37 @@ func tbStampHover(_ target: NSMutableAttributedString,
     }
     for gap in gaps where gap.length > 0 {
         target.addAttribute(key, value: style, range: gap)
+    }
+}
+
+// The interaction set (0.26): stamp a sticky block's spec
+// onto its text — the tbStampHover discipline (the
+// innermost stamp keeps its ground) with the sticky
+// key, so a sticky nested inside a sticky keeps its own
+// spec. The layout manager reads the stamp when it
+// paints; the coordinator resolves the spec's shift.
+func tbStampSticky(_ target: NSMutableAttributedString,
+                   range: NSRange, spec: TBStickySpec) {
+    guard range.length > 0,
+          range.location != NSNotFound,
+          range.location + range.length <= target.length else { return }
+    var gaps: [NSRange] = []
+    var coveredEnd = range.location
+    target.enumerateAttribute(TBStickyKey, in: range,
+                              options: []) { _, attrRange, _ in
+        if attrRange.location > coveredEnd {
+            gaps.append(NSRange(location: coveredEnd,
+                                length: attrRange.location - coveredEnd))
+        }
+        coveredEnd = max(coveredEnd,
+                         attrRange.location + attrRange.length)
+    }
+    if coveredEnd < range.location + range.length {
+        gaps.append(NSRange(location: coveredEnd,
+                            length: range.location + range.length - coveredEnd))
+    }
+    for gap in gaps where gap.length > 0 {
+        target.addAttribute(TBStickyKey, value: spec, range: gap)
     }
 }
 
@@ -3189,6 +3366,39 @@ func tbFont(for style: String) -> NSFont {
     }
 }
 
+// The interaction set (0.26): a live form control's
+// style, resolved by the renderer from the element's
+// computed declarations and carried on its attachment
+// to the view, which dresses the real control with
+// it. A class, like TBHoverStyle: attribute and
+// attachment values that are Swift dictionaries do
+// not survive being read back. Every trait is
+// optional — a page that declares nothing gets the
+// native control exactly as it stood before 0.26.
+// The focus and active traits come from the
+// element's :focus and :active resolutions (the
+// declarations only, reduced by hand in the
+// renderer): a focused control wears the focus
+// background or border, a declared outline riding
+// as the control's border ring for the focus's
+// duration, and a pressed button wears the active
+// colors for the press.
+final class TBControlStyle {
+    var font: NSFont? = nil
+    var textColor: NSColor? = nil
+    var backgroundColor: NSColor? = nil
+    var borderColor: NSColor? = nil
+    var borderWidth: CGFloat = 0
+    var cornerRadius: CGFloat = 0
+    var focusTextColor: NSColor? = nil
+    var focusBackgroundColor: NSColor? = nil
+    var focusBorderColor: NSColor? = nil
+    var outlineColor: NSColor? = nil
+    var outlineWidth: CGFloat = 0
+    var activeTextColor: NSColor? = nil
+    var activeBackgroundColor: NSColor? = nil
+}
+
 // Forms (0.13): a text or search input seats an attachment
 // in the text, the way an image does — but what belongs
 // there is a real, editable field, which the window lays
@@ -3198,6 +3408,10 @@ func tbFont(for style: String) -> NSFont {
 // GET-encoded onto its action.
 final class TBFieldAttachment: NSTextAttachment {
     var fieldID = -1
+    // The interaction set (0.26): the field's style,
+    // as its element's computed declarations resolved
+    // it — the view dresses the live control with it.
+    var style: TBControlStyle? = nil
 }
 
 // An attachment reserves space in the layout only when it
@@ -3212,6 +3426,9 @@ func tbClearSeat(width: CGFloat, height: CGFloat) -> NSImage {
 final class TBSubmitAttachment: NSTextAttachment {
     var formID = -1
     var label = "Submit"
+    // The interaction set (0.26): the button's style,
+    // as with the field's.
+    var style: TBControlStyle? = nil
 }
 
 struct TBFormField {
@@ -3322,6 +3539,14 @@ final class TBRenderer {
     private var positionedImageJobs: [(spec: TBPositionedSpec, url: String)] = []
     private var pendingPositioned: [(spec: TBPositionedSpec, sub: TBRenderer)] = []
     private var containingBlocks: [TBContainingBlock] = []
+
+    // The interaction set (0.26): every block's own
+    // character range, open while the block is walked —
+    // the stack a sticky element reads its containing
+    // block (its parent block) from. Blocks inside a
+    // painted box record none, as they record no layout
+    // events: a sticky there flows plain.
+    private var blockRanges: [TBContainingBlock] = []
 
     // Multi-column layout (0.22): the multicolumn blocks
     // the walk met, each with the sub-renderer holding
@@ -3471,9 +3696,19 @@ final class TBRenderer {
                 let attachment = TBSubmitAttachment()
                 attachment.formID = currentFormID
                 attachment.label = label
+                // The interaction set (0.26): the button's
+                // style rides on its attachment, and a
+                // declared size replaces the label's
+                // measure, as a field's declared width does.
+                attachment.style = controlStyle(node: node, own: own,
+                                                font: font)
+                let width = tbLengthValue(own["width"], fontSize: font.pointSize)
+                    ?? (CGFloat(label.count) * 8 + 30)
+                let height = tbLengthValue(own["height"], fontSize: font.pointSize)
+                    ?? 26
                 let box = CGRect(x: 0, y: 0,
-                                 width: CGFloat(label.count) * 8 + 30,
-                                 height: 26)
+                                 width: min(max(width, 40), 560),
+                                 height: min(max(height, 20), 120))
                 attachment.bounds = box
                 attachment.image = tbClearSeat(width: box.width, height: box.height)
                 return NSAttributedString(attachment: attachment)
@@ -3487,8 +3722,13 @@ final class TBRenderer {
             let on = node.attrs["checked"] != nil
             let glyph = type == "checkbox" ? (on ? "\u{2611}" : "\u{2610}")
                                            : (on ? "\u{25C9}" : "\u{25CB}")
-            return NSAttributedString(string: " \(glyph) ",
-                                      attributes: [.font: font])
+            // The interaction set (0.26): the glyph wears
+            // its element's color, as its text would.
+            var attrs: [NSAttributedString.Key: Any] = [.font: font]
+            if let color = tbParseColor(own["color"]) {
+                attrs[.foregroundColor] = color
+            }
+            return NSAttributedString(string: " \(glyph) ", attributes: attrs)
         }
         if ["text", "search", "password", "email", "url", "tel",
             "number", ""].contains(type) {
@@ -3500,15 +3740,23 @@ final class TBRenderer {
                 placeholder: node.attrs["placeholder"] ?? ""))
             let attachment = TBFieldAttachment()
             attachment.fieldID = id
+            // The interaction set (0.26): the field's
+            // style rides on its attachment, and a
+            // declared height replaces the standing
+            // field height.
+            attachment.style = controlStyle(node: node, own: own,
+                                            font: font)
             var width = tbLengthValue(own["width"] ?? node.attrs["width"],
                                       fontSize: font.pointSize)
             if width == nil, let sizeText = node.attrs["size"],
                let size = Double(sizeText) {
                 width = CGFloat(size) * 7.5 + 16
             }
+            let height = tbLengthValue(own["height"], fontSize: font.pointSize)
+                ?? 26
             let box = CGRect(x: 0, y: 0,
                              width: min(max(width ?? 240, 90), 560),
-                             height: 26)
+                             height: min(max(height, 20), 120))
             attachment.bounds = box
             attachment.image = tbClearSeat(width: box.width, height: box.height)
             return NSAttributedString(attachment: attachment)
@@ -3556,6 +3804,17 @@ final class TBRenderer {
     // does no hover work for them.
     lazy var hoverRulePresent: Bool = rules.contains {
         tbSelectorHasHover($0.selector)
+    }
+
+    // The interaction set (0.26): the same census for
+    // :focus and :active — most pages have neither, and
+    // the walk then does no state work for them.
+    lazy var focusRulePresent: Bool = rules.contains {
+        tbSelectorHasState($0.selector, .focus)
+    }
+
+    lazy var activeRulePresent: Bool = rules.contains {
+        tbSelectorHasState($0.selector, .active)
     }
 
     // Layout step two: find the page's own centered column —
@@ -3634,11 +3893,14 @@ final class TBRenderer {
         return tbExpandDeferredFont(out)
     }
 
-    // The element's hover declarations (0.23), var()-resolved
-    // like the resting style. What the view paints from them
-    // is tbHoverPaintAttrs' paint — never layout.
-    func resolvedHoverStyle(node: TBNode) -> [String: String] {
-        let raw = tbResolveHoverStyle(node: node, rules: rules)
+    // One state's declarations (0.23; all three states
+    // since 0.26), var()-resolved like the resting style.
+    // What the view paints from them is
+    // tbHoverPaintAttrs' paint — never layout; what a
+    // live form control wears from them is read by
+    // controlStyle below.
+    func resolvedStateStyle(node: TBNode, flag: TBStateFlag) -> [String: String] {
+        let raw = tbResolveStateStyle(node: node, rules: rules, flag: flag)
         if raw.isEmpty { return raw }
         let env = tbVariableEnvironment(node: node, rules: rules)
         var out: [String: String] = [:]
@@ -3651,6 +3913,22 @@ final class TBRenderer {
         return out
     }
 
+    // The element's hover declarations (0.23), var()-resolved
+    // like the resting style.
+    func resolvedHoverStyle(node: TBNode) -> [String: String] {
+        resolvedStateStyle(node: node, flag: .hover)
+    }
+
+    // The element's focus declarations (0.26).
+    func resolvedFocusStyle(node: TBNode) -> [String: String] {
+        resolvedStateStyle(node: node, flag: .focus)
+    }
+
+    // The element's active declarations (0.26).
+    func resolvedActiveStyle(node: TBNode) -> [String: String] {
+        resolvedStateStyle(node: node, flag: .active)
+    }
+
     // The element's hover paint (0.23), ready to stamp: the
     // resolved hover declarations reduced to the traits the
     // view can repaint without moving any text. Nil when no
@@ -3661,6 +3939,26 @@ final class TBRenderer {
     func hoverPaintStyle(node: TBNode) -> TBHoverStyle? {
         guard hoverRulePresent else { return nil }
         let decls = resolvedHoverStyle(node: node)
+        if decls.isEmpty { return nil }
+        return tbHoverPaintAttrs(decls)
+    }
+
+    // The element's focus paint (0.26), ready to stamp —
+    // hoverPaintStyle's twin under the focus keys. Nil
+    // when no :focus rule touches the element, or the
+    // ones that do name nothing paintable.
+    func focusPaintStyle(node: TBNode) -> TBHoverStyle? {
+        guard focusRulePresent else { return nil }
+        let decls = resolvedFocusStyle(node: node)
+        if decls.isEmpty { return nil }
+        return tbHoverPaintAttrs(decls)
+    }
+
+    // The element's active paint (0.26) — the third twin,
+    // worn while the reader presses the element.
+    func activePaintStyle(node: TBNode) -> TBHoverStyle? {
+        guard activeRulePresent else { return nil }
+        let decls = resolvedActiveStyle(node: node)
         if decls.isEmpty { return nil }
         return tbHoverPaintAttrs(decls)
     }
@@ -4106,6 +4404,34 @@ final class TBRenderer {
             containingBlocks.append(block)
             openedContainingBlock = block
         }
+        // The interaction set (0.26): every block's own
+        // range is tracked while it is open — the record
+        // a sticky element reads its containing block
+        // from (its parent block, the stack's top before
+        // its own range is pushed). A block declaring
+        // position:sticky additionally records its event
+        // here: its insets are read beside positionKind's
+        // family (it never leaves the flow, so
+        // positionKind's out-of-flow answer stays no),
+        // and the close below patches its range's end
+        // and stamps its spec onto its text.
+        var openedRangeBlock: TBContainingBlock? = nil
+        var stickySpec: TBStickySpec? = nil
+        if !insideFloat, node.tag != "document" {
+            let rangeBlock = TBContainingBlock(startCharIndex: entryLength)
+            if (own["position"] ?? "").lowercased() == "sticky" {
+                let spec = TBStickySpec(rangeBlock: rangeBlock,
+                                        containingBlock: blockRanges.last)
+                spec.top = insetValue(own["top"],
+                                      fontSize: effFont.pointSize)
+                spec.bottom = insetValue(own["bottom"],
+                                         fontSize: effFont.pointSize)
+                layoutEvents.append(.sticky(spec))
+                stickySpec = spec
+            }
+            blockRanges.append(rangeBlock)
+            openedRangeBlock = rangeBlock
+        }
         // Surface edges (0.15): this block's before-spacing
         // joins the carry — its own first flushed paragraph
         // consumes it, and a block that flushes nothing (a
@@ -4375,6 +4701,42 @@ final class TBRenderer {
                          key: TBHoverBlockAttrsKey, style: hover)
         }
 
+        // The interaction set (0.26): the block's focus
+        // and active styles stamp the same way, under
+        // their own block keys.
+        if node.tag != "document", out.length > entryLength,
+           let focus = focusPaintStyle(node: node) {
+            tbStampHover(out,
+                         range: NSRange(location: entryLength,
+                                        length: out.length - entryLength),
+                         key: TBFocusBlockAttrsKey, style: focus)
+        }
+        if node.tag != "document", out.length > entryLength,
+           let active = activePaintStyle(node: node) {
+            tbStampHover(out,
+                         range: NSRange(location: entryLength,
+                                        length: out.length - entryLength),
+                         key: TBActiveBlockAttrsKey, style: active)
+        }
+
+        // The interaction set (0.26): a sticky block's
+        // range ends where its content did, and its spec
+        // is stamped onto its text for the layout manager
+        // to shift as the page scrolls.
+        if let spec = stickySpec {
+            spec.rangeBlock.endCharIndex = out.length
+            if out.length > entryLength {
+                tbStampSticky(out,
+                              range: NSRange(location: entryLength,
+                                             length: out.length - entryLength),
+                              spec: spec)
+            }
+        }
+        if let rangeBlock = openedRangeBlock {
+            rangeBlock.endCharIndex = out.length
+            blockRanges.removeLast()
+        }
+
         // Positioned layout (0.21): this block's range as a
         // containing block ends where its content did.
         if let block = openedContainingBlock {
@@ -4426,7 +4788,8 @@ final class TBRenderer {
     // Positioned layout (0.21): which out-of-flow
     // position a box declares, if any. Relative stays in
     // the flow (its offset is the 0.17 machinery above);
-    // sticky is not read.
+    // sticky stays in the flow too and is read in
+    // walkBlock (0.26) — it is never an answer here.
     private func positionKind(_ raw: String?) -> TBPositionKind? {
         switch (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased() {
         case "absolute": return .absolute
@@ -4737,6 +5100,123 @@ final class TBRenderer {
         }
         if let c = tbParseColor(own["column-rule-color"]) { color = c }
         return (width ?? 3, style ?? "none", color)
+    }
+
+    // The interaction set (0.26): a border's or an
+    // outline's three parts, read the column rule's way —
+    // the shorthand's tokens in whatever order (a width,
+    // a style word, a color), then the longhands over
+    // them. For a border, a per-side width (border-top-
+    // width and kin) answers when no uniform width is
+    // declared; the control that wears the border is
+    // small enough that one width serves all four sides.
+    // The defaults are the spec's own: medium width,
+    // style none (so nothing paints).
+    private func borderParts(_ decls: [String: String], base: String,
+                             fontSize: CGFloat)
+        -> (width: CGFloat, style: String, color: NSColor?) {
+        var width: CGFloat? = nil
+        var style: String? = nil
+        var color: NSColor? = nil
+        let styles: Set<String> = ["none", "hidden", "dotted", "dashed",
+                                   "solid", "double", "groove", "ridge",
+                                   "inset", "outset"]
+        func widthWord(_ t: String) -> CGFloat? {
+            switch t {
+            case "thin": return 1
+            case "medium": return 3
+            case "thick": return 5
+            default: return tbLengthValue(t, fontSize: fontSize)
+            }
+        }
+        func read(_ raw: String) {
+            for token in valueTokens(raw) {
+                let t = token.lowercased()
+                if styles.contains(t) { style = t }
+                else if let w = widthWord(t) { width = w }
+                else if let c = tbParseColor(token) { color = c }
+            }
+        }
+        if let shorthand = decls[base] { read(shorthand) }
+        if let raw = decls["\(base)-style"] {
+            let t = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            if styles.contains(t) { style = t }
+        }
+        if let raw = decls["\(base)-width"],
+           let w = widthWord(raw.trimmingCharacters(in: .whitespaces)
+                                .lowercased()) {
+            width = w
+        }
+        if base == "border", width == nil {
+            for side in ["top", "right", "bottom", "left"] {
+                if let raw = decls["border-\(side)-width"],
+                   let w = widthWord(raw.trimmingCharacters(
+                                        in: .whitespaces).lowercased()) {
+                    width = w
+                    break
+                }
+            }
+        }
+        if let c = tbParseColor(decls["\(base)-color"]) { color = c }
+        return (width ?? 3, style ?? "none", color)
+    }
+
+    // The interaction set (0.26): one live control's
+    // style, resolved from its element: the resting
+    // traits from its computed declarations, and the
+    // focus and active traits from its state
+    // resolutions — the border a focus wears, and the
+    // outline a page declares for the focus, which the
+    // view rides as the control's border ring while
+    // the focus lasts. Padding is not carried: a
+    // native field's text inset is AppKit's own, and
+    // the seat already honors the declared width.
+    private func controlStyle(node: TBNode, own: [String: String],
+                              font: NSFont) -> TBControlStyle {
+        let style = TBControlStyle()
+        style.font = font
+        style.textColor = tbParseColor(own["color"])
+        style.backgroundColor = tbBackgroundColor(own)
+        let border = borderParts(own, base: "border",
+                                 fontSize: font.pointSize)
+        if border.style != "none" && border.style != "hidden"
+            && border.width > 0 {
+            style.borderColor = border.color
+            style.borderWidth = border.width
+        }
+        if let raw = own["border-radius"],
+           let first = valueTokens(raw).first,
+           let radius = tbLengthValue(first, fontSize: font.pointSize) {
+            style.cornerRadius = radius
+        }
+        if focusRulePresent {
+            let decls = resolvedFocusStyle(node: node)
+            if !decls.isEmpty {
+                style.focusTextColor = tbParseColor(decls["color"])
+                style.focusBackgroundColor = tbBackgroundColor(decls)
+                let focusBorder = borderParts(decls, base: "border",
+                                              fontSize: font.pointSize)
+                if focusBorder.style != "none"
+                    && focusBorder.style != "hidden" {
+                    style.focusBorderColor = focusBorder.color
+                }
+                let outline = borderParts(decls, base: "outline",
+                                          fontSize: font.pointSize)
+                if outline.style != "none" && outline.style != "hidden"
+                    && outline.width > 0, let outlineColor = outline.color {
+                    style.outlineColor = outlineColor
+                    style.outlineWidth = outline.width
+                }
+            }
+        }
+        if activeRulePresent {
+            let decls = resolvedActiveStyle(node: node)
+            if !decls.isEmpty {
+                style.activeTextColor = tbParseColor(decls["color"])
+                style.activeBackgroundColor = tbBackgroundColor(decls)
+            }
+        }
+        return style
     }
 
     // A block's column declarations, resolved to the
@@ -7831,9 +8311,19 @@ final class TBRenderer {
                 let attachment = TBSubmitAttachment()
                 attachment.formID = currentFormID
                 attachment.label = label.isEmpty ? "Submit" : label
+                // The interaction set (0.26): the button's
+                // style rides on its attachment, as the
+                // submit input's does, with declared sizes
+                // honored the same way.
+                attachment.style = controlStyle(node: node, own: own,
+                                                font: f)
+                let width = tbLengthValue(own["width"], fontSize: f.pointSize)
+                    ?? (CGFloat(label.count) * 8 + 30)
+                let height = tbLengthValue(own["height"], fontSize: f.pointSize)
+                    ?? 26
                 let box = CGRect(x: 0, y: 0,
-                                 width: CGFloat(label.count) * 8 + 30,
-                                 height: 26)
+                                 width: min(max(width, 40), 560),
+                                 height: min(max(height, 20), 120))
                 attachment.bounds = box
                 attachment.image = tbClearSeat(width: box.width, height: box.height)
                 return NSAttributedString(attachment: attachment)
@@ -7919,6 +8409,19 @@ final class TBRenderer {
             tbStampHover(result,
                          range: NSRange(location: 0, length: result.length),
                          key: TBHoverAttrsKey, style: hover)
+        }
+        // The interaction set (0.26): the element's focus
+        // and active styles stamp the same way, under
+        // their own keys.
+        if result.length > 0, let focus = focusPaintStyle(node: node) {
+            tbStampHover(result,
+                         range: NSRange(location: 0, length: result.length),
+                         key: TBFocusAttrsKey, style: focus)
+        }
+        if result.length > 0, let active = activePaintStyle(node: node) {
+            tbStampHover(result,
+                         range: NSRange(location: 0, length: result.length),
+                         key: TBActiveAttrsKey, style: active)
         }
         return result
     }

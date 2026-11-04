@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.25.0 (Swift)
+//  Chirpy Browser — prototype 0.26.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.25.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.26.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -180,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.25.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.26.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -384,6 +384,7 @@ struct PageTextView: NSViewRepresentable {
                 forName: NSView.boundsDidChangeNotification,
                 object: scrollView.contentView, queue: .main) { [weak self] _ in
                 self?.repositionFixedViews()
+                self?.repositionStickyElements()
             }
         }
 
@@ -406,6 +407,7 @@ struct PageTextView: NSViewRepresentable {
             }
             settleFormViews()
             repositionFixedViews()
+            repositionStickyElements()
             // A new column width can land mid-cycle; resolve
             // the floats once it has settled, the same way
             // the form seating settles.
@@ -468,7 +470,7 @@ struct PageTextView: NSViewRepresentable {
             ) { value, range, _ in
                 if let fieldAtt = value as? TBFieldAttachment,
                    let spec = self.model.pageFields.first(where: { $0.id == fieldAtt.fieldID }) {
-                    let field = NSTextField()
+                    let field = TBStyledTextField()
                     field.stringValue = spec.defaultValue
                     field.placeholderString = spec.placeholder
                     field.font = NSFont.systemFont(ofSize: 13)
@@ -477,17 +479,40 @@ struct PageTextView: NSViewRepresentable {
                     field.tag = spec.id
                     field.target = self
                     field.action = #selector(Coordinator.fieldSubmitted(_:))
+                    // The interaction set (0.26): the page
+                    // dresses its control — the style its
+                    // element resolved to — and a control
+                    // taking focus releases the text's
+                    // focused link, one focus at a time.
+                    field.controlStyle = fieldAtt.style
+                    field.applyControlStyle()
+                    field.onFocusChange = { [weak self] focused in
+                        if focused {
+                            (self?.textView as? TBPageTextView)?
+                                .noteControlFocus()
+                        }
+                    }
                     textView.addSubview(field)
                     self.fieldViews[spec.id] = field
                     self.formControlViews.append(field)
                     self.formAnchors.append((view: field, charIndex: range.location,
                                              attachment: fieldAtt))
                 } else if let submitAtt = value as? TBSubmitAttachment {
-                    let button = NSButton(title: submitAtt.label, target: self,
-                                          action: #selector(Coordinator.submitClicked(_:)))
+                    let button = TBStyledButton(title: submitAtt.label, target: self,
+                                                action: #selector(Coordinator.submitClicked(_:)))
                     button.bezelStyle = .rounded
                     button.bezelColor = .controlColor
                     button.tag = submitAtt.formID
+                    // The interaction set (0.26): the
+                    // button's page dress, as the field's.
+                    button.controlStyle = submitAtt.style
+                    button.applyControlStyle()
+                    button.onFocusChange = { [weak self] focused in
+                        if focused {
+                            (self?.textView as? TBPageTextView)?
+                                .noteControlFocus()
+                        }
+                    }
                     textView.addSubview(button)
                     self.formControlViews.append(button)
                     self.formAnchors.append((view: button, charIndex: range.location,
@@ -584,6 +609,67 @@ struct PageTextView: NSViewRepresentable {
                     entry.view.frame = frame
                     entry.view.needsDisplay = true
                 }
+            }
+        }
+
+        // The interaction set (0.26): resolve every sticky
+        // element's paint shift against the scroll, in the
+        // fixed overlays' update discipline — recomputed
+        // when the page scrolls, resizes, or re-settles,
+        // never in the flow. The element's natural rect
+        // and its containing block's rect are the painted
+        // surface rects containingRect measures; the
+        // element holds at its inset inside the visible
+        // band until its containing block's edge pushes
+        // it off, and it never shifts past the room its
+        // containing block leaves it. A shift is paint
+        // only: the layout manager adds it where the
+        // relative offsets are added, so surfaces and
+        // glyphs move together and the flow never does.
+        // Coordinates here are the container's, y down;
+        // the visible band's top is the scroll position.
+        func repositionStickyElements() {
+            guard let textView = textView,
+                  let band = textView.layoutManager as? TBBandLayoutManager,
+                  let container = textView.textContainer else { return }
+            var specs: [TBStickySpec] = []
+            for event in layoutEvents {
+                if case .sticky(let spec) = event { specs.append(spec) }
+            }
+            var shifts: [ObjectIdentifier: CGFloat] = [:]
+            if !specs.isEmpty {
+                let width = container.size.width
+                let scrollTop = textView.visibleRect.minY
+                    - textView.textContainerOrigin.y
+                let visibleHeight = textView.visibleRect.height
+                for spec in specs {
+                    let natural = containingRect(for: spec.rangeBlock,
+                                                 width: width)
+                    guard natural.height > 0 else { continue }
+                    let containing: NSRect
+                    if let block = spec.containingBlock {
+                        containing = containingRect(for: block, width: width)
+                    } else {
+                        containing = NSRect(x: 0, y: 0, width: width,
+                                            height: container.size.height)
+                    }
+                    var dy: CGFloat = 0
+                    if let top = resolveInset(spec.top,
+                                              extent: containing.height) {
+                        dy = min(max(0, scrollTop + top - natural.minY),
+                                 max(0, containing.maxY - natural.maxY))
+                    } else if let bottom = resolveInset(
+                        spec.bottom, extent: containing.height) {
+                        dy = min(0, (scrollTop + visibleHeight - bottom)
+                                 - natural.maxY)
+                        dy = max(dy, min(0, containing.minY - natural.minY))
+                    }
+                    if dy != 0 { shifts[ObjectIdentifier(spec)] = dy }
+                }
+            }
+            if shifts != band.stickyShifts {
+                band.stickyShifts = shifts
+                textView.needsDisplay = true
             }
         }
 
@@ -784,11 +870,13 @@ struct PageTextView: NSViewRepresentable {
             band?.columnPaints = []
             band?.flexPaints = []
             band?.gridPaints = []
+            band?.stickyShifts = [:]
             if !container.exclusionPaths.isEmpty {
                 container.exclusionPaths = []
             }
             guard !layoutEvents.isEmpty, storage.length > 0 else {
                 rebuildFixedViews()
+                repositionStickyElements()
                 textView.needsDisplay = true
                 return
             }
@@ -978,6 +1066,14 @@ struct PageTextView: NSViewRepresentable {
                         // passes too, with the flex
                         // containers.
                         continue
+                    case .sticky:
+                        // Sticky blocks (0.26) make no
+                        // exclusions either: the element
+                        // is ordinary flow text, and only
+                        // its paint shifts, as the page
+                        // scrolls — resolved by
+                        // repositionStickyElements.
+                        continue
                     }
                 }
                 return (exclusions, paints)
@@ -1002,6 +1098,7 @@ struct PageTextView: NSViewRepresentable {
                 case .columns(let spec): return spec.anchorCharIndex
                 case .flex(let spec): return spec.anchorCharIndex
                 case .grid(let spec): return spec.anchorCharIndex
+                case .sticky(let spec): return spec.rangeBlock.startCharIndex
                 }
             }.min() ?? 0
             var exclusions: [NSBezierPath] = []
@@ -1150,6 +1247,7 @@ struct PageTextView: NSViewRepresentable {
             }
             band?.gridPaints = gridPaints
             rebuildFixedViews()
+            repositionStickyElements()
             textView.needsDisplay = true
             repositionFormViews()
         }
@@ -1287,6 +1385,187 @@ struct PageTextView: NSViewRepresentable {
     }
 }
 
+// The interaction set (0.26): the live form controls,
+// dressed by the page. The coordinator builds these
+// subclasses instead of plain NSTextField / NSButton
+// and hands each the TBControlStyle its element's
+// declarations resolved to. A control whose style
+// declares nothing keeps the native look exactly as
+// it stood before 0.26. Focus presentation is
+// computed from the style alone — the resting values
+// below — never read back off the control, whose
+// property shapes are AppKit's to vary.
+final class TBStyledTextField: NSTextField {
+    var controlStyle: TBControlStyle? = nil
+    var onFocusChange: ((Bool) -> Void)? = nil
+
+    // Dress the field in its resting style. The native
+    // bezel stands down only when the page paints the
+    // field itself — a background, a border or a corner
+    // radius declared; a field the page leaves alone
+    // keeps the classic bezel it always had.
+    func applyControlStyle() {
+        guard let style = controlStyle else { return }
+        if let font = style.font { self.font = font }
+        if let color = style.textColor { textColor = color }
+        if style.backgroundColor != nil || style.borderColor != nil
+            || style.cornerRadius > 0 {
+            isBezeled = false
+            // A background paints only when the page
+            // declares one — a border alone leaves the
+            // page showing through, as CSS has it.
+            if let bg = style.backgroundColor {
+                drawsBackground = true
+                backgroundColor = bg
+            }
+            wantsLayer = true
+            if let layer = layer {
+                if let border = style.borderColor {
+                    layer.borderColor = border.cgColor
+                }
+                layer.borderWidth = style.borderWidth
+                layer.cornerRadius = style.cornerRadius
+            }
+        }
+    }
+
+    // The focus's dress: a declared outline rides as
+    // the border ring while the focus lasts; else a
+    // :focus border color takes the ring's place, and
+    // :focus background and text colors swap in. The
+    // resign puts the resting values back — all read
+    // from the style, as above.
+    private func applyFocusPresentation(_ focused: Bool) {
+        guard let style = controlStyle else { return }
+        if focused {
+            if let focusText = style.focusTextColor {
+                textColor = focusText
+            }
+            if style.backgroundColor != nil || style.borderColor != nil
+                || style.cornerRadius > 0 || style.outlineColor != nil {
+                isBezeled = false
+                wantsLayer = true
+                // The background swaps only when the
+                // focus declares one — an outline alone
+                // must not flash the default field
+                // background under the page's text.
+                if let bg = style.focusBackgroundColor {
+                    drawsBackground = true
+                    backgroundColor = bg
+                }
+                if let layer = layer {
+                    if let outline = style.outlineColor {
+                        layer.borderColor = outline.cgColor
+                        layer.borderWidth = style.outlineWidth
+                    } else if let focusBorder = style.focusBorderColor {
+                        layer.borderColor = focusBorder.cgColor
+                    }
+                }
+            }
+        } else {
+            // The resting dress, in full: the focus may
+            // have stood the bezel down for an outline
+            // alone, so a field the page paints nothing
+            // on gets its native bezel back explicitly.
+            if style.backgroundColor == nil && style.borderColor == nil
+                && style.cornerRadius <= 0 {
+                if let color = style.textColor { textColor = color }
+                isBezeled = true
+                drawsBackground = false
+                if let layer = layer {
+                    layer.borderWidth = 0
+                    layer.cornerRadius = 0
+                }
+            } else {
+                applyControlStyle()
+            }
+        }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            applyFocusPresentation(true)
+            onFocusChange?(true)
+        }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted {
+            applyFocusPresentation(false)
+            onFocusChange?(false)
+        }
+        return accepted
+    }
+}
+
+// A submit or form button (0.26): its background rides
+// as the bezel tint, its color as the title's color,
+// its font as the button's. While pressed it wears
+// its :active colors; while focused, its :focus
+// background — or, lacking one, its :focus border
+// color — stands in for the tint, the closest honest
+// dress a native button has for a focus ring.
+final class TBStyledButton: NSButton {
+    var controlStyle: TBControlStyle? = nil
+    var onFocusChange: ((Bool) -> Void)? = nil
+
+    func applyControlStyle() {
+        guard let style = controlStyle else { return }
+        if let font = style.font { self.font = font }
+        if let bg = style.backgroundColor { bezelColor = bg }
+        if let color = style.textColor {
+            attributedTitle = NSAttributedString(
+                string: title, attributes: [.foregroundColor: color])
+        }
+    }
+
+    private func applyTitleColor(_ color: NSColor?) {
+        guard let color = color else { return }
+        attributedTitle = NSAttributedString(
+            string: title, attributes: [.foregroundColor: color])
+    }
+
+    // NSButton's mouseDown runs the whole press —
+    // tracking, highlighting, the action on release —
+    // inside the super call, so the :active dress is
+    // put on before it and taken off after it returns.
+    override func mouseDown(with event: NSEvent) {
+        if let style = controlStyle {
+            if let activeBG = style.activeBackgroundColor {
+                bezelColor = activeBG
+            }
+            applyTitleColor(style.activeTextColor)
+        }
+        super.mouseDown(with: event)
+        applyControlStyle()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            if let style = controlStyle,
+               let focusBG = style.focusBackgroundColor
+                ?? style.focusBorderColor {
+                bezelColor = focusBG
+            }
+            onFocusChange?(true)
+        }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted {
+            applyControlStyle()
+            onFocusChange?(false)
+        }
+        return accepted
+    }
+}
+
 // The page's text view (0.21): after AppKit has drawn
 // the text — backgrounds, surfaces, glyphs and all —
 // the absolutely positioned boxes with z-index zero or
@@ -1299,6 +1578,10 @@ final class TBPageTextView: NSTextView {
         super.draw(dirtyRect)
         guard let band = layoutManager as? TBBandLayoutManager else { return }
         band.paintPositionedAbove(at: textContainerOrigin, dirtyRect: dirtyRect)
+        // The interaction set (0.26): a held sticky
+        // element paints above the words scrolling under
+        // it, after the positioned boxes.
+        band.paintStickyAbove(at: textContainerOrigin, dirtyRect: dirtyRect)
     }
 
     // Hover paint (0.23): the engine stamps each element's
@@ -1311,11 +1594,27 @@ final class TBPageTextView: NSTextView {
     // when the pointer moves on. Paint only: the stamped
     // traits are colors and underline switches, none of
     // which can move a glyph, and layout is never re-run.
+    // The interaction set (0.26): :focus and :active are
+    // stamped the same way under their own keys and worn
+    // as layers with the hover — see the slots below.
     private var hoverTrackingArea: NSTrackingArea? = nil
     private var hoverRange: NSRange? = nil
-    private var hoverSaved: [(key: NSAttributedString.Key,
+    // The interaction set (0.26): the hover layer is one
+    // of three state layers now — hover under focus
+    // under active — each worn in its own extent, all
+    // three applied by repaintStatePaint in that order
+    // over ONE snapshot stack, so any layer lifting
+    // restores everything beneath it exactly.
+    // focusRange is the focused link's extent: a press
+    // on a link gives it focus, as in a real browser,
+    // and a live control taking focus releases it (the
+    // coordinator calls noteControlFocus). activeRange
+    // is the extent being pressed; mouseUp lifts it.
+    private var focusRange: NSRange? = nil
+    private var activeRange: NSRange? = nil
+    private var stateSaved: [(key: NSAttributedString.Key,
                               range: NSRange, value: Any?)] = []
-    private var hoverTextLength = -1
+    private var stateTextLength = -1
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -1336,53 +1635,106 @@ final class TBPageTextView: NSTextView {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        clearHover()
+        // The pointer left the text: hover lifts, and a
+        // press cannot outlive the pointer leaving.
+        if hoverRange != nil || activeRange != nil {
+            hoverRange = nil
+            activeRange = nil
+            repaintStatePaint()
+        }
+    }
+
+    // State paint (0.26): while the pointer is pressed,
+    // the pressed element wears its :active layer, and a
+    // press on a link gives that link the focus — its
+    // :focus layer — as in a real browser; a press
+    // anywhere else releases the text's focus. The
+    // hit test is the hover one, at the pressed
+    // character. Live controls are subviews and never
+    // reach this — their own presses are theirs.
+    override func mouseDown(with event: NSEvent) {
+        if let storage = textStorage, storage.length > 0 {
+            let inView = convert(event.locationInWindow, from: nil)
+            if inView.x >= textContainerOrigin.x,
+               inView.y >= textContainerOrigin.y {
+                let index = characterIndexForInsertion(at: inView)
+                if index < storage.length {
+                    var changed = false
+                    let isLink = storage.attribute(
+                        .link, at: index, effectiveRange: nil) != nil
+                    let newFocus = isLink
+                        ? stateExtent(at: index,
+                                      elementKey: TBFocusAttrsKey,
+                                      blockKey: TBFocusBlockAttrsKey,
+                                      storage: storage)
+                        : nil
+                    if newFocus != focusRange {
+                        focusRange = newFocus
+                        changed = true
+                    }
+                    let newActive = stateExtent(
+                        at: index, elementKey: TBActiveAttrsKey,
+                        blockKey: TBActiveBlockAttrsKey, storage: storage)
+                    if newActive != activeRange {
+                        activeRange = newActive
+                        changed = true
+                    }
+                    if changed { repaintStatePaint() }
+                }
+            }
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if activeRange != nil {
+            activeRange = nil
+            repaintStatePaint()
+        }
+        super.mouseUp(with: event)
+    }
+
+    // A live form control took the keyboard focus: the
+    // text's focused link releases its :focus layer —
+    // one focus at a time, as in a real browser.
+    func noteControlFocus() {
+        if focusRange != nil {
+            focusRange = nil
+            repaintStatePaint()
+        }
     }
 
     // The window replaced the page's text (a new load, or
-    // the arrivals landing): any hover being worn belonged
+    // the arrivals landing): any state being worn belonged
     // to the old text. Forget it without restoring — the
     // new text never wore it.
     func pageTextReplaced() {
         hoverRange = nil
-        hoverSaved = []
-        hoverTextLength = -1
+        focusRange = nil
+        activeRange = nil
+        stateSaved = []
+        stateTextLength = -1
     }
 
-    private func updateHover(with event: NSEvent) {
-        guard let storage = textStorage, let layoutManager = layoutManager,
-              let container = textContainer else { return }
-        // The text changed length under a worn hover (a
-        // re-install the coordinator did not announce):
-        // the saved paint belongs to the old text — forget
-        // it rather than write it onto the new.
-        if hoverRange != nil && hoverTextLength != storage.length {
-            pageTextReplaced()
-        }
-        guard storage.length > 0 else { clearHover(); return }
-        let inView = convert(event.locationInWindow, from: nil)
-        // The text view's own hit test (0.23 build fix):
-        // the character under the point, the point given
-        // in view coordinates. The guard is the old
-        // container-space one restated against the
-        // origin — nothing above or left of where the
-        // text begins can be hovered.
-        guard inView.x >= textContainerOrigin.x,
-              inView.y >= textContainerOrigin.y
-        else { clearHover(); return }
-        let index = characterIndexForInsertion(at: inView)
-        guard index < storage.length else { clearHover(); return }
+    // The hover layer's extent at a character (0.23's
+    // computation, shared by all three state layers since
+    // 0.26): where the element stamp and the block stamp
+    // overlap, both are constant — the element's run
+    // inside its block. Nil when the character carries
+    // neither stamp for this state.
+    private func stateExtent(at index: Int,
+                             elementKey: NSAttributedString.Key,
+                             blockKey: NSAttributedString.Key,
+                             storage: NSTextStorage) -> NSRange? {
         var elementRange = NSRange(location: 0, length: 0)
         var blockRange = NSRange(location: 0, length: 0)
-        let element = storage.attribute(TBHoverAttrsKey, at: index,
+        let element = storage.attribute(elementKey, at: index,
                                         effectiveRange: &elementRange)
             as? TBHoverStyle
-        let block = storage.attribute(TBHoverBlockAttrsKey, at: index,
+        let block = storage.attribute(blockKey, at: index,
                                       effectiveRange: &blockRange)
             as? TBHoverStyle
-        guard element != nil || block != nil else { clearHover(); return }
-        // Where the two stamps overlap, both are constant:
-        // the element's run inside its block.
+        guard element != nil || block != nil else { return nil }
         let extent: NSRange
         if element != nil && block != nil {
             extent = NSIntersectionRange(elementRange, blockRange)
@@ -1391,18 +1743,94 @@ final class TBPageTextView: NSTextView {
         } else {
             extent = blockRange
         }
-        guard extent.length > 0 else { clearHover(); return }
-        if hoverRange == extent { return }   // already wearing it
-        clearHover()
-        applyHover(extent: extent, block: block, storage: storage)
+        return extent.length > 0 ? extent : nil
     }
 
-    private func applyHover(extent: NSRange, block: TBHoverStyle?,
-                            storage: NSTextStorage) {
+    private func updateHover(with event: NSEvent) {
+        guard let storage = textStorage else { return }
+        // The text changed length under a worn state (a
+        // re-install the coordinator did not announce):
+        // the saved paint belongs to the old text — forget
+        // it rather than write it onto the new.
+        if (hoverRange != nil || focusRange != nil || activeRange != nil)
+            && stateTextLength != storage.length {
+            pageTextReplaced()
+        }
+        var extent: NSRange? = nil
+        if storage.length > 0 {
+            let inView = convert(event.locationInWindow, from: nil)
+            // The text view's own hit test (0.23 build fix):
+            // the character under the point, the point given
+            // in view coordinates. The guard is the old
+            // container-space one restated against the
+            // origin — nothing above or left of where the
+            // text begins can be hovered.
+            if inView.x >= textContainerOrigin.x,
+               inView.y >= textContainerOrigin.y {
+                let index = characterIndexForInsertion(at: inView)
+                if index < storage.length {
+                    extent = stateExtent(at: index,
+                                         elementKey: TBHoverAttrsKey,
+                                         blockKey: TBHoverBlockAttrsKey,
+                                         storage: storage)
+                }
+            }
+        }
+        if extent == hoverRange { return }   // already wearing it
+        hoverRange = extent
+        repaintStatePaint()
+    }
+
+    // Wear the three state layers (0.26): put the covered
+    // paint back, then lay hover, focus and active down
+    // in that order over one fresh snapshot, so the top
+    // layer wins where they overlap and any change of
+    // the set restores the page exactly.
+    private func repaintStatePaint() {
+        guard let storage = textStorage else { return }
+        for entry in stateSaved
+        where NSMaxRange(entry.range) <= storage.length {
+            if let value = entry.value {
+                storage.addAttribute(entry.key, value: value,
+                                     range: entry.range)
+            } else {
+                storage.removeAttribute(entry.key, range: entry.range)
+            }
+        }
+        stateSaved = []
+        if let extent = hoverRange {
+            stateSaved += applyStatePaint(
+                extent: extent, elementKey: TBHoverAttrsKey,
+                blockKey: TBHoverBlockAttrsKey, storage: storage)
+        }
+        if let extent = focusRange {
+            stateSaved += applyStatePaint(
+                extent: extent, elementKey: TBFocusAttrsKey,
+                blockKey: TBFocusBlockAttrsKey, storage: storage)
+        }
+        if let extent = activeRange {
+            stateSaved += applyStatePaint(
+                extent: extent, elementKey: TBActiveAttrsKey,
+                blockKey: TBActiveBlockAttrsKey, storage: storage)
+        }
+        stateTextLength = storage.length
+    }
+
+    // One layer's paint (0.23's applyHover, keyed since
+    // 0.26): the traits reduced onto the extent's runs,
+    // the element stamp's traits over the block's, trait
+    // by trait. Returns the paint it covered, to be put
+    // back by the next repaint.
+    private func applyStatePaint(
+        extent: NSRange, elementKey: NSAttributedString.Key,
+        blockKey: NSAttributedString.Key, storage: NSTextStorage
+    ) -> [(key: NSAttributedString.Key, range: NSRange, value: Any?)] {
+        let block = storage.attribute(blockKey, at: extent.location,
+                                      effectiveRange: nil) as? TBHoverStyle
         let paintKeys: [NSAttributedString.Key] = [
             .foregroundColor, .backgroundColor,
             .underlineStyle, .strikethroughStyle]
-        // Snapshot the paint this hover is about to cover,
+        // Snapshot the paint this layer is about to cover,
         // run by run, so it can be put back exactly — a
         // hovered link's own color and underline included.
         var saved: [(key: NSAttributedString.Key,
@@ -1419,7 +1847,7 @@ final class TBPageTextView: NSTextView {
         // a hovered parent keeps its own stamp; the block's
         // traits fill whatever an element leaves unnamed.
         var runs: [(range: NSRange, style: TBHoverStyle?)] = []
-        storage.enumerateAttribute(TBHoverAttrsKey, in: extent,
+        storage.enumerateAttribute(elementKey, in: extent,
                                    options: []) { value, range, _ in
             runs.append((range: range, style: value as? TBHoverStyle))
         }
@@ -1446,25 +1874,7 @@ final class TBPageTextView: NSTextView {
                                      range: run.range)
             }
         }
-        hoverSaved = saved
-        hoverRange = extent
-        hoverTextLength = storage.length
-    }
-
-    private func clearHover() {
-        guard hoverRange != nil else { return }
-        if let storage = textStorage {
-            for entry in hoverSaved
-            where NSMaxRange(entry.range) <= storage.length {
-                if let value = entry.value {
-                    storage.addAttribute(entry.key, value: value,
-                                         range: entry.range)
-                } else {
-                    storage.removeAttribute(entry.key, range: entry.range)
-                }
-            }
-        }
-        pageTextReplaced()
+        return saved
     }
 }
 
@@ -1508,6 +1918,12 @@ final class TBBandLayoutManager: NSLayoutManager {
     var floatPaints: [(rect: NSRect, spec: TBFloatSpec)] = [] {
         didSet { floatContentLayouts = [:] }
     }
+    // The interaction set (0.26): the sticky shifts the
+    // coordinator has resolved for this page, keyed by
+    // spec — a spec absent here, and every box-content
+    // manager (which never receives any), paints its
+    // sticky runs at their flow seat.
+    var stickyShifts: [ObjectIdentifier: CGFloat] = [:]
     // Painted layouts (0.25.0): the cache holds each
     // box's NSTextStorage alongside its layout manager
     // and container. A layout manager references its
@@ -1521,15 +1937,27 @@ final class TBBandLayoutManager: NSLayoutManager {
         [ObjectIdentifier: (NSTextStorage, NSLayoutManager, NSTextContainer)] = [:]
 
     // A character's relative-position offset (0.17), read
-    // from the stamp the renderer left on the text.
+    // from the stamp the renderer left on the text. The
+    // interaction set (0.26): a sticky element's shift
+    // rides the same path, added to any relative offset —
+    // the coordinator resolves the shifts against the
+    // scroll position (repositionStickyElements) and
+    // hands them over in stickyShifts.
     private func paintOffset(at charIndex: Int, in storage: NSTextStorage) -> NSPoint {
         guard storage.length > 0 else { return .zero }
         let clamped = min(max(charIndex, 0), storage.length - 1)
+        var point = NSPoint.zero
         if let value = storage.attribute(TBRelOffsetKey, at: clamped,
                                          effectiveRange: nil) as? NSValue {
-            return value.pointValue
+            point = value.pointValue
         }
-        return .zero
+        if !stickyShifts.isEmpty,
+           let spec = storage.attribute(TBStickyKey, at: clamped,
+                                        effectiveRange: nil) as? TBStickySpec,
+           let dy = stickyShifts[ObjectIdentifier(spec)] {
+            point.y += dy
+        }
+        return point
     }
 
     override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>,
@@ -2234,6 +2662,70 @@ final class TBBandLayoutManager: NSLayoutManager {
         }
     }
 
+    // The interaction set (0.26): a sticky element being
+    // held paints ABOVE the words that scroll under it,
+    // as a positioned box does — its color band and its
+    // glyphs are painted a second time, at the shifted
+    // place, after the ordinary pass. The shift rides on
+    // the graphics state, so the glyphs paint through
+    // drawGlyphs' above-pass gate untouched. A band
+    // richer than a plain color — a photo, a gradient —
+    // is not re-painted here; the ordinary pass already
+    // drew it at the shifted place, under the crossing
+    // words, and the glyphs alone ride above it.
+    func paintStickyAbove(at origin: NSPoint, dirtyRect: NSRect) {
+        guard let storage = textStorage, storage.length > 0,
+              !stickyShifts.isEmpty,
+              let container = textContainers.first else { return }
+        let full = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(TBStickyKey, in: full) { value, range, _ in
+            guard let spec = value as? TBStickySpec,
+                  let dy = stickyShifts[ObjectIdentifier(spec)], dy != 0
+            else { return }
+            let glyphs = glyphRange(forCharacterRange: range,
+                                    actualCharacterRange: nil)
+            guard glyphs.length > 0 else { return }
+            // The shifted band's union, in view coords —
+            // nothing outside the dirty rect is re-painted.
+            var union = NSRect.null
+            enumerateLineFragments(forGlyphRange: glyphs) {
+                _, usedRect, _, _, _ in
+                union = union.union(NSRect(
+                    x: origin.x + usedRect.minX,
+                    y: origin.y + usedRect.minY + dy,
+                    width: usedRect.width, height: usedRect.height))
+            }
+            guard !union.isNull, union.intersects(dirtyRect) else { return }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current?.cgContext
+                .translateBy(x: origin.x, y: origin.y + dy)
+            storage.enumerateAttribute(.backgroundColor, in: range) {
+                colorValue, runRange, _ in
+                guard let color = colorValue as? NSColor else { return }
+                let runGlyphs = glyphRange(forCharacterRange: runRange,
+                                           actualCharacterRange: nil)
+                guard runGlyphs.length > 0 else { return }
+                let band = isBandRun(storage: storage, charRange: runRange,
+                                     color: color)
+                color.setFill()
+                enumerateLineFragments(forGlyphRange: runGlyphs) {
+                    _, usedRect, _, _, _ in
+                    let fill = band
+                        ? NSRect(x: 0, y: usedRect.minY,
+                                 width: container.size.width,
+                                 height: usedRect.height)
+                        : usedRect
+                    guard fill.width > 0, fill.height > 0 else { return }
+                    fill.fill()
+                }
+            }
+            inStickyAbovePass = true
+            drawGlyphs(forGlyphRange: glyphs, at: .zero)
+            inStickyAbovePass = false
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
     // Lay a painted box's contents out in a private
     // layout manager at the box's content size and paint
     // them there. The layout is cached per box until the
@@ -2270,19 +2762,56 @@ final class TBBandLayoutManager: NSLayoutManager {
     // offset paint shifted by it, run by run, while the
     // layout itself — selection, carets, form seats —
     // stays at the flow position.
+    private var inStickyAbovePass = false
+
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        // The interaction set (0.26): the sticky
+        // above-pass paints through this method with the
+        // shift already on the graphics state — straight
+        // to super, no second shift.
+        if inStickyAbovePass {
+            super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+            return
+        }
         guard let storage = textStorage, storage.length > 0 else {
             super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
             return
         }
         let charRange = characterRange(forGlyphRange: glyphsToShow,
                                        actualGlyphRange: nil)
+        // The interaction set (0.26): a sticky shift can
+        // change inside a relative-offset run (a sticky
+        // nested in a relative ancestor, or the reverse),
+        // so the segments are cut at both stamps' run
+        // boundaries and each elementary segment wears
+        // the combined offset paintOffset resolves. With
+        // no offset anywhere the whole range draws in
+        // one call, exactly as before.
+        var cuts: Set<Int> = [charRange.location, NSMaxRange(charRange)]
+        storage.enumerateAttribute(TBRelOffsetKey, in: charRange) { _, range, _ in
+            cuts.insert(range.location)
+            cuts.insert(NSMaxRange(range))
+        }
+        if !stickyShifts.isEmpty {
+            storage.enumerateAttribute(TBStickyKey, in: charRange) { _, range, _ in
+                cuts.insert(range.location)
+                cuts.insert(NSMaxRange(range))
+            }
+        }
+        let points = cuts.filter {
+            $0 >= charRange.location && $0 <= NSMaxRange(charRange)
+        }.sorted()
         var segments: [(range: NSRange, offset: NSPoint)] = []
         var hasOffset = false
-        storage.enumerateAttribute(TBRelOffsetKey, in: charRange) { value, range, _ in
-            let offset = (value as? NSValue)?.pointValue ?? .zero
-            if offset != .zero { hasOffset = true }
-            segments.append((range: range, offset: offset))
+        if points.count > 1 {
+            for i in 0..<(points.count - 1) {
+                let range = NSRange(location: points[i],
+                                    length: points[i + 1] - points[i])
+                guard range.length > 0 else { continue }
+                let offset = paintOffset(at: range.location, in: storage)
+                if offset != .zero { hasOffset = true }
+                segments.append((range: range, offset: offset))
+            }
         }
         guard hasOffset else {
             super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.26 — The Interaction Set Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+
+  form.dress { background-color: #263238; padding: 16px; }
+  form.dress label { color: #eceff1; }
+  form.dress input.field {
+    background-color: #37474f; color: #fff8e1;
+    border: 2px solid #daa520; border-radius: 8px;
+    font-family: Georgia, serif; font-size: 16px; width: 300px;
+  }
+  form.dress input.field:focus {
+    background-color: #455a64; border-color: #ffd54f;
+    outline: 3px solid #ff8f00;
+  }
+  form.dress input.go {
+    background-color: #b8860b; color: #ffffff; font-size: 16px;
+  }
+  form.dress input.go:active { background-color: #7a5a00; }
+  form.dress input.pick { color: #ffd54f; }
+  form.dress .choicetext { color: #eceff1; }
+
+  a.focuslink { color: #0b5394; }
+  a.focuslink:focus { color: #b3001b; background-color: #ffe9a8; }
+  a.presslink { color: #0b5394; }
+  a.presslink:active { color: #ffffff; background-color: #7a1f1f; }
+
+  .section { background-color: #eef3e0; padding: 0 12px 12px; }
+  .stickbar { position: sticky; top: 0; background-color: #b3001b;
+              color: #ffffff; padding: 10px; font-weight: bold; }
+  .sectionfoot { background-color: #fdf6dd; padding: 0 12px 12px; }
+  .footbar { position: sticky; bottom: 0; background-color: #0b5394;
+             color: #ffffff; padding: 10px; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.26 — the interaction set test</h1>
+<p>Every effect on this page is worked with CSS alone. Read down
+and check each numbered promise. First, the status line at the
+bottom of the window should read "Chirpy Engine 0.26.0 (Swift)".
+Honest notes before the promises: a select and a textarea still
+render as their text on this page — no live control is built for
+them yet, so none is dressed or promised here; a checkbox is a
+glyph, not a live control, and takes its element's color only;
+a native button wears its background as its tint and its color
+as its label's, and a button's CSS border and corner radius
+have no native dress to ride on, so none is promised for it;
+focus on a link is given by a press, as in a real browser —
+the Tab key does not walk this page's links; a control seated
+inside a floated, flexed, gridded or columned box keeps the
+standing bracket-label dress, so the form below stands in
+ordinary flow; a sticky element inside such a painted box
+flows plain, so both sticky bars below stand in ordinary
+flow too; and sticking is read for the vertical scroll
+only — top and bottom, never left or right.</p>
+
+<h2>1 — a form dressed by the page</h2>
+<p>The form below declares its own colors, and its live
+controls wear them: the fields stand dark slate with gold
+borders and rounded corners, their letters cream in Georgia
+at 16px — not the uniform system dress every field wore
+before 0.26. The checkbox glyph stands gold, the color its
+input declares. The submit stands dark gold with a white
+label.</p>
+<form class="dress" action="interaction-test.html" method="get">
+  <p><label for="nm">Your name:</label><br>
+  <input class="field" type="text" id="nm" name="nm"
+         placeholder="Type here and watch the dress"></p>
+  <p><label for="em">Your email:</label><br>
+  <input class="field" type="text" id="em" name="em"
+         placeholder="name@example.org"></p>
+  <p><input class="pick" type="checkbox" id="cb" name="cb" checked>
+  <span class="choicetext">The glyph beside this line is
+  gold because its input says so.</span></p>
+  <p><input class="go" type="submit" value="Subscribe"></p>
+</form>
+<p>Now the focus, which needs your hands: click into either
+field. While the focus rests there the field wears its
+:focus dress — a lighter slate ground, a brighter gold
+border, and the orange outline the page declares rides as
+its ring. Click back out and the resting dress returns.
+And press-and-hold the Subscribe button: while the press
+lasts, its gold deepens to the dark bronze its :active
+rule names; let go and the resting gold returns (letting
+go on the button also submits the form, as a submit does —
+this page simply loads again).</p>
+
+<h2>2 — a link's :focus dress</h2>
+<p>Press and hold <a class="focuslink"
+href="finishing-test.html">this link to the finishing
+test</a> without letting go. The press gives the link the
+focus, as a press does in a real browser, and while the
+focus rests on it the link wears its :focus dress: deep
+red letters on pale gold, in place of its resting blue.
+Let go outside the link and the dress stays — the focus
+is still resting there; press anywhere else on the page,
+or click into the form above, and the focus moves on and
+the dress lifts. Let go on the link itself and it follows
+its link, as links do.</p>
+
+<h2>3 — a link's :active dress</h2>
+<p>Press and hold <a class="presslink"
+href="finishing-test.html">this second link</a>. While
+the press lasts it wears its :active dress — white
+letters on dark red. The dress is the press's own: the
+moment you let go, on or off the link, it lifts.</p>
+
+<h2>4 — a bar that sticks to the top</h2>
+<p>Scroll slowly through the green section below. Its
+crimson bar declares position: sticky with top: 0. Its
+seat is reserved in the flow — the words never jump —
+and once scrolling would carry the bar above the top of
+the window, it holds there instead, riding over the
+section's paragraphs as they pass beneath it. When the
+section's own bottom edge reaches it, the bar is pushed
+away with its section: it may never leave the green.</p>
+<div class="section">
+  <div class="stickbar">THE CRIMSON BAR — I stick at the
+  top while my section lasts.</div>
+  <p>Paragraph one of the green section. The bar above
+  began exactly here, in the flow, like any block.</p>
+  <p>Paragraph two. Keep scrolling gently; the bar should
+  by now be holding at the window's top edge.</p>
+  <p>Paragraph three. The bar is paint in motion: the
+  layout underneath never moved, which is why nothing
+  you have read has shifted by so much as a line.</p>
+  <p>Paragraph four. A sticky element is a relative
+  element with a promise: stay where you were put,
+  until staying would hide you — then hold.</p>
+  <p>Paragraph five. Beneath the held bar, the section's
+  ground stays green, because the bar never leaves its
+  containing block — it is only ever painted ahead of
+  its seat.</p>
+  <p>Paragraph six. Halfway through the section now.
+  The bar still holds.</p>
+  <p>Paragraph seven. When the section's end comes, the
+  push-off is the same rule read from the other side:
+  the bar's bottom may not pass its section's bottom.</p>
+  <p>Paragraph eight. Almost there — watch the bar's
+  bottom edge meet the section's end.</p>
+  <p>Paragraph nine, the last of the green section. Just
+  below, the ground changes: the bar should be gone
+  with its section, pushed off the top as you read
+  this.</p>
+</div>
+
+<h2>5 — a bar that rides the bottom</h2>
+<p>The pale section below ends with a blue bar that
+declares position: sticky with bottom: 0. Scroll into
+the section: while its end is still below the window,
+the bar rides the window's bottom edge, ahead of its
+seat; as the section's true end scrolls up to meet it,
+the bar settles into its natural place and rides no
+more.</p>
+<div class="sectionfoot">
+  <p>Paragraph one of the pale section. Somewhere below
+  the fold, this section's blue bar is waiting — and
+  already riding your window's bottom edge.</p>
+  <p>Paragraph two. A bottom-sticky element is pulled
+  toward the reader, never pushed: it can only ever
+  stand at or above its natural seat.</p>
+  <p>Paragraph three. It also never leaves its section:
+  the pale ground bounds it exactly as the green
+  bounded the crimson bar.</p>
+  <p>Paragraph four. Keep scrolling; the ride ends when
+  the seat itself arrives.</p>
+  <p>Paragraph five. The bar you have been seeing at the
+  bottom is this section's last child, painted ahead of
+  its place.</p>
+  <p>Paragraph six, nearly the seat itself now.</p>
+  <div class="footbar">THE BLUE BAR — I rode the bottom
+  until my seat arrived.</div>
+</div>
+
+<h2>6 — what is not on this page</h2>
+<p>Transforms, transitions and keyframes, column-span,
+and JavaScript remain unbuilt — the engine's own header
+says so, and this page promises none of them. Selects
+and textareas render as text, as the notes at the top
+say. Everything above this section is the whole of the
+interaction set, stated only as it was built.</p>
+</body>
+</html>

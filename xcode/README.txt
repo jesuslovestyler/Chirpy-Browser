@@ -7,6 +7,113 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.26.0 — THE INTERACTION SET
+------------------------------------------------------
+The third stage of the remaining-CSS program: the
+states a page's elements wear while the reader is
+touching them, and the position that sticks.
+
+* Form controls dressed by the page — DONE. The
+  live controls the view builds — text fields and
+  submit / form buttons — now take their dress from
+  the element's computed style instead of uniform
+  defaults: the font, the text color, the
+  background, the border (color and width) and the
+  corner radius, with declared width and height
+  honored as size hints. A field the page paints
+  (background, border or radius declared) stands
+  its native bezel down and wears the page's dress
+  on its layer; a field the page leaves alone keeps
+  the classic bezel it always had. A button wears
+  its background as its bezel tint and its color as
+  its label's; a button's CSS border and corner
+  radius have no native dress to ride on and are
+  not worn. Checkbox and radio glyphs take their
+  element's color. Selects and textareas still
+  render as their text — no live control is built
+  for them yet — and a control inside a painted box
+  (a float, a flex or grid item, a column) keeps
+  the standing bracket-label degradation, as it has
+  since those boxes arrived.
+* :focus — DONE. :focus joins the selector grammar
+  at :hover's standard: a state, never part of the
+  resting cascade, resolved apart and reduced to
+  the same four paint traits, stamped under its
+  own keys. A press on a link gives it the focus,
+  as in a real browser, and its :focus paint
+  (color, background, underline family) is worn
+  while the focus rests there — pressing elsewhere,
+  or a live control taking focus, lifts it. A live
+  control wears its :focus dress itself: the focus
+  background or border takes the field's place, and
+  an outline the page declares rides as the
+  control's border ring for the focus's duration
+  (a button wears its :focus background — or, lacking
+  one, its :focus border color — as its tint, the
+  closest honest dress a native button has).
+* :active — DONE, the same way: a third state
+  layer, worn while the pointer is pressed on the
+  element and lifted on release. The three layers
+  stack hover under focus under active over one
+  snapshot of the covered paint, so any combination
+  restores exactly. A pressed button wears its
+  :active colors for the press.
+* position: sticky — DONE. A sticky block flows
+  and reserves its space like a relative box; the
+  renderer records its range and its containing
+  block's, and the view shifts its paint as the
+  page scrolls, in the fixed overlays' update
+  discipline: with top: T it holds at T once
+  scrolling would carry it above, until its
+  containing block's bottom edge pushes it off;
+  bottom: B mirrors that from below (top wins when
+  both are declared). The shift rides the relative
+  offsets' paint path, so surfaces and glyphs move
+  together and the flow never does, and a held
+  element paints above the words scrolling under
+  it, as a positioned box does. Horizontal sticking
+  is not read (the page does not scroll sideways);
+  a sticky inside a painted box flows plain; a
+  sticky flex, grid or column container's seat
+  shifts while its items paint at the flow seat;
+  a form control seated in a sticky element keeps
+  its flow seat, as it does inside a relative
+  offset; and a held element's photo or gradient
+  band is not re-painted in the above-pass — its
+  color band and glyphs ride above, the richer
+  layers stay where the ordinary pass drew them.
+* Cascade — :focus and :active sit in the matcher
+  exactly where :hover sits (each also adds its
+  ten points of specificity); position: sticky is
+  read beside positionKind's family in walkBlock
+  and never answers there, so no child is ever
+  lifted out of flow by it.
+
+The drill (interaction-test.html, in this folder):
+1 is a form dressed by its page — dark fields, gold
+borders, a styled submit — with a gold checkbox
+glyph, and it asks for your hands twice: click into
+a field and watch the :focus dress and the declared
+outline arrive, and press-and-hold the submit and
+watch its gold deepen while the press lasts; 2 is a
+link whose :focus dress shows while a press rests
+on it; 3 is a link whose :active dress deepens a
+press-and-hold; 4 is a sticky bar that holds at the
+top through its section and is pushed away at the
+section's end; 5 is a bottom-sticky bar that rides
+the window's bottom until its seat arrives; 6
+names what is not on the page. The checks that need
+Tyler's hands: the click-focus and the submit
+press-and-hold (1), the link press-and-holds
+(2, 3), and the scrolling (4, 5).
+
+Still not built, named plainly: transforms,
+column-span, transitions and keyframes, JavaScript
+(the mountain) — and, from this stage, live select
+and textarea controls. After 0.26 comes 0.27, the
+paint and motion finishing set, and then Tyler
+builds.
+
 WHAT'S NEW IN 0.25.0 — GRID
 ------------------------------------------------------
 The second stage of the remaining-CSS program: the
