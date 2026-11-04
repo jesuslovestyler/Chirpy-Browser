@@ -134,6 +134,63 @@ until this build, and no static check — balance,
 header scan, grep — can see a missing argument label;
 only the first real compile could, and did.
 
+0.23.1 repair (Nov 4): Tyler's drill of 0.23.0
+verified the whole stack running and found three
+faults, all repaired here at their causes.
+
+(1) Multi-column text never painted — the rules and
+the colored block showed, but the words inside every
+column block were invisible (floated and fixed boxes'
+words had the same disease). The painted-layout
+caches kept each layout's manager and containers but
+not its text storage; a layout manager holds its
+storage only weakly, so the storage died with the
+call that built it and every repaint found a manager
+with no text behind it. The caches — columns',
+floats', and the fixed overlays' — now keep the
+storage itself.
+
+(2) Floats-test promise 3: the two 44% columns in
+the padded wrapper came out near 47% each, and the
+paragraph after the wrapper squeezed into the crack
+between them instead of starting below the yellow.
+Two causes. A percentage width was settled against
+a flat thousand points rather than the containing
+block; it is now kept raw on the float spec and
+resolved by the view against the real column width
+less the containing block's horizontal padding (the
+renderer records that padding, as points are
+points), with the box's height re-measured at the
+resolved width — the division of labor a positioned
+box's percentage insets already used. And the
+wrapper's containment clear never counted the
+wrapper's own floats: a wrapper whose only children
+are floats anchors them at the clear's own index,
+which the view's range check read as outside the
+wrapper. The bound is inclusive now.
+
+(3) A Metal debug-validation assert under the
+debugger (instanceCount 0): a zero-size draw
+reaching the GPU. Every paint path the 0.20–0.23
+work added now refuses to issue one: surface bands
+of no height are skipped; background rect arrays
+drop rects with no area (an empty paragraph's run
+is the case in point); box fills and photo draws
+require a rect with area; background layers guard
+once for all callers; a failed picture's frame is
+not stroked into a content rect of a point or less;
+column rules of no height are not drawn.
+
+Not fixed, honestly noted: on finishing-test
+promise 7, thin pale strips still paint behind the
+odd list items, clipped to the lower half of the
+line. Odd items declare no background at all (the
+page's own text says so), so the strips are stray
+paint from the shared band painter — but they are
+not a zero-size draw, and no cause could be proven
+from the code alone; they are left for a
+screenshot-guided look rather than a guess.
+
 WHAT'S NEW IN 0.22.0 — MULTI-COLUMN & COLOR-MIX
 ------------------------------------------------------
 Stage two of the CSS completion: the column properties
@@ -449,7 +506,7 @@ bottom; each page's promises are printed on the page
 itself.
 
 1. Build and run. The home page's status line should
-   read "Chirpy Engine 0.23.0 (Swift)" and end with
+   read "Chirpy Engine 0.23.1 (Swift)" and end with
    "no JavaScript yet" — and after any page loads, the
    settled status line should carry the same version.
 2. Drag floats-test.html (it rides along in this

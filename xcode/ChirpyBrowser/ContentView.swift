@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.23.0 (Swift)
+//  Chirpy Browser — prototype 0.23.1 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.23.0 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.23.1 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -180,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.23.0 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.23.1 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -825,8 +825,37 @@ struct PageTextView: NSViewRepresentable {
                 for event in self.layoutEvents {
                     switch event {
                     case .float(let spec):
-                        let marginW = spec.borderWidth + spec.marginLeft + spec.marginRight
-                        let marginH = spec.borderHeight + spec.marginTop + spec.marginBottom
+                        // A percentage width (0.23.1)
+                        // resolves here, against the real
+                        // column the view is placing in,
+                        // less the containing block's
+                        // horizontal padding the renderer
+                        // recorded — never against the
+                        // nominal thousand points the
+                        // length parser once used, which
+                        // is how two declared-44% columns
+                        // came out at some 47% of their
+                        // wrapper and squeezed everything
+                        // after them into a crack. The
+                        // height is re-measured at the
+                        // resolved width: the box's words
+                        // wrap narrower here than the
+                        // renderer's provisional measure
+                        // supposed.
+                        var boxW = spec.borderWidth
+                        var boxH = spec.borderHeight
+                        if let pct = spec.widthPercent {
+                            boxW = max(pct / 100
+                                * max(width - spec.containingPaddingH, 10), 1)
+                            if !spec.heightDeclared, let content = spec.content {
+                                let contentW = max(
+                                    boxW - spec.paddingLeft - spec.paddingRight, 10)
+                                boxH = self.measureBoxText(content, width: contentW).height
+                                    + spec.paddingTop + spec.paddingBottom
+                            }
+                        }
+                        let marginW = boxW + spec.marginLeft + spec.marginRight
+                        let marginH = boxH + spec.marginTop + spec.marginBottom
                         var top = self.floatAnchorY(spec.anchorCharIndex)
                         // A float never rises above an earlier one.
                         for other in placed { top = max(top, other.rect.minY) }
@@ -879,8 +908,8 @@ struct PageTextView: NSViewRepresentable {
                                        anchor: spec.anchorCharIndex))
                         paints.append((rect: NSRect(x: placedX + spec.marginLeft,
                                                     y: y + spec.marginTop,
-                                                    width: spec.borderWidth,
-                                                    height: spec.borderHeight),
+                                                    width: boxW,
+                                                    height: boxH),
                                        spec: spec))
                         exclusions.append(NSBezierPath(rect: marginRect))
                     case .clear(let spec):
@@ -894,9 +923,21 @@ struct PageTextView: NSViewRepresentable {
                         for other in placed {
                             if spec.side == .left && other.side != .left { continue }
                             if spec.side == .right && other.side != .right { continue }
+                            // The bound is inclusive
+                            // (0.23.1): a wrapper whose
+                            // only children are floats
+                            // appends no characters
+                            // between its last float and
+                            // its close, so its floats
+                            // anchor AT the clear's own
+                            // anchor index — the strict
+                            // bound read them as outside
+                            // the wrapper, and the
+                            // containment contained
+                            // nothing.
                             if let start = spec.rangeStart,
                                !(other.anchor >= start
-                                 && other.anchor < spec.anchorCharIndex) {
+                                 && other.anchor <= spec.anchorCharIndex) {
                                 continue
                             }
                             limit = max(limit, other.rect.maxY)
@@ -1063,6 +1104,26 @@ struct PageTextView: NSViewRepresentable {
             layoutManager.ensureLayout(for: container)
             return layoutManager.lineFragmentRect(forGlyphAt: glyph,
                                                   effectiveRange: nil).minY
+        }
+
+        // Measure a painted box's text the way the
+        // renderer measures it (0.23.1): its own storage,
+        // manager and container at a given width. Used to
+        // re-measure a percentage-width float's height
+        // once its width has been resolved against the
+        // real column, so the exclusion the text flows
+        // around is the box that will actually paint.
+        private func measureBoxText(_ string: NSAttributedString,
+                                    width: CGFloat) -> CGSize {
+            let storage = NSTextStorage(attributedString: string)
+            let manager = NSLayoutManager()
+            let container = NSTextContainer(
+                size: NSSize(width: max(width, 10),
+                             height: CGFloat.greatestFiniteMagnitude))
+            storage.addLayoutManager(manager)
+            manager.addTextContainer(container)
+            manager.ensureLayout(for: container)
+            return manager.usedRect(for: container).size
         }
 
         // Set each control over its attachment: the glyph's
@@ -1380,8 +1441,17 @@ final class TBBandLayoutManager: NSLayoutManager {
     var floatPaints: [(rect: NSRect, spec: TBFloatSpec)] = [] {
         didSet { floatContentLayouts = [:] }
     }
+    // Painted layouts (0.23.1): the cache holds each
+    // box's NSTextStorage alongside its layout manager
+    // and container. A layout manager references its
+    // text storage only weakly — the storage owns the
+    // manager, never the reverse — so a cache that
+    // kept only the manager and container left every
+    // later repaint holding a manager with no text
+    // behind it: no glyphs, and painted box and
+    // column text simply never reached the screen.
     private var floatContentLayouts:
-        [ObjectIdentifier: (NSLayoutManager, NSTextContainer)] = [:]
+        [ObjectIdentifier: (NSTextStorage, NSLayoutManager, NSTextContainer)] = [:]
 
     // A character's relative-position offset (0.17), read
     // from the stamp the renderer left on the text.
@@ -1411,14 +1481,26 @@ final class TBBandLayoutManager: NSLayoutManager {
             defer { widened.deallocate() }
             let left = textView.textContainerOrigin.x + offset.x
             let width = container.size.width
+            var kept = 0
             for i in 0..<rectCount {
                 var rect = rectArray[i]
                 rect.origin.x = left
                 rect.origin.y += offset.y
                 rect.size.width = width
-                widened[i] = rect
+                // A rect with no area is dropped
+                // (0.23.1): handed on, it would fill
+                // as a zero-size draw — the kind
+                // Metal's debug validation asserts
+                // on — and it can paint no pixel
+                // anyway. A run whose line fragment
+                // measures no height (an empty
+                // paragraph's) is the case in point.
+                guard rect.width > 0, rect.height > 0 else { continue }
+                widened[kept] = rect
+                kept += 1
             }
-            super.fillBackgroundRectArray(widened, count: rectCount,
+            guard kept > 0 else { return }
+            super.fillBackgroundRectArray(widened, count: kept,
                                           forCharacterRange: charRange, color: color)
             return
         }
@@ -1427,13 +1509,18 @@ final class TBBandLayoutManager: NSLayoutManager {
         if offset != .zero {
             let shifted = UnsafeMutablePointer<NSRect>.allocate(capacity: rectCount)
             defer { shifted.deallocate() }
+            var kept = 0
             for i in 0..<rectCount {
-                shifted[i] = NSRect(x: rectArray[i].origin.x + offset.x,
-                                    y: rectArray[i].origin.y + offset.y,
-                                    width: rectArray[i].width,
-                                    height: rectArray[i].height)
+                let rect = NSRect(x: rectArray[i].origin.x + offset.x,
+                                  y: rectArray[i].origin.y + offset.y,
+                                  width: rectArray[i].width,
+                                  height: rectArray[i].height)
+                guard rect.width > 0, rect.height > 0 else { continue }
+                shifted[kept] = rect
+                kept += 1
             }
-            super.fillBackgroundRectArray(shifted, count: rectCount,
+            guard kept > 0 else { return }
+            super.fillBackgroundRectArray(shifted, count: kept,
                                           forCharacterRange: charRange, color: color)
             return
         }
@@ -1548,6 +1635,14 @@ final class TBBandLayoutManager: NSLayoutManager {
             let rect = NSRect(x: origin.x + band.dx, y: origin.y + band.top + band.dy,
                               width: container.size.width,
                               height: band.bottom - band.top)
+            // A band of no height — an empty
+            // paragraph's surface can measure zero —
+            // is never issued as a draw (0.23.1):
+            // zero-size draws are what Metal's debug
+            // validation asserts on (instanceCount 0),
+            // and a rect with no area paints nothing
+            // in any case.
+            guard rect.width > 0, rect.height > 0 else { continue }
             if let color = band.color {
                 color.setFill()
                 rect.fill()
@@ -1582,7 +1677,7 @@ final class TBBandLayoutManager: NSLayoutManager {
         didSet { columnLayouts = [:] }
     }
     private var columnLayouts:
-        [ObjectIdentifier: (NSLayoutManager, [NSTextContainer])] = [:]
+        [ObjectIdentifier: (NSTextStorage, NSLayoutManager, [NSTextContainer])] = [:]
 
     private func paintColumns(at origin: NSPoint) {
         for paint in columnPaints {
@@ -1597,8 +1692,12 @@ final class TBBandLayoutManager: NSLayoutManager {
             // ridge, inset and outset paint solid too: a
             // rule a point or three wide has no bevel to
             // show. Dotted and dashed stroke a line with
-            // a dash pattern instead.
+            // a dash pattern instead. A rule of no height
+            // is not drawn at all (0.23.1): a zero-height
+            // fill, or a path from a point to itself, is
+            // a zero-size draw.
             if spec.columnCount > 1, spec.ruleWidth > 0,
+               spec.columnHeight > 0,
                spec.ruleStyle != "none", spec.ruleStyle != "hidden",
                let color = spec.ruleColor {
                 for i in 1..<spec.columnCount {
@@ -1643,14 +1742,26 @@ final class TBBandLayoutManager: NSLayoutManager {
         let manager: NSLayoutManager
         let containers: [NSTextContainer]
         if let cached = columnLayouts[key],
-           cached.1.count == spec.columnCount, !cached.1.isEmpty,
-           cached.1[0].size == NSSize(width: spec.columnWidth,
+           cached.2.count == spec.columnCount, !cached.2.isEmpty,
+           cached.2[0].size == NSSize(width: spec.columnWidth,
                                       height: spec.columnHeight) {
-            manager = cached.0
-            containers = cached.1
+            manager = cached.1
+            containers = cached.2
         } else {
+            // 0.23.1: the storage is built first and
+            // attached to the manager before its
+            // containers — the floated-box painter's
+            // established order — and the cache keeps
+            // the storage itself, not just the manager
+            // and containers. A layout manager holds
+            // its text storage weakly, so the old cache
+            // outlived the very text it was meant to
+            // paint: the columns' rules and backgrounds
+            // (plain fills) showed, and their words
+            // never did.
             let storage = NSTextStorage(attributedString: content)
             manager = NSLayoutManager()
+            storage.addLayoutManager(manager)
             var built: [NSTextContainer] = []
             for _ in 0..<spec.columnCount {
                 let container = NSTextContainer(
@@ -1659,8 +1770,7 @@ final class TBBandLayoutManager: NSLayoutManager {
                 manager.addTextContainer(container)
                 built.append(container)
             }
-            storage.addLayoutManager(manager)
-            columnLayouts[key] = (manager, built)
+            columnLayouts[key] = (storage, manager, built)
             containers = built
         }
         guard let last = containers.last else { return }
@@ -1684,7 +1794,13 @@ final class TBBandLayoutManager: NSLayoutManager {
     // its padding. A picture that never arrived leaves a
     // labelled frame, as a failed in-flow image does.
     func paintBox(rect: NSRect, source: TBBoxPaintSource) {
-        if let color = source.backgroundColor {
+        // No fill for an empty rect (0.23.1): a box
+        // resolved to no width or no height paints
+        // nothing anyway, and a zero-size fill is
+        // exactly the draw Metal's debug validation
+        // asserts on.
+        if let color = source.backgroundColor,
+           rect.width > 0, rect.height > 0 {
             color.setFill()
             rect.fill()
         }
@@ -1698,7 +1814,11 @@ final class TBBandLayoutManager: NSLayoutManager {
         if source.isImage {
             if let image = source.image {
                 TBBandLayoutManager.tbDrawPhoto(image, in: contentRect)
-            } else if source.imageFailed {
+            } else if source.imageFailed,
+                      contentRect.width > 1, contentRect.height > 1 {
+                // The frame is inset half a point, so
+                // a content rect of a point or less
+                // would stroke an empty path (0.23.1).
                 NSColor.separatorColor.setStroke()
                 let frame = NSBezierPath(rect: contentRect.insetBy(dx: 0.5, dy: 0.5))
                 frame.lineWidth = 1
@@ -1762,16 +1882,16 @@ final class TBBandLayoutManager: NSLayoutManager {
                                 key: ObjectIdentifier, in rect: NSRect) {
         let manager: NSLayoutManager
         let container: NSTextContainer
-        if let cached = floatContentLayouts[key], cached.1.size == rect.size {
-            manager = cached.0
-            container = cached.1
+        if let cached = floatContentLayouts[key], cached.2.size == rect.size {
+            manager = cached.1
+            container = cached.2
         } else {
             let storage = NSTextStorage(attributedString: content)
             manager = NSLayoutManager()
             container = NSTextContainer(size: rect.size)
             storage.addLayoutManager(manager)
             manager.addTextContainer(container)
-            floatContentLayouts[key] = (manager, container)
+            floatContentLayouts[key] = (storage, manager, container)
         }
         manager.ensureLayout(for: container)
         let glyphs = manager.glyphRange(for: container)
@@ -1825,6 +1945,12 @@ final class TBBandLayoutManager: NSLayoutManager {
     // and the fixed-position overlay views paint their
     // backgrounds through this same path.
     static func paintBackgroundLayers(_ box: TBBackgroundBox, in rect: NSRect) {
+        // One guard for every caller — surfaces, the
+        // box painter, the fixed overlays (0.23.1): no
+        // layer of a box with no area is ever drawn,
+        // since a gradient or photo issued into an
+        // empty rect is a zero-size draw.
+        guard rect.width > 0, rect.height > 0 else { return }
         for layer in box.layers.reversed() {
             switch layer.kind {
             case .gradient(let inner):
@@ -1967,7 +2093,8 @@ final class TBBandLayoutManager: NSLayoutManager {
     // vertical flip about the destination rect — specified
     // behavior, no heuristics.
     static func tbDrawPhoto(_ image: NSImage, in dest: NSRect) {
-        guard let context = NSGraphicsContext.current?.cgContext,
+        guard dest.width > 0, dest.height > 0,
+              let context = NSGraphicsContext.current?.cgContext,
               let cg = image.cgImage(forProposedRect: nil,
                                      context: NSGraphicsContext.current,
                                      hints: nil) else { return }
@@ -2114,13 +2241,18 @@ final class TBFixedOverlayView: NSView {
     var spec: TBPositionedSpec? = nil {
         didSet { contentLayout = nil }
     }
-    private var contentLayout: (NSLayoutManager, NSTextContainer)? = nil
+    // The storage rides in the cache for the same
+    // reason as in the layout manager's painters
+    // (0.23.1): the manager holds it only weakly, and
+    // a fixed box's words must survive repaints.
+    private var contentLayout: (NSTextStorage, NSLayoutManager, NSTextContainer)? = nil
 
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let spec = spec else { return }
-        if let color = spec.backgroundColor {
+        if let color = spec.backgroundColor,
+           bounds.width > 0, bounds.height > 0 {
             color.setFill()
             bounds.fill()
         }
@@ -2134,7 +2266,8 @@ final class TBFixedOverlayView: NSView {
         if spec.isImage {
             if let image = spec.image {
                 TBBandLayoutManager.tbDrawPhoto(image, in: contentRect)
-            } else if spec.imageFailed {
+            } else if spec.imageFailed,
+                      contentRect.width > 1, contentRect.height > 1 {
                 NSColor.separatorColor.setStroke()
                 let frame = NSBezierPath(rect: contentRect.insetBy(dx: 0.5, dy: 0.5))
                 frame.lineWidth = 1
@@ -2154,16 +2287,16 @@ final class TBFixedOverlayView: NSView {
         guard let content = spec.content, content.length > 0 else { return }
         let manager: NSLayoutManager
         let container: NSTextContainer
-        if let cached = contentLayout, cached.1.size == contentRect.size {
-            manager = cached.0
-            container = cached.1
+        if let cached = contentLayout, cached.2.size == contentRect.size {
+            manager = cached.1
+            container = cached.2
         } else {
             let storage = NSTextStorage(attributedString: content)
             manager = NSLayoutManager()
             container = NSTextContainer(size: contentRect.size)
             storage.addLayoutManager(manager)
             manager.addTextContainer(container)
-            contentLayout = (manager, container)
+            contentLayout = (storage, manager, container)
         }
         manager.ensureLayout(for: container)
         let glyphs = manager.glyphRange(for: container)

@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.23.0 (Swift)
+//  Chirpy Browser — engine 0.23.1 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -287,7 +287,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -305,7 +305,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -359,7 +359,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -437,7 +437,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -595,6 +595,25 @@ final class TBFloatSpec {
     var borderHeight: CGFloat
     var widthDeclared = false
     var heightDeclared = false
+    // A declared percentage width (0.23.1): the raw
+    // percent, kept unresolved because a percentage
+    // belongs to the containing block, whose real
+    // width only the view knows — the view resolves
+    // it at placement time, as it already does a
+    // positioned box's percentage insets (0.21).
+    // borderWidth meanwhile holds a provisional size
+    // resolved against the nominal containing width,
+    // which the renderer's own height measurement
+    // uses until the view's resolution lands.
+    var widthPercent: CGFloat? = nil
+    // The horizontal padding of this float's
+    // containing block and its block ancestors, in
+    // points: how far the containing block's content
+    // box is inset within the column. Padding is an
+    // absolute length, so this much the renderer can
+    // state exactly; the view subtracts it from the
+    // real column width before resolving widthPercent.
+    var containingPaddingH: CGFloat = 0
     var marginTop: CGFloat = 0
     var marginRight: CGFloat = 0
     var marginBottom: CGFloat = 0
@@ -853,7 +872,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -2892,6 +2911,13 @@ final class TBRenderer {
     private var relDY: CGFloat = 0
     private var lastFlushRange: NSRange? = nil
     var nominalWidth: CGFloat = 1000
+    // Percentage float widths (0.23.1): the horizontal
+    // padding of the block ancestors currently open,
+    // accumulated by walkBlock the way the relative
+    // offsets above are — a floated child's containing
+    // block is its parent block's content box, which
+    // sits this far inside the column.
+    private var ancestorPaddingH: CGFloat = 0
 
     // Positioned layout (0.21): the positioned boxes the
     // walk met and what they still wait on — pictures to
@@ -3639,6 +3665,7 @@ final class TBRenderer {
         }
         let savedRelDX = relDX
         let savedRelDY = relDY
+        let savedAncestorPaddingH = ancestorPaddingH
         if let offset = relativeOffset(own, fontSize: effFont.pointSize) {
             relDX += offset.dx
             relDY += offset.dy
@@ -3687,6 +3714,14 @@ final class TBRenderer {
                 padTop: plen(padding[0]), padBottom: plen(padding[2]),
                 topCarry: plen(padding[0])))
         }
+        // Percentage float widths (0.23.1): this block's
+        // own horizontal padding joins the accumulation,
+        // so a floated child met in the loop below reads
+        // its containing block's inset from the spec it
+        // is registered with. Restored at the close,
+        // beside the relative offsets.
+        let ownPadding = boxLengths(own, "padding", fontSize: effFont.pointSize)
+        ancestorPaddingH += ownPadding.left + ownPadding.right
         var flushedOwn = false
         let linkStart = out.length   // for block-level anchors, below
         let isForm = node.tag == "form"
@@ -3826,6 +3861,7 @@ final class TBRenderer {
         }
         relDX = savedRelDX
         relDY = savedRelDY
+        ancestorPaddingH = savedAncestorPaddingH
 
         // A block-level anchor (a card styled display:grid, say)
         // never passes through inline(), where links are made —
@@ -4027,13 +4063,34 @@ final class TBRenderer {
         let fontSize = childFont.pointSize
         let margins = boxLengths(own, "margin", fontSize: fontSize)
         let padding = boxLengths(own, "padding", fontSize: fontSize)
-        let declaredW = tbLengthValue(own["width"], fontSize: fontSize)
+        // A percentage width (0.23.1) is NOT resolved
+        // here: tbLengthValue would settle it against a
+        // flat thousand points, which is how a declared
+        // 44% came out at 44% of a page the float had
+        // never seen — wider than its own wrapper. The
+        // percent is kept raw on the spec for the view
+        // to resolve against the containing block's
+        // real content width; the provisional below,
+        // resolved against the nominal content width,
+        // only stands in for this renderer's own
+        // height measurement.
+        var widthPercent: CGFloat? = nil
+        var declaredW = tbLengthValue(own["width"], fontSize: fontSize)
+        if let raw = own["width"]?.trimmingCharacters(in: .whitespaces)
+            .lowercased(),
+           raw.hasSuffix("%"), let pct = Double(raw.dropLast()), pct > 0 {
+            widthPercent = CGFloat(pct)
+            declaredW = CGFloat(pct) / 100
+                * max(nominalWidth - ancestorPaddingH, 10)
+        }
         let declaredH = tbLengthValue(own["height"], fontSize: fontSize)
         let spec = TBFloatSpec(anchorCharIndex: out.length, side: side, isImage: false,
                                borderWidth: declaredW ?? 0,
                                borderHeight: declaredH ?? 0)
         spec.widthDeclared = declaredW != nil
         spec.heightDeclared = declaredH != nil
+        spec.widthPercent = widthPercent
+        spec.containingPaddingH = ancestorPaddingH
         spec.marginTop = margins.top
         spec.marginRight = margins.right
         spec.marginBottom = margins.bottom
