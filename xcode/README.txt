@@ -7,55 +7,68 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
-WHAT'S NEW IN 0.17.0 — BOX POSITIONING
---------------------------------------
-The engine learned positioned layout — the piece float-era
-pages (Wikipedia above all) are built from:
+WHAT'S NEW IN 0.18.0 — A PROGRESS BAR, AND DRAG-AND-DROP
+--------------------------------------------------------
+Two things asked for after living with 0.17:
 
-* float: left / float: right. A floated picture or box
-  leaves the vertical stack and sits against the column's
-  edge; the text wraps around it, and below it the full
-  width resumes. Consecutive floats pack side by side on
-  one band until the width runs out, then drop to a new
-  band — so float columns and rows of cards work, and a
-  floated sidebar with ordinary content beside it flows in
-  the width that remains.
-* clear: left / right / both. A cleared block starts below
-  the floats it names. A container whose children float
-  still wraps them when it paints a background (and when
-  CSS gives it a non-visible overflow, a flow-root, or a
-  table display) — the clearfix reality of those pages.
-* position: relative. A box given top/left offsets paints
-  shifted by them, while the flow — and the space it
-  reserved — stays exactly where it was.
+* A loading bar. While a page is coming in, a thin bar
+  sits directly under the address bar. The page's own
+  download fills the first 70% of it with real numbers —
+  bytes received against the length the server declared —
+  so a slow page visibly creeps instead of looking frozen.
+  When the server declares no length (a chunked reply),
+  the bar is indeterminate: moving, but making no promise.
+  Once the page is in, the engine still has to fetch its
+  styles and pictures and lay it out; that part has no
+  single honest fraction across its passes, so the bar
+  stays indeterminate until the page settles, then
+  disappears. A failed load clears it too, and starting
+  a second page mid-load restarts it cleanly — the first
+  fetch is cancelled and its late arrival ignored.
+* Drag-and-drop. Drag an HTML file from Finder onto the
+  browser window and it opens, the way Chrome opens one.
+  Only the first file counts, and only .html/.htm — any
+  other file is ignored, because the engine cannot
+  render it honestly. Local files load through the same
+  path as web pages (they are just fast, so the bar may
+  only flash).
 
-Honest limits, plainly: position: absolute and fixed are
-NOT in yet, and neither are the multi-column properties
-(column-count and friends). Floats are honored where a
-block or an image sits directly inside a block container;
-links inside a floated box keep their colors but are not
-clickable yet, and a form inside one shows bracketed
-labels instead of live controls. A relatively positioned
-box paints shifted, but a form control inside one still
-seats at its unshifted, flow position.
+Honest limits, plainly: the byte count is of the data as
+delivered to the engine, so on a compressed page the bar
+can reach the top of its download band early and wait
+there for the rest — the fraction is real, the pacing is
+the server's. The bar reports the download and shows
+activity while the page renders, but the rendering
+itself still happens in one unbroken pass on the main
+thread: a very heavy page can still hold the window
+still while it is laid out. Splitting that work up is a
+later step, not this one. Dragging text or web links
+into the window is not handled — files only.
 
 THE TEST DRILL
 --------------
 1. Build and run. The home page's status line should read
-   "Chirpy Engine 0.17.0".
-2. Open a Wikipedia article (en.wikipedia.org, any article
-   with a picture box — "Cat" works). The infobox should
-   sit at the RIGHT with the article text wrapping around
-   its left side, resuming full width below the box.
-3. Open jesuslovestyler.com — the hub should look as it
+   "Chirpy Engine 0.18.0".
+2. Open a heavy page — en.wikipedia.org/wiki/Cat. The bar
+   should appear under the address bar as the article
+   downloads, move while it comes in, turn indeterminate
+   while the page is laid out, and vanish when the page
+   settles. The infobox should still sit at the RIGHT
+   with the article text wrapping around it (the 0.17
+   check, unchanged).
+3. Start a slow page loading, then type a different
+   address and press Return before it finishes. The bar
+   should restart for the new page, and the first page
+   must never appear or disturb the new one's bar.
+4. Drag floats-test.html (it rides along in this folder)
+   from Finder onto the browser window. The test page
+   should open: a floated box in a paragraph, two floated
+   columns inside a colored wrapper, a row of floated
+   boxes that must pack and wrap, a right-floated box, a
+   cleared heading that must start below its float, and
+   one relatively shifted box.
+5. Open jesuslovestyler.com — the hub should look as it
    always has; nothing may slide or pile up.
-4. A test page rides along in this folder: floats-test.html
-   (open it from a local page or file host when convenient).
-   It draws a floated box in a paragraph, two floated
-   columns inside a colored wrapper, a row of floated boxes
-   that must pack and wrap, a right-floated box, a cleared
-   heading that must start below its float, and one
-   relatively shifted box.
 
 HOW TO RUN IT
 -------------

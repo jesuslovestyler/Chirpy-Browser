@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.17.0 (Swift)
+//  Chirpy Browser — prototype 0.18.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -9,13 +9,14 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 @MainActor
 final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.17.0 (Swift) — floats and forms, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.18.0 (Swift) — floats, forms, progress bar, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -24,6 +25,20 @@ final class BrowserModel: ObservableObject {
     @Published var pageForms: [TBFormSpec] = []
     @Published var pageFields: [TBFormField] = []
     @Published var pageLayoutEvents: [TBLayoutEvent] = []
+
+    // Load progress (0.18): the bar under the address bar.
+    // isLoading says a load is in flight; loadProgress is
+    // the document fetch's fraction of the bar (the fetch
+    // fills its first 70%) — nil while loading means there
+    // is no honest fraction to show: the server declared
+    // no length, or the page is in and now rendering its
+    // styles and pictures. The window then shows an
+    // indeterminate bar. Both clear when the page settles,
+    // on success and on failure alike.
+    @Published var isLoading = false
+    @Published var loadProgress: Double? = nil
+    private var loadGeneration = 0
+    private var activeFetch: TBProgressFetcher? = nil
 
     private var currentURL = ""
     private var backStack: [String] = []
@@ -106,17 +121,50 @@ final class BrowserModel: ObservableObject {
             forwardStack.removeAll()
         }
         statusLine = "Loading \(target) …"
+        // Load progress (0.18): a new load supersedes any
+        // in flight — stop its fetch, and let the generation
+        // checks below silence its late arrival, so it can
+        // neither paint over this page nor clear this bar.
+        loadGeneration += 1
+        let generation = loadGeneration
+        activeFetch?.cancel()
+        activeFetch = nil
+        isLoading = true
+        loadProgress = nil
         Task {
+            guard generation == self.loadGeneration else { return }
             do {
                 let fetched: (finalURL: String, html: String)
-                if let postBody = postBody {
+                if target.hasPrefix("http://") || target.hasPrefix("https://") {
+                    // The document fetch reports its bytes:
+                    // they fill the bar's first 70%.
+                    let fetcher = TBProgressFetcher()
+                    self.activeFetch = fetcher
+                    fetched = try await fetcher.fetch(
+                        urlString: target, postBody: postBody) { [weak self] fraction in
+                        Task { @MainActor in
+                            guard let self = self,
+                                  generation == self.loadGeneration else { return }
+                            self.loadProgress = fraction.map { 0.7 * $0 }
+                        }
+                    }
+                } else if let postBody = postBody {
                     fetched = try await tbFetchPOST(urlString: target, body: postBody)
                 } else {
                     fetched = try await tbFetch(urlString: target)
                 }
                 let (finalURL, html) = fetched
+                // Fetched; rendering now. The render's own
+                // fetches (styles, pictures, floats) have no
+                // single honest fraction across their
+                // passes, so the bar goes indeterminate
+                // until the page settles.
+                if generation == self.loadGeneration {
+                    self.loadProgress = nil
+                }
                 let (title, body, pageBG, columnW, forms, fields, landedURL, layoutEvents) =
                     await tbRenderPage(html: html, base: finalURL)
+                guard generation == self.loadGeneration else { return }
                 self.currentURL = landedURL
                 self.addressText = landedURL
                 self.pageTitle = title
@@ -126,8 +174,9 @@ final class BrowserModel: ObservableObject {
                 self.pageForms = forms
                 self.pageFields = fields
                 self.pageLayoutEvents = layoutEvents
-                self.statusLine = "\(finalURL)  ·  Chirpy Engine 0.17.0 (Swift) — floats and forms, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Chirpy Engine 0.18.0 (Swift) — floats, forms, progress bar, no JavaScript yet"
             } catch {
+                guard generation == self.loadGeneration else { return }
                 self.currentURL = target
                 self.addressText = target
                 self.pageTitle = "Could not load page"
@@ -146,6 +195,9 @@ final class BrowserModel: ObservableObject {
                 self.pageLayoutEvents = []
                 self.statusLine = "Load failed"
             }
+            self.isLoading = false
+            self.loadProgress = nil
+            self.activeFetch = nil
             self.canGoBack = !self.backStack.isEmpty
             self.canGoForward = !self.forwardStack.isEmpty
             self.pageID += 1
@@ -179,6 +231,13 @@ struct PageTextView: NSViewRepresentable {
         textView.layoutManager?.delegate = context.coordinator
         textView.textContainerInset = NSSize(width: 16, height: 16)
         textView.isAutomaticLinkDetectionEnabled = false
+        // Drag-and-drop (0.18): the page view is read-only
+        // and takes no drops of its own — unregister its
+        // dragged types, so a file dropped on the page
+        // falls through to the window's own drop handler
+        // (the onDrop on the root view) instead of being
+        // swallowed by the text view.
+        textView.unregisterDraggedTypes()
         scrollView.documentView = textView
         context.coordinator.attach(to: scrollView, textView: textView)
         return scrollView
@@ -516,7 +575,7 @@ struct PageTextView: NSViewRepresentable {
             let glyph = layoutManager.glyphIndexForCharacter(at: clamped)
             // NSLayoutManager ensures layout by container or
             // glyph range — there is no forGlyphAt variant
-            // (0.17.0 compile fix, Nov 4).
+            // (first-build compile fix, Nov 4).
             layoutManager.ensureLayout(for: container)
             return layoutManager.lineFragmentRect(forGlyphAt: glyph,
                                                   effectiveRange: nil).minY
@@ -1198,6 +1257,22 @@ struct ContentView: View {
                     .onSubmit { model.go() }
                 Button("Go") { model.go() }
             }
+            // Load progress (0.18): a thin bar directly
+            // under the address bar while a page is coming
+            // in — filled to the fetched fraction when the
+            // server declared the page's length,
+            // indeterminate when there is no honest
+            // fraction (no length declared, or the page is
+            // in and rendering). Gone when the page settles.
+            if model.isLoading {
+                if let progress = model.loadProgress {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                }
+            }
             PageTextView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Text(model.statusLine)
@@ -1208,5 +1283,26 @@ struct ContentView: View {
         }
         .padding(10)
         .frame(minWidth: 720, minHeight: 520)
+        .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
+            // Drag-and-drop (0.18): an HTML file dropped
+            // anywhere on the window opens here, the way
+            // Chrome opens one — through the ordinary load
+            // path, progress bar and all. Only the first
+            // file counts, and only .html/.htm: the engine
+            // cannot render anything else honestly, so
+            // other files are ignored.
+            guard let provider = providers.first,
+                  provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+            else { return false }
+            _ = provider.loadObject(ofClass: URL.self) { reading, _ in
+                guard let url = reading as? URL else { return }
+                let ext = url.pathExtension.lowercased()
+                guard ext == "html" || ext == "htm" else { return }
+                DispatchQueue.main.async {
+                    model.load(url.absoluteString)
+                }
+            }
+            return true
+        }
     }
 }

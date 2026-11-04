@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.17.0 (Swift)
+//  Chirpy Browser — engine 0.18.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -87,7 +87,15 @@
 //      box's paint by its offsets without disturbing the
 //      flow position. position: absolute/fixed and the
 //      multi-column properties are NOT read — honestly out.
-//  Not yet: other pseudo-classes (:hover) and @-rules,
+////    * Load progress (0.18): the main document fetch is
+//      delegate-driven and reports the bytes received
+//      against the response's expected length; the window
+//      shows them as a progress bar under the address bar
+//      — indeterminate when the server declares no length,
+//      and while the fetched page renders its styles and
+//      pictures. An HTML file dropped on the window opens
+//      through the same load path.
+  Not yet: other pseudo-classes (:hover) and @-rules,
 //  color-mix(), the font: shorthand, position:
 //  absolute/fixed, CSS multi-column (column-count),
 //  JavaScript (the mountain).
@@ -192,7 +200,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.17.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -210,7 +218,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.17.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -222,12 +230,127 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     return (final, html)
 }
 
+// Load progress (0.18): the main document fetch, delegate-
+// driven so the window gets a progress bar. The helpers
+// above deliver a page all at once; this one also reports,
+// as the bytes arrive, how much of the page has come in —
+// the fraction of the response's expected length, or nil
+// when the server declares no length (a chunked reply),
+// which the window shows as an indeterminate bar. Only
+// http(s) pages come through here; local pages (Chirpy
+// home, dropped files) are instant and keep the plain
+// helpers. A redirect restarts the count with the new
+// response, and the count is of the bytes as delivered —
+// on a compressed page it can reach the top of its band
+// early and wait there, which the README says plainly.
+final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
+    private var session: URLSession?
+    private var dataTask: URLSessionDataTask?
+    private var received = Data()
+    private var expected: Int64 = -1
+    private var landedURL = ""
+    private var continuation: CheckedContinuation<(finalURL: String, html: String), Error>?
+    private var progressHandler: ((Double?) -> Void)?
+    private var lastReported: Double = -1
+
+    // Stop an in-flight fetch (a newer load supersedes it).
+    func cancel() {
+        dataTask?.cancel()
+    }
+
+    func fetch(urlString: String, postBody: String?,
+               onProgress: @escaping (Double?) -> Void)
+        async throws -> (finalURL: String, html: String) {
+        guard let url = URL(string: urlString) else {
+            throw NSError(domain: "ChirpyBrowser", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
+        }
+        var request = URLRequest(url: url)
+        if let postBody = postBody {
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded",
+                             forHTTPHeaderField: "Content-Type")
+            request.httpBody = postBody.data(using: .utf8)
+        }
+        request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
+                         forHTTPHeaderField: "User-Agent")
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        landedURL = urlString
+        progressHandler = onProgress
+        let session = URLSession(configuration: .default,
+                                 delegate: self, delegateQueue: nil)
+        self.session = session
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            let task = session.dataTask(with: request)
+            self.dataTask = task
+            task.resume()
+        }
+    }
+
+    // A response begins — again after a redirect, when the
+    // byte count and the expected length start over with it.
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                    didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        received = Data()
+        expected = response.expectedContentLength
+        lastReported = -1
+        reportProgress()
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                    didReceive data: Data) {
+        received.append(data)
+        reportProgress()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didCompleteWithError error: Error?) {
+        let done = continuation
+        continuation = nil
+        if let response = task.response {
+            landedURL = response.url?.absoluteString ?? landedURL
+        }
+        session.finishTasksAndInvalidate()
+        if let error = error {
+            done?.resume(throwing: error)
+        } else {
+            let html = String(data: received, encoding: .utf8)
+                ?? String(decoding: received, as: UTF8.self)
+            done?.resume(returning: (finalURL: landedURL, html: html))
+        }
+    }
+
+    // The delegate queue is this fetcher's own serial
+    // queue, so the state above needs no locking. Report
+    // when the fraction moves a visible step, and whenever
+    // the answer changes between a fraction and "unknown".
+    private func reportProgress() {
+        guard let progressHandler = progressHandler else { return }
+        if expected <= 0 {
+            if lastReported != -2 {
+                lastReported = -2
+                progressHandler(nil)
+            }
+            return
+        }
+        let fraction = min(Double(received.count) / Double(expected), 1)
+        if fraction - lastReported >= 0.01
+            || (fraction >= 1 && lastReported < 1) {
+            lastReported = fraction
+            progressHandler(fraction)
+        }
+    }
+}
+
 // Fetch a binary resource (an image). Failures return nil:
 // the image falls back to its label.
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.17.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -438,7 +561,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.17.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
