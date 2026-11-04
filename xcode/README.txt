@@ -7,6 +7,97 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.25.0 — GRID
+------------------------------------------------------
+The second stage of the remaining-CSS program: the
+other layout system modern pages are built with. An
+element styled display:grid no longer falls back to
+plain block stacking — it lays its children out in
+rows and columns at once. Grid is built the way flex
+was in 0.24, on the same machinery: each element
+child is sub-rendered as an item in a renderer of
+its own (the floated box's arrangement), each run of
+text and inline children becomes one anonymous item,
+the container takes its place in the flow as a
+single clear seat carrying its spec as an
+attributed-string key, the view paints the items at
+the seat, and the finalize passes re-lay the grid
+out at its true width recursively — nested grids,
+grid-inside-flex, and flex-inside-grid all travel
+the shared paths, as flex containers do.
+
+* Tracks — DONE. grid-template-columns and
+  grid-template-rows take lengths, percentages,
+  fr shares, minmax() with fixed or fr bounds,
+  auto (content), and repeat() — a fixed count, or
+  auto-fill / auto-fit, which count how many tracks
+  of the repeated minimum fit the container's real
+  size (an auto-fit row axis needs a definite
+  height to count against, else the repeat stands
+  once; auto-fit tracks no item lands in collapse
+  afterward, as the spec directs). The grid-template
+  shorthand's rows / columns form is read too.
+  Named lines are parsed past; grid-template-areas
+  strings are parsed past, not placed by.
+* Track sizing — in the spec's spirit. Fixed tracks
+  stand at their lengths; percentages resolve
+  against the container's real content width (rows:
+  against its declared height when it has one, and
+  read as content otherwise); content tracks stand
+  at the largest item in them, measured the way flex
+  measures — unwrapped for the natural size, at a
+  sliver for the minimum; an item spanning several
+  tracks shares its excess across the spanned
+  tracks free to grow; fr tracks then divide what
+  is left, never below their minimums, with minmax
+  clamps honored during the growth. fr rows under
+  an indefinite height size to their content.
+* Placement — DONE. grid-column / grid-row with
+  line numbers (negative lines count back from the
+  explicit grid) and spans, the four
+  grid-column-start/end and grid-row-start/end
+  longhands, and grid-area in its line-number form.
+  Items without a definite place are auto-placed in
+  row flow by a sparse cursor that wraps at the
+  column count and steps around placed items, spans
+  included; items locked to a row scan that row for
+  their first free run. Definite placements past
+  the template grow implicit content tracks.
+* Alignment — DONE. justify-items / align-items
+  and the per-item justify-self / align-self:
+  stretch (the default — an item fills its area)
+  or start / end / center within the area.
+  justify-content / align-content distribute a
+  track set smaller than its container (start, end,
+  center, space-between, space-around). Baseline
+  reads as start.
+* Gap — DONE. gap, row-gap, and column-gap (and
+  the grid- prefixed spellings) stand between
+  tracks only, never at the edges, exactly like
+  flex's.
+
+Not yet in grid, named plainly: grid-auto-flow:
+column (its pages get row flow); dense packing —
+the cursor never backs up into a hole it has
+passed; placement by line name or by
+grid-template-areas; a grid container's percentage
+height, there being no definite height above a flow
+block to resolve it against. Grid items are paint,
+not live text — the standing bargain since 0.17.
+
+The drill: open grid-test.html (drag it onto the
+window). Eight numbered promises: fr shares in a
+three-column row; a minmax auto-fill gallery that
+gains a second row; explicit placement — a banner
+spanning two columns, a tall box spanning two
+rows, auto items filling under them; auto-placement
+flowing around a planted item; gaps only between
+tracks; stretch filling a cell against a centered
+island; a grid nested inside a grid item; and
+percentage columns with fr rows splitting a
+declared height. The status line reads Chirpy
+Engine 0.25.0.
+
 WHAT'S NEW IN 0.24.0 — FLEXBOX
 ------------------------------------------------------
 The first stage of the remaining-CSS program Tyler

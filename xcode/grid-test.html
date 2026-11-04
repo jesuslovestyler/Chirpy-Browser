@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.25 — Grid Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+  .grid {
+    display: grid; background-color: #F0E68C; padding: 10px;
+    margin: 8px 0;
+  }
+  .cell {
+    padding: 10px; color: #FFFFFF; background-color: #4682B4;
+  }
+  .b1 { background-color: #4682B4; }
+  .b2 { background-color: #B22222; }
+  .b3 { background-color: #2E8B57; }
+  .b4 { background-color: #663399; }
+  .b5 { background-color: #DAA520; }
+  .b6 { background-color: #4682B4; }
+  .b7 { background-color: #B22222; }
+  .fr3 { width: 900px; grid-template-columns: 1fr 2fr 1fr; gap: 20px; }
+  .gallery {
+    width: 900px; gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+  .placed { width: 900px; gap: 20px;
+            grid-template-columns: 200px 1fr 200px; }
+  .banner { grid-column: 1 / 3; }
+  .tall { grid-column: 3; grid-row: 1 / 3; }
+  .flow { width: 900px; gap: 20px; grid-template-columns: 1fr 1fr 1fr; }
+  .planted { grid-area: 2 / 2; }
+  .flush { width: 660px; gap: 20px;
+           grid-template-columns: 200px 200px 200px; }
+  .stage { width: 920px; gap: 20px; grid-template-columns: 1fr 1fr;
+           grid-template-rows: 140px; }
+  .island { justify-self: center; align-self: center; width: 200px; }
+  .outer { width: 900px; gap: 20px; grid-template-columns: 1fr 1fr; }
+  .nested { display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+            padding: 10px; background-color: #663399; }
+  .mini { padding: 8px; color: #FFFFFF; }
+  .quadrants { width: 900px; height: 300px; padding: 0; gap: 0;
+               grid-template-columns: 25% 1fr;
+               grid-template-rows: 1fr 2fr; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.25 — grid test</h1>
+<p>Every arrangement on this page is made with CSS grid
+alone. Read down and check each numbered promise. First,
+the status line at the bottom of the window should read
+"Chirpy Engine 0.25.0 (Swift)". Honest notes before the
+promises: the items on this page are paint, not live
+text — the floated boxes' bargain since 0.17 — so a link
+inside an item shows its colors but does not click;
+grid-auto-flow: column is not read yet (its pages get
+row flow), and neither is dense packing — the placement
+cursor never backs up into a hole it passed; named
+lines and grid-template-areas are parsed past, not
+placed by; baseline alignment of items reads as start;
+and a grid container's percentage height is not read,
+there being no definite height above a flow block to
+resolve it against.</p>
+
+<h2>1 — fr shares: a three-column row</h2>
+<div class="grid fr3">
+  <div class="cell b1">LEFT — my column is 1fr: one
+  share of the width the two gutters leave.</div>
+  <div class="cell b2">MIDDLE — my column is 2fr, so I
+  stand twice as wide as each side card: two shares
+  against their one.</div>
+  <div class="cell b3">RIGHT — 1fr again. The yellow
+  gutters between us are 20 points each, and there is
+  no gutter at the row's edges.</div>
+</div>
+
+<h2>2 — the minmax gallery</h2>
+<div class="grid gallery">
+  <div class="cell b1">ONE</div>
+  <div class="cell b2">TWO</div>
+  <div class="cell b3">THREE</div>
+  <div class="cell b4">FOUR — the columns are
+  repeat(auto-fill, minmax(200px, 1fr)): as many
+  columns of at least 200 as fit, which here is
+  four.</div>
+  <div class="cell b5">FIVE — second row. Each of us
+  stands a little wider than the 200 minimum,
+  because the 1fr maximum shares the leftover
+  evenly.</div>
+  <div class="cell b6">SIX</div>
+  <div class="cell b7">SEVEN — and the fourth track
+  of this row stands empty behind me: auto-fill
+  keeps the track standing even with nobody in
+  it.</div>
+</div>
+
+<h2>3 — explicit placement and spans</h2>
+<div class="grid placed">
+  <div class="cell b1 banner">BANNER — grid-column:
+  1 / 3, so I span the first two columns: the fixed
+  200, the gutter, and the wide fr middle.</div>
+  <div class="cell b2 tall">TALL — grid-column: 3
+  and grid-row: 1 / 3: I stand in the right-hand
+  column and span both rows, so my box runs the
+  full height of this little grid.</div>
+  <div class="cell b3">UNDER LEFT — nobody placed
+  me; the auto-placement cursor found the first
+  free cell, which is row two, column one, under
+  the banner.</div>
+  <div class="cell b4">UNDER MIDDLE — the cursor's
+  next free cell: row two, column two. The cell at
+  row two, column three was already the tall box's,
+  so the row ends with us two.</div>
+</div>
+
+<h2>4 — auto-placement flows around a planted item</h2>
+<div class="grid flow">
+  <div class="cell b1">AUTO 1 — row one, first
+  cell.</div>
+  <div class="cell b2">AUTO 2 — row one, second
+  cell.</div>
+  <div class="cell b3">AUTO 3 — row one, third
+  cell: the row is full, so the cursor wraps.</div>
+  <div class="cell b4 planted">PLANTED — grid-area:
+  2 / 2 put me here before any auto item was
+  placed: row two, middle cell.</div>
+  <div class="cell b5">AUTO 4 — row two, first
+  cell.</div>
+  <div class="cell b6">AUTO 5 — the cursor reached
+  row two's middle, found it planted, and stepped
+  past it: I stand at row two, third cell.</div>
+</div>
+
+<h2>5 — gap lives only between tracks</h2>
+<div class="grid flush">
+  <div class="cell b1">FLUSH LEFT — three fixed
+  200-point columns and two 20-point gutters make
+  exactly the yellow bar's content width.</div>
+  <div class="cell b2">MIDDLE — yellow shows above
+  and below me and in the gutters at my sides.</div>
+  <div class="cell b3">FLUSH RIGHT — my right edge
+  meets the bar's right edge exactly: no gap at the
+  edges, ever.</div>
+</div>
+
+<h2>6 — stretch fills, center floats</h2>
+<div class="grid stage">
+  <div class="cell b1">STRETCH — no width, no
+  height, no self-alignment declared for me, so I
+  fill my whole cell: the row is a declared 140
+  tall, and I stand all of it, edge to edge.</div>
+  <div class="cell b2 island">ISLAND — I declare a
+  200 width and center myself both ways, so the
+  yellow of my cell shows on all four sides of
+  me.</div>
+</div>
+
+<h2>7 — a grid inside a grid item</h2>
+<div class="grid outer">
+  <div class="cell b1">PLAIN — an ordinary item of
+  the outer grid, standing in its left column. The
+  outer row stretches us both to the same height,
+  so I stand as tall as my neighbour and everything
+  inside it.</div>
+  <div class="nested">
+    <div class="mini b2">NEST 1</div>
+    <div class="mini b3">NEST 2</div>
+    <div class="mini b4">NEST 3</div>
+    <div class="mini b5">NEST 4 — this whole purple
+    box is one item of the outer grid, and itself a
+    grid of two columns: four little boxes standing
+    inside the outer grid's right column.</div>
+  </div>
+</div>
+
+<h2>8 — percentages and row shares</h2>
+<div class="grid quadrants">
+  <div class="cell b1">TOP LEFT — my column is
+  25%: a quarter of the bar's width. My row is 1fr
+  of the height: a third of it.</div>
+  <div class="cell b2">TOP RIGHT — the fr column
+  takes the remaining three quarters.</div>
+  <div class="cell b3">BOTTOM LEFT — the 2fr row:
+  twice the top row's height.</div>
+  <div class="cell b4">BOTTOM RIGHT — the tallest
+  and widest quadrant of the four.</div>
+</div>
+<p>The bar is a declared 300 tall, its rows are 1fr
+and 2fr, and with no gaps and no padding the four
+boxes tile it completely.</p>
+
+<p>End of the test page. If all eight promises held,
+grid works.</p>
+</body>
+</html>
