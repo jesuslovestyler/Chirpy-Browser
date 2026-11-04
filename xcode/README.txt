@@ -638,3 +638,9 @@ Don't wrestle them. Take a screenshot of the errors and show
 Noki — she wrote every line and will fix the files from her
 side, the same way you two work on Homework Turtle. Fixed
 files will come back to swap in.
+
+0.23.2 (Nov 4, 2026): the home-page verse is now Douay-Rheims — Psalm 118:105,
+"Thy word is a lamp to my feet, and a light to my paths." — replacing the World
+English Bible's Psalm 119:105, at Tyler's word (the Catholic browser quotes the
+Catholic Bible). Version strings bumped throughout, so the status line reading
+"Chirpy Engine 0.23.2" proves this build; the drill's step 1 expects 0.23.2.

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.23.1 (Swift)
+//  Chirpy Browser — prototype 0.23.2 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.23.1 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.23.2 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -180,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.23.1 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.23.2 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -825,7 +825,7 @@ struct PageTextView: NSViewRepresentable {
                 for event in self.layoutEvents {
                     switch event {
                     case .float(let spec):
-                        // A percentage width (0.23.1)
+                        // A percentage width (0.23.2)
                         // resolves here, against the real
                         // column the view is placing in,
                         // less the containing block's
@@ -924,7 +924,7 @@ struct PageTextView: NSViewRepresentable {
                             if spec.side == .left && other.side != .left { continue }
                             if spec.side == .right && other.side != .right { continue }
                             // The bound is inclusive
-                            // (0.23.1): a wrapper whose
+                            // (0.23.2): a wrapper whose
                             // only children are floats
                             // appends no characters
                             // between its last float and
@@ -1107,7 +1107,7 @@ struct PageTextView: NSViewRepresentable {
         }
 
         // Measure a painted box's text the way the
-        // renderer measures it (0.23.1): its own storage,
+        // renderer measures it (0.23.2): its own storage,
         // manager and container at a given width. Used to
         // re-measure a percentage-width float's height
         // once its width has been resolved against the
@@ -1441,7 +1441,7 @@ final class TBBandLayoutManager: NSLayoutManager {
     var floatPaints: [(rect: NSRect, spec: TBFloatSpec)] = [] {
         didSet { floatContentLayouts = [:] }
     }
-    // Painted layouts (0.23.1): the cache holds each
+    // Painted layouts (0.23.2): the cache holds each
     // box's NSTextStorage alongside its layout manager
     // and container. A layout manager references its
     // text storage only weakly — the storage owns the
@@ -1488,7 +1488,7 @@ final class TBBandLayoutManager: NSLayoutManager {
                 rect.origin.y += offset.y
                 rect.size.width = width
                 // A rect with no area is dropped
-                // (0.23.1): handed on, it would fill
+                // (0.23.2): handed on, it would fill
                 // as a zero-size draw — the kind
                 // Metal's debug validation asserts
                 // on — and it can paint no pixel
@@ -1637,7 +1637,7 @@ final class TBBandLayoutManager: NSLayoutManager {
                               height: band.bottom - band.top)
             // A band of no height — an empty
             // paragraph's surface can measure zero —
-            // is never issued as a draw (0.23.1):
+            // is never issued as a draw (0.23.2):
             // zero-size draws are what Metal's debug
             // validation asserts on (instanceCount 0),
             // and a rect with no area paints nothing
@@ -1693,7 +1693,7 @@ final class TBBandLayoutManager: NSLayoutManager {
             // rule a point or three wide has no bevel to
             // show. Dotted and dashed stroke a line with
             // a dash pattern instead. A rule of no height
-            // is not drawn at all (0.23.1): a zero-height
+            // is not drawn at all (0.23.2): a zero-height
             // fill, or a path from a point to itself, is
             // a zero-size draw.
             if spec.columnCount > 1, spec.ruleWidth > 0,
@@ -1748,7 +1748,7 @@ final class TBBandLayoutManager: NSLayoutManager {
             manager = cached.1
             containers = cached.2
         } else {
-            // 0.23.1: the storage is built first and
+            // 0.23.2: the storage is built first and
             // attached to the manager before its
             // containers — the floated-box painter's
             // established order — and the cache keeps
@@ -1794,7 +1794,7 @@ final class TBBandLayoutManager: NSLayoutManager {
     // its padding. A picture that never arrived leaves a
     // labelled frame, as a failed in-flow image does.
     func paintBox(rect: NSRect, source: TBBoxPaintSource) {
-        // No fill for an empty rect (0.23.1): a box
+        // No fill for an empty rect (0.23.2): a box
         // resolved to no width or no height paints
         // nothing anyway, and a zero-size fill is
         // exactly the draw Metal's debug validation
@@ -1818,7 +1818,7 @@ final class TBBandLayoutManager: NSLayoutManager {
                       contentRect.width > 1, contentRect.height > 1 {
                 // The frame is inset half a point, so
                 // a content rect of a point or less
-                // would stroke an empty path (0.23.1).
+                // would stroke an empty path (0.23.2).
                 NSColor.separatorColor.setStroke()
                 let frame = NSBezierPath(rect: contentRect.insetBy(dx: 0.5, dy: 0.5))
                 frame.lineWidth = 1
@@ -1946,7 +1946,7 @@ final class TBBandLayoutManager: NSLayoutManager {
     // backgrounds through this same path.
     static func paintBackgroundLayers(_ box: TBBackgroundBox, in rect: NSRect) {
         // One guard for every caller — surfaces, the
-        // box painter, the fixed overlays (0.23.1): no
+        // box painter, the fixed overlays (0.23.2): no
         // layer of a box with no area is ever drawn,
         // since a gradient or photo issued into an
         // empty rect is a zero-size draw.
@@ -2243,7 +2243,7 @@ final class TBFixedOverlayView: NSView {
     }
     // The storage rides in the cache for the same
     // reason as in the layout manager's painters
-    // (0.23.1): the manager holds it only weakly, and
+    // (0.23.2): the manager holds it only weakly, and
     // a fixed box's words must survive repaints.
     private var contentLayout: (NSTextStorage, NSLayoutManager, NSTextContainer)? = nil
 

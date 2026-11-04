@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.23.1 (Swift)
+//  Chirpy Browser — engine 0.23.2 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -198,9 +198,9 @@ let TB_HOME_HTML = """
 <body>
 <h1>Chirpy Browser</h1>
 <p>A browser for Catholics, by Catholics. Private, simple, and ours.</p>
-<h2>Your word is a lamp to my feet</h2>
-<p>"Your word is a lamp to my feet, and a light for my path."
-&mdash; Psalm 119:105 (World English Bible)</p>
+<h2>Thy word is a lamp to my feet</h2>
+<p>"Thy word is a lamp to my feet, and a light to my paths."
+&mdash; Psalm 118:105 (Douay-Rheims)</p>
 <h2>Doors</h2>
 <ul>
 <li><a href="https://jesuslovestyler.github.io/Catholic-Bible/">Catholic Bible</a></li>
@@ -287,7 +287,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -305,7 +305,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -359,7 +359,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -437,7 +437,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -595,7 +595,7 @@ final class TBFloatSpec {
     var borderHeight: CGFloat
     var widthDeclared = false
     var heightDeclared = false
-    // A declared percentage width (0.23.1): the raw
+    // A declared percentage width (0.23.2): the raw
     // percent, kept unresolved because a percentage
     // belongs to the containing block, whose real
     // width only the view knows — the view resolves
@@ -872,7 +872,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.23.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -2911,7 +2911,7 @@ final class TBRenderer {
     private var relDY: CGFloat = 0
     private var lastFlushRange: NSRange? = nil
     var nominalWidth: CGFloat = 1000
-    // Percentage float widths (0.23.1): the horizontal
+    // Percentage float widths (0.23.2): the horizontal
     // padding of the block ancestors currently open,
     // accumulated by walkBlock the way the relative
     // offsets above are — a floated child's containing
@@ -3714,7 +3714,7 @@ final class TBRenderer {
                 padTop: plen(padding[0]), padBottom: plen(padding[2]),
                 topCarry: plen(padding[0])))
         }
-        // Percentage float widths (0.23.1): this block's
+        // Percentage float widths (0.23.2): this block's
         // own horizontal padding joins the accumulation,
         // so a floated child met in the loop below reads
         // its containing block's inset from the spec it
@@ -4063,7 +4063,7 @@ final class TBRenderer {
         let fontSize = childFont.pointSize
         let margins = boxLengths(own, "margin", fontSize: fontSize)
         let padding = boxLengths(own, "padding", fontSize: fontSize)
-        // A percentage width (0.23.1) is NOT resolved
+        // A percentage width (0.23.2) is NOT resolved
         // here: tbLengthValue would settle it against a
         // flat thousand points, which is how a declared
         // 44% came out at 44% of a page the float had
