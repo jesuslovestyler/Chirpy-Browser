@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.22.0 (Swift)
+//  Chirpy Browser — prototype 0.23.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.22.0 (Swift) — first paint, positioned layout, floats, columns, color-mix, forms, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.23.0 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -49,6 +49,19 @@ final class BrowserModel: ObservableObject {
     private var currentURL = ""
     private var backStack: [String] = []
     private var forwardStack: [String] = []
+
+    // The finishing set (0.23): every URL this window has
+    // landed on — the session :visited reads, handed to
+    // the renderer with each load. Memory only: a new
+    // launch starts with no visited links at all.
+    private var sessionVisited: Set<String> = []
+    // The finishing set (0.23): the text area's width as
+    // the coordinator last measured it — @media's width
+    // questions are answered against this render's width.
+    // Nil until the window has laid out once; the
+    // renderer then stands on its nominal width, as
+    // pages did before the finishing set.
+    var viewTextWidth: CGFloat? = nil
 
     init() {
         load("chirpy://home", push: false)
@@ -167,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.22.0 (Swift) — first paint, positioned layout, floats, columns, color-mix, forms, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.23.0 (Swift) — first paint, positioned layout, floats, columns, color-mix, font shorthand, media queries, hover, forms, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -176,9 +189,12 @@ final class BrowserModel: ObservableObject {
                 // fetching. The render's second stage, the
                 // arrivals, may touch this page afterwards
                 // only while this load is still the latest.
-                let paint = await tbRenderPage(html: html, base: finalURL) { first in
+                let paint = await tbRenderPage(html: html, base: finalURL,
+                                               visited: sessionVisited,
+                                               mediaWidth: viewTextWidth) { first in
                     guard generation == self.loadGeneration else { return }
                     self.currentURL = first.landedURL
+                    self.sessionVisited.insert(first.landedURL)
                     self.addressText = first.landedURL
                     self.pageTitle = first.title
                     self.pageText = first.body
@@ -281,6 +297,7 @@ struct PageTextView: NSViewRepresentable {
             context.coordinator.lastPageID = model.pageID
             context.coordinator.clearFormViews()
             context.coordinator.clearFixedViews()
+            (textView as? TBPageTextView)?.pageTextReplaced()
             textView.textStorage?.setAttributedString(model.pageText)
             textView.scrollToBeginningOfDocument(nil)
             context.coordinator.rebuildFormViews()
@@ -371,6 +388,12 @@ struct PageTextView: NSViewRepresentable {
         func refreshInsets() {
             guard let textView = textView, let clipView = clipView else { return }
             let available = clipView.frame.width
+            // The finishing set (0.23): the model hands
+            // this width — the window's text area, inside
+            // its standing insets — to the renderer with
+            // each load, so @media answers against the
+            // window the reader actually has.
+            if available > 32 { model.viewTextWidth = available - 32 }
             var insetX: CGFloat = 16
             if let column = columnWidth, available > 0 {
                 insetX = max(16, (available - column) / 2)
@@ -504,6 +527,7 @@ struct PageTextView: NSViewRepresentable {
                   let storage = textView.textStorage else { return }
             var typed: [Int: String] = [:]
             for (id, field) in fieldViews { typed[id] = field.stringValue }
+            (textView as? TBPageTextView)?.pageTextReplaced()
             storage.setAttributedString(model.pageText)
             rebuildFormViews()
             for (id, value) in typed {
@@ -1145,6 +1169,168 @@ final class TBPageTextView: NSTextView {
         super.draw(dirtyRect)
         guard let band = layoutManager as? TBBandLayoutManager else { return }
         band.paintPositionedAbove(at: textContainerOrigin, dirtyRect: dirtyRect)
+    }
+
+    // Hover paint (0.23): the engine stamps each element's
+    // hover traits onto its text — TBHoverAttrs on the
+    // element's own run, TBHoverBlockAttrs on its block's
+    // whole range. While the pointer rests on such text,
+    // this view lifts those characters into the stamped
+    // style — the element's traits over the block's, trait
+    // by trait — and puts the original paint back exactly
+    // when the pointer moves on. Paint only: the stamped
+    // traits are colors and underline switches, none of
+    // which can move a glyph, and layout is never re-run.
+    private var hoverTrackingArea: NSTrackingArea? = nil
+    private var hoverRange: NSRange? = nil
+    private var hoverSaved: [(key: NSAttributedString.Key,
+                              range: NSRange, value: Any?)] = []
+    private var hoverTextLength = -1
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area = hoverTrackingArea { removeTrackingArea(area) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited,
+                      .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateHover(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        clearHover()
+    }
+
+    // The window replaced the page's text (a new load, or
+    // the arrivals landing): any hover being worn belonged
+    // to the old text. Forget it without restoring — the
+    // new text never wore it.
+    func pageTextReplaced() {
+        hoverRange = nil
+        hoverSaved = []
+        hoverTextLength = -1
+    }
+
+    private func updateHover(with event: NSEvent) {
+        guard let storage = textStorage, let layoutManager = layoutManager,
+              let container = textContainer else { return }
+        // The text changed length under a worn hover (a
+        // re-install the coordinator did not announce):
+        // the saved paint belongs to the old text — forget
+        // it rather than write it onto the new.
+        if hoverRange != nil && hoverTextLength != storage.length {
+            pageTextReplaced()
+        }
+        guard storage.length > 0 else { clearHover(); return }
+        let inView = convert(event.locationInWindow, from: nil)
+        let point = NSPoint(x: inView.x - textContainerOrigin.x,
+                            y: inView.y - textContainerOrigin.y)
+        guard point.x >= 0, point.y >= 0 else { clearHover(); return }
+        let index = layoutManager.characterIndex(
+            for: point, in: container,
+            fractionOfDistanceBetweenGlyph: nil)
+        guard index < storage.length else { clearHover(); return }
+        var elementRange = NSRange(location: 0, length: 0)
+        var blockRange = NSRange(location: 0, length: 0)
+        let element = storage.attribute(TBHoverAttrsKey, at: index,
+                                        effectiveRange: &elementRange)
+            as? TBHoverStyle
+        let block = storage.attribute(TBHoverBlockAttrsKey, at: index,
+                                      effectiveRange: &blockRange)
+            as? TBHoverStyle
+        guard element != nil || block != nil else { clearHover(); return }
+        // Where the two stamps overlap, both are constant:
+        // the element's run inside its block.
+        let extent: NSRange
+        if element != nil && block != nil {
+            extent = NSIntersectionRange(elementRange, blockRange)
+        } else if element != nil {
+            extent = elementRange
+        } else {
+            extent = blockRange
+        }
+        guard extent.length > 0 else { clearHover(); return }
+        if hoverRange == extent { return }   // already wearing it
+        clearHover()
+        applyHover(extent: extent, block: block, storage: storage)
+    }
+
+    private func applyHover(extent: NSRange, block: TBHoverStyle?,
+                            storage: NSTextStorage) {
+        let paintKeys: [NSAttributedString.Key] = [
+            .foregroundColor, .backgroundColor,
+            .underlineStyle, .strikethroughStyle]
+        // Snapshot the paint this hover is about to cover,
+        // run by run, so it can be put back exactly — a
+        // hovered link's own color and underline included.
+        var saved: [(key: NSAttributedString.Key,
+                     range: NSRange, value: Any?)] = []
+        for key in paintKeys {
+            storage.enumerateAttribute(key, in: extent, options: []) {
+                value, range, _ in
+                saved.append((key: key, range: range, value: value))
+            }
+        }
+        // Read the element stamp's runs before touching
+        // anything — never mutate the text while an
+        // enumeration is walking it. A plainer child inside
+        // a hovered parent keeps its own stamp; the block's
+        // traits fill whatever an element leaves unnamed.
+        var runs: [(range: NSRange, style: TBHoverStyle?)] = []
+        storage.enumerateAttribute(TBHoverAttrsKey, in: extent,
+                                   options: []) { value, range, _ in
+            runs.append((range: range, style: value as? TBHoverStyle))
+        }
+        for run in runs {
+            let fg = run.style?.foregroundColor ?? block?.foregroundColor
+            let bg = run.style?.backgroundColor ?? block?.backgroundColor
+            let ul = run.style?.underlineStyle ?? block?.underlineStyle
+            let st = run.style?.strikethroughStyle
+                ?? block?.strikethroughStyle
+            if let fg = fg {
+                storage.addAttribute(.foregroundColor, value: fg,
+                                     range: run.range)
+            }
+            if let bg = bg {
+                storage.addAttribute(.backgroundColor, value: bg,
+                                     range: run.range)
+            }
+            if let ul = ul {
+                storage.addAttribute(.underlineStyle, value: ul,
+                                     range: run.range)
+            }
+            if let st = st {
+                storage.addAttribute(.strikethroughStyle, value: st,
+                                     range: run.range)
+            }
+        }
+        hoverSaved = saved
+        hoverRange = extent
+        hoverTextLength = storage.length
+    }
+
+    private func clearHover() {
+        guard hoverRange != nil else { return }
+        if let storage = textStorage {
+            for entry in hoverSaved
+            where NSMaxRange(entry.range) <= storage.length {
+                if let value = entry.value {
+                    storage.addAttribute(entry.key, value: value,
+                                         range: entry.range)
+                } else {
+                    storage.removeAttribute(entry.key, range: entry.range)
+                }
+            }
+        }
+        pageTextReplaced()
     }
 }
 

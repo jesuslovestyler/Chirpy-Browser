@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.22.0 (Swift)
+//  Chirpy Browser — engine 0.23.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -147,8 +147,44 @@
 //      per the spec, percentages defaulting and scaling
 //      alpha as the spec directs, nested mixes included;
 //      other color spaces are not read.
-//  Not yet: other pseudo-classes (:hover) and @-rules,
-//  the font: shorthand, position: sticky,
+//    * The finishing set (0.23): the font: shorthand is
+//      read whole — style, variant, weight and stretch
+//      before the size, an optional /line-height, then
+//      the family — and expands into its longhands at
+//      its own place in the cascade, unmentioned
+//      components resetting to normal as the shorthand
+//      demands; a font: arriving through var() expands
+//      after substitution. font-family is honored (the
+//      first family in the list that resolves on this
+//      Mac; the generic families map to platform
+//      faces), and font-variant paints small-caps.
+//      The system-font keywords (font: menu and kin)
+//      and font-stretch are read and set aside.
+//      @media grows past prefers-color-scheme:
+//      min-width / max-width / width against the text
+//      area's width as the load began,
+//      prefers-reduced-motion from the system's own
+//      accessibility setting, hover / pointer answered
+//      as the constants they are on a Mac; unknown
+//      features keep their old answer — the block does
+//      not apply — and a sheet's media rules no longer
+//      leak into its plain cascade. Structural
+//      pseudo-classes join matching: :first-child,
+//      :last-child, :nth-child() and :nth-of-type()
+//      in every An+B spelling, :first-of-type,
+//      :last-of-type, :not() around a compound, and
+//      :empty. :link and :visited divide a page's
+//      anchors by this window's session — the URLs it
+//      has loaded; nothing is kept between launches.
+//      :hover is paint, never layout: each element's
+//      hover traits (color, background color, the
+//      underline and strikethrough switches) are
+//      stamped onto its text, and the view lifts the
+//      text into them while the pointer rests on it.
+//      :focus and :active are not read, and a hover
+//      background's photo or gradient layers are not
+//      painted — its color is.
+//  Not yet: position: sticky, :focus and :active,
 //  JavaScript (the mountain).
 //
 
@@ -251,7 +287,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -269,7 +305,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -323,7 +359,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -401,7 +437,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -520,6 +556,28 @@ let TBExtBottomKey = NSAttributedString.Key("TBExtBottom")
 // and everything seated in it, like form controls — stays
 // where the text put it.
 let TBRelOffsetKey = NSAttributedString.Key("TBRelOffset")
+
+// The finishing set (0.23): hover. A hovered element's
+// paint-level style rides on its text under these keys, as
+// a TBHoverStyle — a class, like TBBackgroundBox, because
+// attribute values that are Swift dictionaries do not
+// survive being read back. Two keys because two stamps land
+// on the same characters: an element's own (stamped as its
+// run finishes) and its enclosing block's (stamped as the
+// block closes), and the view merges them block-under-
+// element when the pointer arrives. The view finds the
+// style under the glyph, lifts the element's characters
+// into it, and puts the original characters back when the
+// pointer leaves — hover never touches layout.
+let TBHoverAttrsKey = NSAttributedString.Key("TBHoverAttrs")
+let TBHoverBlockAttrsKey = NSAttributedString.Key("TBHoverBlockAttrs")
+
+final class TBHoverStyle {
+    var foregroundColor: NSColor? = nil
+    var backgroundColor: NSColor? = nil
+    var underlineStyle: Int? = nil
+    var strikethroughStyle: Int? = nil
+}
 
 enum TBFloatSide { case left, right }
 enum TBClearSide { case left, right, both }
@@ -795,7 +853,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.23.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -812,6 +870,13 @@ final class TBNode {
     var children: [TBNode] = []
     var text: String = ""
     weak var parent: TBNode?   // CSS step two matches ancestors.
+    // The finishing set (0.23): for an <a> element, whether
+    // its target is in this session's visited set — the
+    // renderer stamps it as it resolves the element's
+    // style, and :link / :visited matching reads it. The
+    // set itself is the window's, passed to each render;
+    // nothing persists between launches.
+    var linkVisited = false
     init(tag: String, text: String = "") {
         self.tag = tag
         self.text = text
@@ -1021,17 +1086,64 @@ func tbExtractTitle(html: String) -> String {
 
 // MARK: - CSS
 
+// An :nth-child() / :nth-of-type() formula, An+B: an element
+// matches when its 1-based index among its siblings equals
+// A*n + B for some n >= 0.
+struct TBNthExpr {
+    var a: Int
+    var b: Int
+}
+
+// The argument of :not(...) — a compound in its own right,
+// boxed in a class because a struct cannot hold itself.
+final class TBNotBox {
+    let compound: TBCompound
+    init(_ compound: TBCompound) { self.compound = compound }
+}
+
 // One compound selector: an optional element name plus any number
 // of class and id conditions, e.g. `a.card`, `.banner.intro`,
 // `#main`, or `*` (no conditions at all — matches any element).
+// The finishing set (0.23) adds the pseudo-classes this engine
+// reads: the structural ones (:first-child and family, :nth-child
+// and :nth-of-type with their formulas, :empty, :not with a
+// compound argument), the link states (:link, :visited) and
+// :hover. :focus and :active stay outside the grammar, so a
+// selector using them does not parse and its rule never applies.
 struct TBCompound {
     var tag: String? = nil
     var classes: [String] = []
     var id: String? = nil
     var isRoot = false   // :root — matches the <html> element
+    var isHover = false  // :hover — matches only in a hover resolution
+    var isLink = false   // :link — an anchor not yet visited
+    var isVisited = false   // :visited — an anchor in the session's visited set
+    var firstChild = false
+    var lastChild = false
+    var firstOfType = false
+    var lastOfType = false
+    var nthChild: TBNthExpr? = nil
+    var nthOfType: TBNthExpr? = nil
+    var requiresEmpty = false   // :empty
+    var notBox: TBNotBox? = nil   // :not(compound)
     var specificity: Int {
-        (id != nil ? 100 : 0) + classes.count * 10 + (tag != nil ? 1 : 0)
-            + (isRoot ? 10 : 0)   // a pseudo-class counts as a class
+        // A pseudo-class counts as a class; :not itself counts
+        // for nothing, but its argument counts as it would
+        // standing alone — the Selectors rules both.
+        var s = (id != nil ? 100 : 0) + classes.count * 10 + (tag != nil ? 1 : 0)
+        if isRoot { s += 10 }
+        if isHover { s += 10 }
+        if isLink { s += 10 }
+        if isVisited { s += 10 }
+        if firstChild { s += 10 }
+        if lastChild { s += 10 }
+        if firstOfType { s += 10 }
+        if lastOfType { s += 10 }
+        if nthChild != nil { s += 10 }
+        if nthOfType != nil { s += 10 }
+        if requiresEmpty { s += 10 }
+        if let notBox = notBox { s += notBox.compound.specificity }
+        return s
     }
 }
 
@@ -1057,20 +1169,72 @@ func tbIsNameChar(_ c: Character) -> Bool {
     c.isLetter || c.isNumber || c == "-" || c == "_"
 }
 
+// The parenthesised argument starting at chars[openIndex]
+// (which must be "("): the argument's text and the index just
+// past its closing ")". Parentheses nest — :not(:nth-child(2))
+// wears two pairs. Nil when the parentheses never close.
+func tbParenArgument(_ chars: [Character], openIndex: Int)
+    -> (arg: String, next: Int)? {
+    guard openIndex < chars.count, chars[openIndex] == "(" else { return nil }
+    var depth = 0
+    var arg = ""
+    var j = openIndex
+    while j < chars.count {
+        let c = chars[j]
+        if c == "(" {
+            depth += 1
+            if depth > 1 { arg.append(c) }
+        } else if c == ")" {
+            depth -= 1
+            if depth == 0 { return (arg, j + 1) }
+            arg.append(c)
+        } else {
+            arg.append(c)
+        }
+        j += 1
+    }
+    return nil
+}
+
+// An :nth-child() formula: odd, even, a bare index (3), or
+// An+B in any of its spellings (n, -n, 2n, 2n+1, -n+3, 3n-2).
+func tbParseNth(_ raw: String) -> TBNthExpr? {
+    let s = raw.lowercased().filter { !$0.isWhitespace }
+    if s == "odd" { return TBNthExpr(a: 2, b: 1) }
+    if s == "even" { return TBNthExpr(a: 2, b: 0) }
+    if let bare = Int(s) { return TBNthExpr(a: 0, b: bare) }
+    guard let nIndex = s.firstIndex(of: "n") else { return nil }
+    let aText = String(s[s.startIndex..<nIndex])
+    let bText = String(s[s.index(after: nIndex)...])
+    let a: Int
+    if aText.isEmpty || aText == "+" { a = 1 }
+    else if aText == "-" { a = -1 }
+    else if let v = Int(aText) { a = v }
+    else { return nil }
+    var b = 0
+    if !bText.isEmpty {
+        guard let v = Int(bText) else { return nil }
+        b = v
+    }
+    return TBNthExpr(a: a, b: b)
+}
+
 // Parse one compound selector token, e.g. "div", ".card", "a.card",
-// "#main", "div#main.card", "*". Element names are case-insensitive
-// (lowercased here); class and id names keep their case, as CSS
-// requires. Returns nil for anything outside this grammar.
+// "#main", "div#main.card", "*", "li:nth-child(2n+1)", "a:hover",
+// "p:not(.skip)". Element names are case-insensitive (lowercased
+// here); class and id names keep their case, as CSS requires.
+// Pseudo-classes may follow the element name — or stand in for
+// one, as in ":root" or ":first-child". Returns nil for anything
+// outside this grammar, pseudo-elements (::before) included.
 func tbParseCompound(_ token: String) -> TBCompound? {
     if token.isEmpty { return nil }
     var compound = TBCompound()
     let chars = Array(token)
     var i = 0
-    if token.hasPrefix(":root") {
-        compound.isRoot = true
-        i = 5
-    } else if chars[0] == "*" {
+    var sawComponent = false
+    if chars[0] == "*" {
         i = 1   // universal: no element condition
+        sawComponent = true
     } else if tbIsNameChar(chars[0]) {
         var name = ""
         while i < chars.count && tbIsNameChar(chars[i]) {
@@ -1078,39 +1242,111 @@ func tbParseCompound(_ token: String) -> TBCompound? {
             i += 1
         }
         compound.tag = name.lowercased()
+        sawComponent = true
     }
     while i < chars.count {
         let marker = chars[i]
-        guard marker == "." || marker == "#" else { return nil }
-        i += 1
-        var name = ""
-        while i < chars.count && tbIsNameChar(chars[i]) {
-            name.append(chars[i])
+        if marker == "." || marker == "#" {
             i += 1
-        }
-        if name.isEmpty { return nil }
-        if marker == "." {
-            compound.classes.append(name)
+            var name = ""
+            while i < chars.count && tbIsNameChar(chars[i]) {
+                name.append(chars[i])
+                i += 1
+            }
+            if name.isEmpty { return nil }
+            if marker == "." {
+                compound.classes.append(name)
+            } else {
+                if compound.id != nil { return nil }   // two ids in one compound
+                compound.id = name
+            }
+        } else if marker == ":" {
+            i += 1
+            if i < chars.count && chars[i] == ":" { return nil }   // ::before & friends
+            var name = ""
+            while i < chars.count && tbIsNameChar(chars[i]) {
+                name.append(chars[i])
+                i += 1
+            }
+            switch name.lowercased() {
+            case "root": compound.isRoot = true
+            case "first-child": compound.firstChild = true
+            case "last-child": compound.lastChild = true
+            case "first-of-type": compound.firstOfType = true
+            case "last-of-type": compound.lastOfType = true
+            case "empty": compound.requiresEmpty = true
+            case "link": compound.isLink = true
+            case "visited": compound.isVisited = true
+            case "hover": compound.isHover = true
+            case "nth-child", "nth-of-type":
+                guard let (arg, next) = tbParenArgument(chars, openIndex: i),
+                      let nth = tbParseNth(arg) else { return nil }
+                if name.lowercased() == "nth-child" {
+                    compound.nthChild = nth
+                } else {
+                    compound.nthOfType = nth
+                }
+                i = next
+            case "not":
+                // The argument is a compound like this one —
+                // no combinators, and (per Selectors 3) no
+                // :not inside it.
+                guard let (arg, next) = tbParenArgument(chars, openIndex: i),
+                      let inner = tbParseCompound(
+                          arg.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      inner.notBox == nil else { return nil }
+                compound.notBox = TBNotBox(inner)
+                i = next
+            default:
+                return nil   // :focus, :active, :lang, … — not read
+            }
         } else {
-            if compound.id != nil { return nil }   // two ids in one compound
-            compound.id = name
+            return nil
         }
+        sawComponent = true
     }
-    return compound
+    return sawComponent ? compound : nil
 }
 
 // Parse a full selector: compounds joined by descendant (space)
-// and child (>) combinators. Pseudo-classes and elements other
-// than :root (:hover, ::before), attribute selectors ([href]),
-// and the sibling combinators (+, ~) are outside the grammar: nil.
+// and child (>) combinators. Attribute selectors ([href]) and
+// the sibling combinators (+, ~) are outside the grammar, and
+// pseudo-classes are admitted one by one in tbParseCompound —
+// anything it refuses fails the selector here too. The scans
+// are parenthesis-aware throughout: the "+" in
+// :nth-child(2n+1) is a formula, not a combinator, and a
+// functional pseudo's argument may contain spaces.
 func tbParseSelector(_ raw: String) -> TBSelector? {
-    let withoutRoot = raw.replacingOccurrences(of: ":root", with: "")
-    if raw.isEmpty || withoutRoot.contains(":") || raw.contains("[")
-        || raw.contains("]") || raw.contains("+") || raw.contains("~") {
-        return nil
+    if raw.isEmpty { return nil }
+    var depth = 0
+    for c in raw {
+        if c == "(" { depth += 1 }
+        else if c == ")" {
+            depth -= 1
+            if depth < 0 { return nil }
+        } else if depth == 0
+                    && (c == "[" || c == "]" || c == "+" || c == "~") {
+            return nil
+        }
     }
-    let spaced = raw.replacingOccurrences(of: ">", with: " > ")
-    let tokens = spaced.split(whereSeparator: { tbIsSpace($0) }).map(String.init)
+    if depth != 0 { return nil }
+    // Tokenize on depth-zero whitespace and ">".
+    var tokens: [String] = []
+    var current = ""
+    depth = 0
+    for c in raw {
+        if c == "(" { depth += 1 }
+        else if c == ")" { depth -= 1 }
+        if depth == 0 && tbIsSpace(c) {
+            if !current.isEmpty { tokens.append(current); current = "" }
+        } else if depth == 0 && c == ">" {
+            if !current.isEmpty { tokens.append(current); current = "" }
+            tokens.append(">")
+        } else {
+            current.append(c)
+        }
+    }
+    if !current.isEmpty { tokens.append(current) }
     if tokens.isEmpty { return nil }
     var compounds: [TBCompound] = []
     var combinators: [TBCombinator] = []
@@ -1135,8 +1371,46 @@ func tbParseSelector(_ raw: String) -> TBSelector? {
     return TBSelector(compounds: compounds, combinators: combinators)
 }
 
-func tbCompoundMatches(_ compound: TBCompound, node: TBNode) -> Bool {
+// The element siblings a structural pseudo-class counts: the
+// parent's children with the text nodes set aside — CSS counts
+// elements only, and the parser keeps the whitespace between
+// them as text nodes.
+func tbElementSiblings(_ node: TBNode) -> [TBNode] {
+    guard let parent = node.parent else { return [node] }
+    return parent.children.filter { $0.tag != "#text" }
+}
+
+// Does a 1-based index satisfy An+B for some n >= 0?
+func tbNthMatches(_ nth: TBNthExpr, index: Int) -> Bool {
+    let a = nth.a, b = nth.b
+    if a == 0 { return index == b }
+    let d = index - b
+    if a > 0 { return d >= 0 && d % a == 0 }
+    return d <= 0 && d % a == 0
+}
+
+// :empty, in the Selectors 4 sense: no element children, and
+// no text but whitespace.
+func tbIsEmptyElement(_ node: TBNode) -> Bool {
+    for child in node.children {
+        if child.tag != "#text" { return false }
+        if !child.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
+    }
+    return true
+}
+
+func tbCompoundMatches(_ compound: TBCompound, node: TBNode,
+                       hoverSatisfied: Bool = false) -> Bool {
     if node.tag == "#text" || node.tag == "document" { return false }
+    // :hover is a state, not a shape: in an ordinary match it
+    // is never true (so hover rules stay out of the resting
+    // cascade), and in a hover resolution it is treated as
+    // satisfied for whichever element the compound binds to —
+    // the hovered element itself, or an ancestor of it in a
+    // selector like `.card:hover .title`.
+    if compound.isHover && !hoverSatisfied { return false }
     if compound.isRoot && node.tag != "html" { return false }
     if let tag = compound.tag, tag != node.tag { return false }
     if let id = compound.id, node.attrs["id"] != id { return false }
@@ -1147,14 +1421,54 @@ func tbCompoundMatches(_ compound: TBCompound, node: TBNode) -> Bool {
             return false
         }
     }
+    if let notBox = compound.notBox,
+       tbCompoundMatches(notBox.compound, node: node,
+                         hoverSatisfied: hoverSatisfied) {
+        return false
+    }
+    if compound.isLink || compound.isVisited {
+        guard node.tag == "a", node.attrs["href"] != nil else { return false }
+        if compound.isLink && node.linkVisited { return false }
+        if compound.isVisited && !node.linkVisited { return false }
+    }
+    if compound.requiresEmpty && !tbIsEmptyElement(node) { return false }
+    if compound.firstChild || compound.lastChild || compound.nthChild != nil
+        || compound.firstOfType || compound.lastOfType
+        || compound.nthOfType != nil {
+        let siblings = tbElementSiblings(node)
+        guard let own = siblings.firstIndex(where: { $0 === node }) else {
+            return false
+        }
+        let index = own + 1   // CSS counts from 1
+        if compound.firstChild && index != 1 { return false }
+        if compound.lastChild && index != siblings.count { return false }
+        if let nth = compound.nthChild, !tbNthMatches(nth, index: index) {
+            return false
+        }
+        if compound.firstOfType || compound.lastOfType
+            || compound.nthOfType != nil {
+            let ofType = siblings.filter { $0.tag == node.tag }
+            guard let ownType = ofType.firstIndex(where: { $0 === node })
+            else { return false }
+            let typeIndex = ownType + 1
+            if compound.firstOfType && typeIndex != 1 { return false }
+            if compound.lastOfType && typeIndex != ofType.count {
+                return false
+            }
+            if let nth = compound.nthOfType,
+               !tbNthMatches(nth, index: typeIndex) { return false }
+        }
+    }
     return true
 }
 
 // Selector matching walks right to left: the element itself must
 // match the last compound; combinators then climb the ancestors.
-func tbSelectorMatches(_ selector: TBSelector, node: TBNode) -> Bool {
+func tbSelectorMatches(_ selector: TBSelector, node: TBNode,
+                       hoverSatisfied: Bool = false) -> Bool {
     func matchFrom(_ index: Int, _ current: TBNode) -> Bool {
-        guard tbCompoundMatches(selector.compounds[index], node: current) else {
+        guard tbCompoundMatches(selector.compounds[index], node: current,
+                                hoverSatisfied: hoverSatisfied) else {
             return false
         }
         if index == 0 { return true }
@@ -1221,6 +1535,12 @@ func tbParseCSS(_ css: String, orderStart: Int) -> [TBCSSRule] {
           let close = cleaned.range(of: "*/", range: open.upperBound..<cleaned.endIndex) {
         cleaned.removeSubrange(open.lowerBound..<close.upperBound)
     }
+    // @media blocks never reach the chunking below — the
+    // finishing set (0.23) strips them whole, and the ones
+    // whose queries match are parsed separately by
+    // tbParseMediaCSS. (Before this, a block's second and
+    // later rules leaked into the plain cascade.)
+    cleaned = tbStripMediaBlocks(cleaned)
     var rules: [TBCSSRule] = []
     var order = orderStart
     for chunk in cleaned.split(separator: "}") {
@@ -1249,39 +1569,233 @@ func tbParseCSS(_ css: String, orderStart: Int) -> [TBCSSRule] {
     return rules
 }
 
-// Rules inside `@media (prefers-color-scheme: dark)` blocks,
-// lifted out so the renderer can add them to the cascade when
-// the Mac is in dark mode — the one media query this engine
-// evaluates. Other @media blocks (widths, motion) stay unread.
-func tbParseDarkSchemeCSS(_ css: String, orderStart: Int) -> [TBCSSRule] {
-    var cleaned = css
-    while let open = cleaned.range(of: "/*"),
-          let close = cleaned.range(of: "*/", range: open.upperBound..<cleaned.endIndex) {
-        cleaned.removeSubrange(open.lowerBound..<close.upperBound)
-    }
-    var rules: [TBCSSRule] = []
-    var order = orderStart
-    var searchFrom = cleaned.startIndex
-    while let mediaRange = cleaned.range(of: "@media", options: .caseInsensitive,
-                                         range: searchFrom..<cleaned.endIndex),
-          let braceOpen = cleaned.range(of: "{", range: mediaRange.upperBound..<cleaned.endIndex) {
-        let prelude = cleaned[mediaRange.upperBound..<braceOpen.lowerBound].lowercased()
-        var depth = 1
-        var j = braceOpen.upperBound
-        while j < cleaned.endIndex && depth > 0 {
-            if cleaned[j] == "{" { depth += 1 }
-            else if cleaned[j] == "}" { depth -= 1 }
-            j = cleaned.index(after: j)
+// What the renderer knows about the world when it evaluates
+// @media (0.23): the appearance, the width of the window's
+// text area as this render began, and the system's
+// reduce-motion setting. Everything else a query can ask is
+// answered from constants in tbMediaFeatureMatches or not
+// answered at all.
+struct TBMediaContext {
+    var dark: Bool
+    var width: CGFloat
+    var reducedMotion: Bool
+}
+
+// The outermost @media blocks of a sheet: their condition
+// text and their inner CSS, found by a brace-matching scan.
+func tbMediaBlocks(_ css: String) -> [(condition: String, body: String)] {
+    var blocks: [(condition: String, body: String)] = []
+    var searchFrom = css.startIndex
+    while let mediaRange = css.range(of: "@media", options: .caseInsensitive,
+                                     range: searchFrom..<css.endIndex) {
+        guard let braceOpen = css.range(
+                of: "{", range: mediaRange.upperBound..<css.endIndex)
+        else { break }
+        let condition = String(css[mediaRange.upperBound..<braceOpen.lowerBound])
+        var depth = 0
+        var j = braceOpen.lowerBound
+        var closedAt: String.Index? = nil
+        while j < css.endIndex {
+            if css[j] == "{" { depth += 1 }
+            else if css[j] == "}" {
+                depth -= 1
+                if depth == 0 { closedAt = j; break }
+            }
+            j = css.index(after: j)
         }
-        if prelude.contains("prefers-color-scheme") && prelude.contains("dark") {
-            let inner = String(cleaned[braceOpen.upperBound..<cleaned.index(before: j)])
-            let parsed = tbParseCSS(inner, orderStart: order)
-            rules.append(contentsOf: parsed)
-            order += parsed.count
-        }
-        searchFrom = j
+        guard let close = closedAt else { break }
+        blocks.append((condition,
+                       String(css[css.index(after: braceOpen.lowerBound)..<close])))
+        searchFrom = css.index(after: close)
     }
-    return rules
+    return blocks
+}
+
+// A sheet with its @media blocks lifted out. tbParseCSS runs
+// on this: rules written inside a media block must never
+// reach the plain cascade — before the finishing set, the
+// second and later rules of a block did leak in, whatever
+// the query said. A block whose query matches is re-parsed
+// by tbParseMediaCSS and appended in source order.
+func tbStripMediaBlocks(_ css: String) -> String {
+    var out = ""
+    var searchFrom = css.startIndex
+    while let mediaRange = css.range(of: "@media", options: .caseInsensitive,
+                                     range: searchFrom..<css.endIndex) {
+        out += css[searchFrom..<mediaRange.lowerBound]
+        guard let braceOpen = css.range(
+                of: "{", range: mediaRange.upperBound..<css.endIndex)
+        else {
+            searchFrom = css.endIndex
+            break
+        }
+        var depth = 0
+        var j = braceOpen.lowerBound
+        var closedAt: String.Index? = nil
+        while j < css.endIndex {
+            if css[j] == "{" { depth += 1 }
+            else if css[j] == "}" {
+                depth -= 1
+                if depth == 0 { closedAt = j; break }
+            }
+            j = css.index(after: j)
+        }
+        guard let close = closedAt else {
+            searchFrom = css.endIndex
+            break
+        }
+        searchFrom = css.index(after: close)
+    }
+    out += css[searchFrom..<css.endIndex]
+    return out
+}
+
+// One parenthesised media condition, answered against what
+// the renderer knows. Widths compare against this render's
+// window width in CSS pixels; a width value may carry any
+// unit tbFontSizeValue reads, em and rem against the 14px
+// base font as media queries define. prefers-color-scheme
+// and prefers-reduced-motion come from the window and the
+// system. hover and pointer are answered as the constants
+// they are on a Mac — a pointer that can hover, and a fine
+// one (a mouse or trackpad) — stated plainly here rather
+// than dressed up as detection. A feature this engine does
+// not know answers false, which keeps the whole query (and
+// so the block) from applying: the behavior unknown
+// features have always had here.
+func tbMediaFeatureMatches(_ feature: String, _ value: String?,
+                           context: TBMediaContext) -> Bool {
+    switch feature {
+    case "prefers-color-scheme":
+        guard let value = value else { return true }
+        if value == "dark" { return context.dark }
+        if value == "light" { return !context.dark }
+        return false
+    case "prefers-reduced-motion":
+        guard let value = value else { return context.reducedMotion }
+        if value == "reduce" { return context.reducedMotion }
+        if value == "no-preference" { return !context.reducedMotion }
+        return false
+    case "min-width":
+        guard let value = value,
+              let limit = tbFontSizeValue(value, relativeTo: 14)
+        else { return false }
+        return context.width >= limit
+    case "max-width":
+        guard let value = value,
+              let limit = tbFontSizeValue(value, relativeTo: 14)
+        else { return false }
+        return context.width <= limit
+    case "width":
+        guard let value = value else { return context.width > 0 }
+        guard let limit = tbFontSizeValue(value, relativeTo: 14)
+        else { return false }
+        return context.width == limit
+    case "hover":
+        // A Mac's pointer hovers. A constant, stated above.
+        guard let value = value else { return true }
+        return value == "hover"
+    case "pointer":
+        // …and it is a fine pointer. A constant, stated above.
+        guard let value = value else { return true }
+        return value == "fine"
+    default:
+        return false
+    }
+}
+
+// One media query: an optional `not` / `only`, an optional
+// media type, and parenthesised conditions joined by `and` —
+// all of which must hold. The screen is the type this engine
+// renders for; print and the rest never match.
+func tbMediaQueryMatches(_ queryRaw: String, context: TBMediaContext) -> Bool {
+    var rest = queryRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    var negate = false
+    if rest.hasPrefix("not ") {
+        negate = true
+        rest = String(rest.dropFirst(4))
+    }
+    if rest.hasPrefix("only ") { rest = String(rest.dropFirst(5)) }
+    rest = rest.trimmingCharacters(in: .whitespaces)
+    // Lift the parenthesised conditions out; what remains is
+    // the media type and the `and`s.
+    var conditions: [(feature: String, value: String?)] = []
+    var remainder = ""
+    let chars = Array(rest)
+    var i = 0
+    var malformed = false
+    while i < chars.count {
+        if chars[i] == "(" {
+            guard let (arg, next) = tbParenArgument(chars, openIndex: i)
+            else { malformed = true; break }
+            let parts = arg.split(separator: ":", maxSplits: 1)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.isEmpty || parts[0].isEmpty {
+                malformed = true
+                break
+            }
+            conditions.append((parts[0], parts.count > 1 ? parts[1] : nil))
+            i = next
+        } else {
+            remainder.append(chars[i])
+            i += 1
+        }
+    }
+    if malformed { return false }   // a query that cannot be read never matches
+    let typeWords = remainder.split(whereSeparator: { tbIsSpace($0) })
+        .map(String.init).filter { $0 != "and" }
+    var matches = true
+    if let type = typeWords.first, type != "screen" && type != "all" {
+        matches = false
+    }
+    if typeWords.count > 1 { matches = false }
+    if matches {
+        for condition in conditions
+        where !tbMediaFeatureMatches(condition.feature, condition.value,
+                                     context: context) {
+            matches = false
+            break
+        }
+    }
+    return negate ? !matches : matches
+}
+
+// A full media query list: commas are alternatives — any one
+// matching query applies the block.
+func tbMediaMatches(_ conditionRaw: String, context: TBMediaContext) -> Bool {
+    // Split on commas outside parentheses.
+    var queries: [String] = []
+    var current = ""
+    var depth = 0
+    for c in conditionRaw {
+        if c == "(" { depth += 1 }
+        else if c == ")" { depth -= 1 }
+        if c == "," && depth == 0 {
+            queries.append(current)
+            current = ""
+        } else {
+            current.append(c)
+        }
+    }
+    queries.append(current)
+    return queries.contains { tbMediaQueryMatches($0, context: context) }
+}
+
+// The @media rules that apply to this render: every block
+// whose query list matches the context, parsed with the
+// ordinary machinery and ordered after orderStart. @media
+// nested inside @media is not evaluated — the inner parse
+// strips those blocks away.
+func tbParseMediaCSS(_ css: String, orderStart: Int,
+                     context: TBMediaContext) -> [TBCSSRule] {
+    var bodies: [String] = []
+    for block in tbMediaBlocks(css)
+    where tbMediaMatches(block.condition, context: context) {
+        bodies.append(block.body)
+    }
+    if bodies.isEmpty { return [] }
+    return tbParseCSS(bodies.joined(separator: "\n"), orderStart: orderStart)
 }
 
 enum TBStyleSource {
@@ -1315,6 +1829,195 @@ func tbCollectStyleSources(_ node: TBNode, base: String,
     }
 }
 
+// Split a value on the whitespace outside parentheses and
+// quotes — the font shorthand's tokenizer, where a family name
+// may be quoted ("Helvetica Neue") and a var() may nest.
+func tbFontTokens(_ value: String) -> [String] {
+    var tokens: [String] = []
+    var current = ""
+    var depth = 0
+    var quote: Character? = nil
+    for c in value {
+        if let q = quote {
+            current.append(c)
+            if c == q { quote = nil }
+            continue
+        }
+        if c == "\"" || c == "'" { quote = c; current.append(c); continue }
+        if c == "(" { depth += 1 }
+        else if c == ")" { depth = max(0, depth - 1) }
+        if tbIsSpace(c) && depth == 0 {
+            if !current.isEmpty { tokens.append(current); current = "" }
+        } else {
+            current.append(c)
+        }
+    }
+    if !current.isEmpty { tokens.append(current) }
+    return tokens
+}
+
+// The system-font keywords stand alone as a whole font: value;
+// this engine maps none of them and sets the declaration aside.
+let TBFontSystemKeywords: Set<String> = ["caption", "icon", "menu",
+                                         "message-box", "small-caption",
+                                         "status-bar"]
+
+// The font: shorthand (0.23), parsed whole: any of the pre-size
+// keywords (style, variant, weight, stretch — in any order),
+// the required size, an optional /line-height, then the family
+// list. What it expands into is the longhands, with the
+// shorthand's defining resets made explicit — a component the
+// author did not mention returns to normal, it does not keep
+// whatever an earlier rule said. Longhands this engine reads:
+// font-style, font-weight, font-variant, font-size,
+// line-height, font-family. font-stretch is parsed and
+// carried, and set aside unread — nothing here applies it.
+// Nil for a value outside the grammar (no size, no family, a
+// system-font keyword standing alone).
+func tbParseFontShorthand(_ raw: String) -> [String: String]? {
+    let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if TBFontSystemKeywords.contains(value.lowercased()) { return nil }
+    let tokens = tbFontTokens(value)
+    if tokens.isEmpty { return nil }
+    let sizeKeywords: Set<String> = ["xx-small", "x-small", "small",
+                                     "medium", "large", "x-large",
+                                     "xx-large", "larger", "smaller"]
+    let stretchKeywords: Set<String> = ["ultra-condensed",
+                                        "extra-condensed", "condensed",
+                                        "semi-condensed", "semi-expanded",
+                                        "expanded", "extra-expanded",
+                                        "ultra-expanded"]
+    // A size token: a keyword size, a bare 0, or a number with
+    // a length/percentage unit — never a bare number, which in
+    // the pre-size run can only be a weight.
+    func isSizeToken(_ token: String) -> Bool {
+        let head = token.split(separator: "/", maxSplits: 1)
+            .first.map(String.init) ?? token
+        let low = head.lowercased()
+        if sizeKeywords.contains(low) || low == "0" { return true }
+        for suffix in ["px", "pt", "em", "rem", "%"] where low.hasSuffix(suffix) {
+            return Double(String(low.dropLast(suffix.count))) != nil
+        }
+        return false
+    }
+    var style: String? = nil
+    var weight: String? = nil
+    var variant: String? = nil
+    var stretch: String? = nil
+    var size: String? = nil
+    var lineHeight: String? = nil
+    var i = 0
+    while i < tokens.count {
+        let token = tokens[i]
+        let low = token.lowercased()
+        if isSizeToken(token) {
+            // The size, possibly wearing its line-height:
+            // "16px/1.5", "16px/ 1.5", "16px /1.5" and
+            // "16px / 1.5" are all one declaration.
+            let parts = token.split(separator: "/", maxSplits: 1,
+                                    omittingEmptySubsequences: false)
+                .map(String.init)
+            size = parts[0]
+            if parts.count > 1 {
+                if parts[1].isEmpty {
+                    if i + 1 < tokens.count {
+                        lineHeight = tokens[i + 1]
+                        i += 1
+                    }
+                } else {
+                    lineHeight = parts[1]
+                }
+            } else if i + 1 < tokens.count && tokens[i + 1] == "/" {
+                if i + 2 < tokens.count {
+                    lineHeight = tokens[i + 2]
+                    i += 2
+                }
+            }
+            i += 1
+            break
+        }
+        switch low {
+        case "italic":
+            style = "italic"
+        case "oblique":
+            style = "oblique"
+            // An oblique angle (oblique 20deg) is consumed
+            // and set aside — the trait applied is oblique's.
+            if i + 1 < tokens.count
+                && tokens[i + 1].lowercased().hasSuffix("deg") { i += 1 }
+        case "normal":
+            break   // a reset of whichever component — all default below
+        case "bold", "bolder", "lighter":
+            weight = low
+        default:
+            if low.contains("small-caps") {
+                variant = "small-caps"
+            } else if stretchKeywords.contains(low) {
+                stretch = low
+            } else if let n = Int(low), n >= 1, n <= 1000 {
+                weight = low   // a numeric weight, 100…900 and kin
+            } else {
+                return nil
+            }
+        }
+        i += 1
+    }
+    guard let sizeValue = size else { return nil }
+    // Everything past the size is the family list, rejoined
+    // as written — commas, quotes and all.
+    let family = tokens[i...].joined(separator: " ")
+        .trimmingCharacters(in: .whitespaces)
+    if family.isEmpty { return nil }
+    var out: [String: String] = [
+        "font-style": style ?? "normal",
+        "font-weight": weight ?? "normal",
+        "font-variant": variant ?? "normal",
+        "font-size": sizeValue,
+        "line-height": lineHeight ?? "normal",
+        "font-family": family,
+    ]
+    if let stretchValue = stretch { out["font-stretch"] = stretchValue }
+    return out
+}
+
+// Merge one declaration block into the cascade output. The
+// font: shorthand expands at exactly its own position in
+// that flow: its components enter here, and the block's own
+// longhands — merged just after — win over them, the same
+// house rule the box shorthands follow. A font: whose value
+// still carries var() cannot be tokenized yet; it rides
+// along under its own key for the renderer's deferred
+// expansion, once substitution has made it concrete.
+func tbMergeDeclarations(_ decls: [String: String],
+                         into out: inout [String: String]) {
+    if let font = decls["font"] {
+        if font.contains("var(") {
+            out["font"] = font
+        } else if let parts = tbParseFontShorthand(font) {
+            for (k, v) in parts { out[k] = v }
+        }
+    }
+    for (k, v) in decls where k != "font" { out[k] = v }
+}
+
+// The deferred second half of the shorthand: a font: that
+// reached the renderer still whole (its value came through
+// var()) expands now that substitution has happened. By
+// then the cascade has closed, so the expansion fills only
+// the components no rule set outright — a longhand from any
+// rule keeps precedence over a var()-borne shorthand's
+// matching part. A plain font: never survives to here; it
+// expanded in the merge.
+func tbExpandDeferredFont(_ decls: [String: String]) -> [String: String] {
+    guard let font = decls["font"] else { return decls }
+    var out = decls
+    out.removeValue(forKey: "font")
+    if let parts = tbParseFontShorthand(font) {
+        for (k, v) in parts where out[k] == nil { out[k] = v }
+    }
+    return out
+}
+
 // The declarations that apply to one element: matching rules in
 // cascade order (specificity first, then source order), with the
 // element's inline style on top.
@@ -1329,10 +2032,38 @@ func tbResolveStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
     }
     var out: [String: String] = [:]
     for rule in matched {
-        for (k, v) in rule.declarations { out[k] = v }
+        tbMergeDeclarations(rule.declarations, into: &out)
     }
     if let inlineStyle = node.attrs["style"] {
-        for (k, v) in tbParseDeclarations(inlineStyle) { out[k] = v }
+        tbMergeDeclarations(tbParseDeclarations(inlineStyle), into: &out)
+    }
+    return out
+}
+
+// Does any compound in this selector carry :hover?
+func tbSelectorHasHover(_ selector: TBSelector) -> Bool {
+    selector.compounds.contains { $0.isHover }
+}
+
+// The hover resolution (0.23): the declarations an element
+// wears while the pointer is over it — only rules carrying
+// :hover, matched with the state treated as satisfied, in
+// the same cascade order as the resting resolution. What
+// the view does with them is paint, not layout: see
+// tbHoverPaintAttrs.
+func tbResolveHoverStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
+    if node.tag == "#text" { return [:] }
+    var matched: [TBCSSRule] = []
+    for rule in rules where tbSelectorHasHover(rule.selector)
+        && tbSelectorMatches(rule.selector, node: node, hoverSatisfied: true) {
+        matched.append(rule)
+    }
+    matched.sort {
+        ($0.selector.specificity, $0.order) < ($1.selector.specificity, $1.order)
+    }
+    var out: [String: String] = [:]
+    for rule in matched {
+        tbMergeDeclarations(rule.declarations, into: &out)
     }
     return out
 }
@@ -1660,6 +2391,77 @@ func tbBackgroundColor(_ decls: [String: String]) -> NSColor? {
     return nil
 }
 
+// The paint a :hover resolution contributes (0.23), as a
+// TBHoverStyle — or nil when the resolution names nothing
+// the hover machinery can paint. Paint only, by design:
+// foreground color, the background color behind the
+// glyphs (the color layer only — tbBackgroundColor, so a
+// shorthand background contributes its color; photo and
+// gradient hover backgrounds are not painted), and the
+// underline / strikethrough switches — including `none`,
+// which switches one OFF for the hover. A hover rule that
+// changes a font or a size is read and set aside:
+// restyling must never move the text.
+func tbHoverPaintAttrs(_ decls: [String: String]) -> TBHoverStyle? {
+    let style = TBHoverStyle()
+    var any = false
+    if let color = tbParseColor(decls["color"]) {
+        style.foregroundColor = color
+        any = true
+    }
+    if let background = tbBackgroundColor(decls) {
+        style.backgroundColor = background
+        any = true
+    }
+    let deco = (decls["text-decoration"] ?? "") + " "
+        + (decls["text-decoration-line"] ?? "")
+    let decoLow = deco.lowercased()
+    if decoLow.contains("none") {
+        style.underlineStyle = 0
+        style.strikethroughStyle = 0
+        any = true
+    }
+    if decoLow.contains("underline") {
+        style.underlineStyle = NSUnderlineStyle.single.rawValue
+        any = true
+    }
+    if decoLow.contains("line-through") {
+        style.strikethroughStyle = NSUnderlineStyle.single.rawValue
+        any = true
+    }
+    return any ? style : nil
+}
+
+// Stamp an element's hover style onto its text, filling
+// only the characters no stamp covers yet: the innermost
+// element stamps first (its run finishes first) and keeps
+// its ground, its enclosing elements fill around it.
+func tbStampHover(_ target: NSMutableAttributedString,
+                  range: NSRange, key: NSAttributedString.Key,
+                  style: TBHoverStyle) {
+    guard range.length > 0,
+          range.location != NSNotFound,
+          range.location + range.length <= target.length else { return }
+    var gaps: [NSRange] = []
+    var coveredEnd = range.location
+    target.enumerateAttribute(key, in: range,
+                              options: []) { _, attrRange, _ in
+        if attrRange.location > coveredEnd {
+            gaps.append(NSRange(location: coveredEnd,
+                                length: attrRange.location - coveredEnd))
+        }
+        coveredEnd = max(coveredEnd,
+                         attrRange.location + attrRange.length)
+    }
+    if coveredEnd < range.location + range.length {
+        gaps.append(NSRange(location: coveredEnd,
+                            length: range.location + range.length - coveredEnd))
+    }
+    for gap in gaps where gap.length > 0 {
+        target.addAttribute(key, value: style, range: gap)
+    }
+}
+
 // MARK: - Font helpers
 
 func tbFontSizeValue(_ raw: String, relativeTo base: CGFloat) -> CGFloat? {
@@ -1695,12 +2497,53 @@ func tbFontSizeValue(_ raw: String, relativeTo base: CGFloat) -> CGFloat? {
     return nil
 }
 
+// The font a family list names (0.23): the first family in
+// the comma list that resolves on this Mac. A named family
+// resolves as itself; the generic families map to the
+// platform faces CSS expects of them — serif to a Times,
+// sans-serif to a Helvetica, monospace to Menlo, cursive
+// and fantasy to the Mac's own script and display faces.
+// The traits and weight of the incoming font carry across,
+// so a bold Georgia stays bold; the size is the caller's
+// to settle afterwards, as it always has been.
+func tbFontByFamily(_ list: String, like font: NSFont) -> NSFont? {
+    let fm = NSFontManager.shared
+    let generics: [String: String] = [
+        "serif": "Times", "sans-serif": "Helvetica",
+        "monospace": "Menlo", "cursive": "Apple Chancery",
+        "fantasy": "Papyrus",
+    ]
+    for rawPart in list.split(separator: ",") {
+        var name = rawPart.trimmingCharacters(in: .whitespaces)
+        if (name.hasPrefix("\"") && name.hasSuffix("\"") && name.count >= 2)
+            || (name.hasPrefix("'") && name.hasSuffix("'") && name.count >= 2) {
+            name = String(name.dropFirst().dropLast())
+                .trimmingCharacters(in: .whitespaces)
+        }
+        if name.isEmpty { continue }
+        let family = generics[name.lowercased()] ?? name
+        if let resolved = fm.font(withFamily: family,
+                                  traits: fm.traits(of: font),
+                                  weight: fm.weight(of: font),
+                                  size: font.pointSize) {
+            return resolved
+        }
+    }
+    return nil
+}
+
 // Apply one element's own font declarations to a font. Size is
 // relative to the incoming font, so ancestors' sizes carry down
 // through the font object itself.
 func tbFontApplying(_ decls: [String: String], to font: NSFont) -> NSFont {
     var f = font
     let fm = NSFontManager.shared
+    // The family first (0.23): the trait and size conversions
+    // below then work on the face the page asked for.
+    if let family = decls["font-family"],
+       let byFamily = tbFontByFamily(family, like: f) {
+        f = byFamily
+    }
     if let w = decls["font-weight"]?.lowercased() {
         let numeric = Int(w)
         if w == "bold" || w == "bolder" || (numeric ?? 0) >= 600 {
@@ -1714,6 +2557,17 @@ func tbFontApplying(_ decls: [String: String], to font: NSFont) -> NSFont {
             f = fm.convert(f, toHaveTrait: .italicFontMask)
         } else if st == "normal" {
             f = fm.convert(f, toNotHaveTrait: .italicFontMask)
+        }
+    }
+    // font-variant (0.23): small-caps is the one variant
+    // this engine paints — the font manager trades the face
+    // for its small-cap form where the family carries one;
+    // a face without small caps simply shows unchanged.
+    if let variant = decls["font-variant"]?.lowercased() {
+        if variant.contains("small-caps") {
+            f = fm.convert(f, toHaveTrait: .smallCapsFontMask)
+        } else if variant == "normal" {
+            f = fm.convert(f, toNotHaveTrait: .smallCapsFontMask)
         }
     }
     if let fs = decls["font-size"], let size = tbFontSizeValue(fs, relativeTo: f.pointSize) {
@@ -2241,6 +3095,28 @@ final class TBRenderer {
         NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
+    // The finishing set (0.23): the render's wider knowledge.
+    // visitedURLs is the session's — the URLs this window has
+    // loaded, handed down by the model; mediaWidth is the
+    // window's text width as the load began. Sub-renderers
+    // inherit both, as they inherit the rules.
+    var visitedURLs: Set<String> = []
+    var mediaWidth: CGFloat? = nil
+
+    // The system's Reduce Motion setting, read from
+    // NSWorkspace's accessibility values — the same source
+    // the Finder and Dock honor.
+    var reducedMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    // Whether any rule in this sheet carries :hover at all —
+    // computed once; most pages have none, and the walk then
+    // does no hover work for them.
+    lazy var hoverRulePresent: Bool = rules.contains {
+        tbSelectorHasHover($0.selector)
+    }
+
     // Layout step two: find the page's own centered column —
     // the shallowest element capped by width or max-width
     // whose side margins are auto (the classic
@@ -2294,6 +3170,14 @@ final class TBRenderer {
     // An element's declarations with var() references resolved
     // against its inherited custom properties.
     func resolvedStyle(node: TBNode) -> [String: String] {
+        // :link / :visited (0.23): stamp the anchor's visited
+        // state before the cascade reads it — the window's
+        // session set, resolved against this page's base.
+        if node.tag == "a", let href = node.attrs["href"], !href.isEmpty {
+            let absolute = URL(string: href, relativeTo: URL(string: base))?
+                .absoluteString ?? href
+            node.linkVisited = visitedURLs.contains(absolute)
+        }
         let raw = tbResolveStyle(node: node, rules: rules)
         if raw.isEmpty { return raw }
         let env = tbVariableEnvironment(node: node, rules: rules)
@@ -2304,7 +3188,40 @@ final class TBRenderer {
                 out[name] = resolved
             }
         }
+        // A font: that arrived through var() expands now
+        // that its value is concrete (0.23).
+        return tbExpandDeferredFont(out)
+    }
+
+    // The element's hover declarations (0.23), var()-resolved
+    // like the resting style. What the view paints from them
+    // is tbHoverPaintAttrs' paint — never layout.
+    func resolvedHoverStyle(node: TBNode) -> [String: String] {
+        let raw = tbResolveHoverStyle(node: node, rules: rules)
+        if raw.isEmpty { return raw }
+        let env = tbVariableEnvironment(node: node, rules: rules)
+        var out: [String: String] = [:]
+        for (name, value) in raw {
+            if name.hasPrefix("--") { continue }
+            if let resolved = tbSubstituteVars(value, env: env) {
+                out[name] = resolved
+            }
+        }
         return out
+    }
+
+    // The element's hover paint (0.23), ready to stamp: the
+    // resolved hover declarations reduced to the traits the
+    // view can repaint without moving any text. Nil when no
+    // :hover rule in this sheet touches the element, or the
+    // ones that do name nothing paintable — the walk then
+    // stamps nothing, and the page hovers exactly as pages
+    // did before the finishing set.
+    func hoverPaintStyle(node: TBNode) -> TBHoverStyle? {
+        guard hoverRulePresent else { return nil }
+        let decls = resolvedHoverStyle(node: node)
+        if decls.isEmpty { return nil }
+        return tbHoverPaintAttrs(decls)
     }
 
     // Fetch every registered image — with bounded
@@ -2459,6 +3376,16 @@ final class TBRenderer {
                 }
             }
         }
+        // One media context for the whole render (0.23): the
+        // appearance, the window's text width as this load
+        // began (the renderer's standing 1000 when no width
+        // was handed down), and the system's reduce-motion
+        // setting. Queries are answered once, here — resizing
+        // the window re-settles the layout, it does not
+        // re-run the cascade.
+        let mediaContext = TBMediaContext(dark: darkAppearance,
+                                          width: mediaWidth ?? 1000,
+                                          reducedMotion: reducedMotion)
         var order = 0
         for (index, source) in sources.enumerated() {
             let cssText: String?
@@ -2470,11 +3397,13 @@ final class TBRenderer {
             let parsed = tbParseCSS(text, orderStart: order)
             rules.append(contentsOf: parsed)
             order += parsed.count
-            if darkAppearance {
-                let dark = tbParseDarkSchemeCSS(text, orderStart: order)
-                rules.append(contentsOf: dark)
-                order += dark.count
-            }
+            // @media (0.23): the blocks whose queries match
+            // join the cascade after the sheet's plain rules —
+            // prefers-color-scheme among them, as before.
+            let media = tbParseMediaCSS(text, orderStart: order,
+                                        context: mediaContext)
+            rules.append(contentsOf: media)
+            order += media.count
         }
         nominalWidth = columnTextWidth(root: root) ?? 1000
         walkBlock(node: root, style: "p", baseFont: tbFont(for: "p"),
@@ -2928,6 +3857,20 @@ final class TBRenderer {
             out.insert(marker, at: insertAt)
         }
 
+        // Hover paint (0.23): a block's hover style is
+        // stamped as the block closes, over everything its
+        // walk laid down, under the block key — child blocks
+        // closed (and stamped) before it and keep their
+        // ground; the view merges this under the element
+        // stamp when the pointer arrives.
+        if node.tag != "document", out.length > entryLength,
+           let hover = hoverPaintStyle(node: node) {
+            tbStampHover(out,
+                         range: NSRange(location: entryLength,
+                                        length: out.length - entryLength),
+                         key: TBHoverBlockAttrsKey, style: hover)
+        }
+
         // Positioned layout (0.21): this block's range as a
         // containing block ends where its content did.
         if let block = openedContainingBlock {
@@ -3106,6 +4049,7 @@ final class TBRenderer {
         // layout events: a float inside a float simply flows.
         let sub = TBRenderer(base: base)
         sub.rules = rules
+        sub.visitedURLs = visitedURLs
         sub.insideFloat = true
         sub.nominalWidth = nominalWidth
         sub.walkBlock(node: node, style: tbStyle(for: node.tag), baseFont: childFont,
@@ -3404,6 +4348,7 @@ final class TBRenderer {
                                ownSurface: Bool) -> Bool {
         let sub = TBRenderer(base: base)
         sub.rules = rules
+        sub.visitedURLs = visitedURLs
         sub.insideFloat = true
         sub.nominalWidth = nominalWidth
         sub.walkBlock(node: node, style: tbStyle(for: node.tag),
@@ -3626,6 +4571,7 @@ final class TBRenderer {
         // positioned box inside this one simply flows.
         let sub = TBRenderer(base: base)
         sub.rules = rules
+        sub.visitedURLs = visitedURLs
         sub.insideFloat = true
         sub.nominalWidth = nominalWidth
         sub.walkBlock(node: node, style: tbStyle(for: node.tag), baseFont: childFont,
@@ -3972,6 +4918,17 @@ final class TBRenderer {
                                 value: NSValue(point: NSPoint(x: offset.dx, y: offset.dy)),
                                 range: NSRange(location: 0, length: result.length))
         }
+        // Hover paint (0.23): this element's hover style is
+        // stamped onto its run as the run finishes, under
+        // its own key — elements nested inside it stamped
+        // theirs first and keep their ground; this stamp
+        // fills around them. The view lifts the run into
+        // the style while the pointer rests on it.
+        if result.length > 0, let hover = hoverPaintStyle(node: node) {
+            tbStampHover(result,
+                         range: NSRange(location: 0, length: result.length),
+                         key: TBHoverAttrsKey, style: hover)
+        }
         return result
     }
 }
@@ -4064,14 +5021,23 @@ struct TBFirstPaint {
 // Render a page in two stages: onFirstPaint is called
 // (on the main actor) with the walked page as soon as
 // it exists, and the same value is returned once every
-// arrival has landed in it.
+// arrival has landed in it. The finishing set (0.23)
+// hands the renderer two things only the window knows:
+// the session's visited URLs (for :link / :visited) and
+// the text area's width as the load began (for @media).
 func tbRenderPage(html: String, base: String,
+                  visited: Set<String> = [],
+                  mediaWidth: CGFloat? = nil,
                   onFirstPaint: (TBFirstPaint) -> Void) async -> TBFirstPaint {
     return await tbRenderFollowingRefresh(html: html, base: base, depth: 0,
+                                          visited: visited,
+                                          mediaWidth: mediaWidth,
                                           onFirstPaint: onFirstPaint)
 }
 
 private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
+                                      visited: Set<String>,
+                                      mediaWidth: CGFloat?,
                                       onFirstPaint: (TBFirstPaint) -> Void)
     async -> TBFirstPaint {
     let title = tbExtractTitle(html: html)
@@ -4081,9 +5047,13 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
        let (newBase, newHTML) = try? await tbFetch(urlString: target) {
         return await tbRenderFollowingRefresh(html: newHTML, base: newBase,
                                               depth: depth + 1,
+                                              visited: visited,
+                                              mediaWidth: mediaWidth,
                                               onFirstPaint: onFirstPaint)
     }
     let renderer = TBRenderer(base: base)
+    renderer.visitedURLs = visited
+    renderer.mediaWidth = mediaWidth
     let body = await renderer.renderFirstPaint(root: tree)
     // A script-only send-on (a search engine's click
     // bounce, say) renders as a black void. When the walk

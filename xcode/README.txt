@@ -7,6 +7,100 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.23.0 — THE FINISHING SET
+------------------------------------------------------
+The last stage of the CSS completion: the shorthand, the
+media queries, and the pseudo-classes the engine has
+honestly listed as not read since the beginning. This is
+also the first build compiled from a stack of four — 0.20
+through 0.23 were written back to back — so the drill
+below is the full one, and it matters end to end.
+
+* font: shorthand — DONE. The shorthand is read whole:
+  style, variant, weight and stretch in any order before
+  the required size, an optional /line-height, then the
+  family list. It expands into its longhands at exactly
+  its own place in the cascade, and components the author
+  did not mention reset to normal — that reset is the
+  shorthand's defining behavior, and the test page proves
+  it (a slant the shorthand never mentions does not
+  survive it). A font: whose value arrives through var()
+  expands after substitution instead, filling only the
+  components no rule set outright. font-family, which the
+  shorthand needs to mean anything, is honored on its
+  own now too: the first family in the list that resolves
+  on this Mac wins, and the generic families map to the
+  platform faces CSS expects (serif to a Times,
+  sans-serif to a Helvetica, monospace to Menlo).
+  font-variant paints small-caps.
+  OUT, named: the system-font keywords (font: menu,
+  caption, and kin) are read and set aside — this engine
+  maps none of them; font-stretch is parsed and carried
+  and nothing applies it.
+* @media — DONE. More than prefers-color-scheme now:
+  min-width, max-width and width are answered against
+  the width of the window's text area as the load began
+  (resize, then reload, to ask again); prefers-reduced-
+  motion is answered from the system's own accessibility
+  setting; hover and pointer are answered as the
+  constants they are on a Mac — a pointer that can
+  hover, and a fine one. Media types other than screen
+  and all never match, a query that cannot be read never
+  matches, and an unknown feature answers false, which
+  keeps its block out — the behavior unknown features
+  have always had here. Nested @media is not evaluated.
+  A leak is fixed along the way: before this build, the
+  second and later rules inside any @media block slipped
+  into the plain cascade whatever the query said; now a
+  sheet's media rules reach the cascade only through
+  their query. prefers-color-scheme works exactly as
+  before.
+* Structural pseudo-classes — DONE. :first-child,
+  :last-child, :nth-child() and :nth-of-type() in every
+  An+B spelling (odd, even, a bare index, -n+3, 3n-2),
+  :first-of-type, :last-of-type, :not() around a single
+  compound (no combinators, no nested :not), and :empty
+  in the Selectors 4 sense — no element children and no
+  text but whitespace. All are read at match time,
+  against the element's real place among its siblings.
+* :link and :visited — DONE. A page's anchors divide by
+  this window's session: the URLs it has landed on. A
+  link to a page this window has opened wears :visited;
+  the rest wear :link. The set lives in memory only —
+  nothing is written down, nothing survives a relaunch,
+  and there is no history for any site to probe beyond
+  the colors it can already paint.
+* :hover — DONE, as paint, never layout. The renderer
+  resolves each element's :hover rules exactly as it
+  resolves its resting style, reduces them to the traits
+  that can be repainted without moving a glyph — color,
+  background color, the underline and strikethrough
+  switches (`none` included: a hover may take a link's
+  underline away) — and stamps them onto the element's
+  text, with the enclosing block's stamp beneath. The
+  view watches the pointer; while it rests on stamped
+  text, those characters wear the hover paint, and when
+  it moves on, the original paint is restored exactly.
+  A hover rule that changes a font or a size is read and
+  set aside: restyling must never move the text.
+  OUT, named: :focus and :active are not read (an
+  engine that paints its pages and overlays its form
+  controls has no honest focus paint to offer yet), and
+  a hover background's photo or gradient layers are not
+  painted — its color is.
+
+The drill. Drag finishing-test.html onto the window.
+Ten numbered promises: the shorthand whole and as twins
+with the longhands; the shorthand's reset; a font: sent
+through var(); family and small-caps on their own; the
+width gate (resize and reload); the system's color
+scheme and Reduce Motion answers; the list under its
+structural rules; :not() and :empty; the two session
+links — open one, come back, and it wears visited
+purple; and the hover card and link, which must repaint
+under the pointer and restore when it leaves, without
+anything moving.
+
 WHAT'S NEW IN 0.22.0 — MULTI-COLUMN & COLOR-MIX
 ------------------------------------------------------
 Stage two of the CSS completion: the column properties
@@ -311,57 +405,94 @@ still while it is laid out. Splitting that work up is a
 later step, not this one. Dragging text or web links
 into the window is not handled — files only.
 
-THE TEST DRILL
+THE TEST DRILL — THE FINAL ONE (0.23)
 --------------
-1. Build and run. The home page's status line should read
-   "Chirpy Engine 0.21.0".
-2. Drag positioning-test.html (it rides along in this
-   folder) onto the browser window. Five promises:
-   (1) a red badge hanging off the top-right corner of
-   a yellow card, overlapping its edge, the card's text
-   undisturbed; (2) a purple box pinned near the page's
-   own top-left that scrolls AWAY as you read down —
-   that is what makes it absolute and not fixed;
-   (3) a green bar fixed to the top of the window that
-   stays exactly there at every scroll position,
-   spanning the full width though it declares no width;
-   (4) two overlapping boxes in a pale stage where the
-   TEAL one (z-index 2) covers the orange one
+This build is the first compile of a four-version stack
+(0.20 first paint, 0.21 positioning, 0.22 columns and
+color-mix, 0.23 the finishing set), so this drill is the
+consolidated one: the four test pages in order, then a
+real article, then the standing checks. Run it top to
+bottom; each page's promises are printed on the page
+itself.
+
+1. Build and run. The home page's status line should
+   read "Chirpy Engine 0.23.0 (Swift)" and end with
+   "no JavaScript yet" — and after any page loads, the
+   settled status line should carry the same version.
+2. Drag floats-test.html (it rides along in this
+   folder) onto the browser window. All six promises:
+   a floated box in a paragraph with the text wrapping
+   it — and below the box, the paragraph's last lines
+   should resume the FULL width of the column; two
+   floated columns inside a colored wrapper; a row of
+   floated boxes that must pack and wrap; a
+   right-floated box; a cleared heading that must start
+   below its float; and one relatively shifted box.
+   Let the page settle before judging: a screenshot
+   taken mid-navigation grades the old page, not this
+   one.
+3. Drag positioning-test.html onto the window. Five
+   promises: (1) a red badge hanging off the top-right
+   corner of a yellow card, overlapping its edge, the
+   card's text undisturbed; (2) a purple box pinned
+   near the page's own top-left that scrolls AWAY as
+   you read down — that is what makes it absolute and
+   not fixed; (3) a green bar fixed to the top of the
+   window that stays exactly there at every scroll
+   position, spanning the full width though it declares
+   no width; (4) two overlapping boxes in a pale stage
+   where the TEAL one (z-index 2) covers the orange one
    (z-index 1) where they cross; (5) a blue box whose
    width is derived from left:40 and right:40 against
    its wrapper, pale showing on both sides.
-3. Open a heavy page — en.wikipedia.org/wiki/Cat. The
-   article's TEXT should be on screen and readable
+4. Drag multicolumn-test.html onto the window. Six
+   sections: balanced columns ending even with a rule
+   in each gap; a width-declared block standing in as
+   many columns as fit; the columns shorthand; a green
+   surface behind all of a block's columns; the
+   color-mix swatches running red-and-blue in their
+   proportions (and the gradient bar wearing two mixed
+   stops, and the swatch mixed from a var()); and the
+   honest section — the column-span child flowing
+   inside its column, because column-span is not read.
+   Remember the bargain, printed on the page: words
+   inside a column block are paint, not live text.
+5. Drag finishing-test.html onto the window. Ten
+   promises, in the 0.23 section above: the shorthand
+   and its longhand twins; the shorthand's reset; the
+   font: sent through var(); the width gate (narrow
+   the window under 750 and RELOAD — the box turns
+   pale red; widen and reload — pale blue returns);
+   the system scheme and Reduce Motion boxes, each
+   true to your own Mac's settings; the six-item list
+   under its structural rules; the :not() highlight
+   and the invisible empty paragraph; the two session
+   links — open the floats link, come Back, and it
+   alone wears visited purple; and the hover card and
+   link, which repaint under the resting pointer and
+   restore when it leaves, with nothing moving.
+6. Open a heavy real page — en.wikipedia.org/wiki/Cat.
+   The article's TEXT should be on screen and readable
    within moments — long before its pictures have all
    arrived — and the pictures should pop into their
    boxes as they land, the declared ones without moving
-   the text around them. The whole page should also
-   finish settling plainly sooner than it did under
-   0.19 on the same network, now that the floats no
-   longer cost a layout apiece. The bar should appear
-   under the address bar as the article downloads, turn
+   the text around them. The bar should appear under
+   the address bar as the article downloads, turn
    indeterminate while the page is walked, and VANISH
    at first paint; the status line should say
    "pictures still arriving" until the last one lands,
    then drop the note. The infobox should sit at the
-   RIGHT with the article text wrapping around it (the
-   0.17 check, unchanged), and any picture that fails
-   along the way should end up wearing its
-   "[Image: ...]" label rather than leaving a hole.
-   New in 0.21: watch Wikipedia's own absolutely
-   positioned pieces — the pieces the page lifts out of
-   its flow — and check they sit where they belong
-   against their cards and columns, not stranded in a
-   pile at the top of the document.
-4. Drag floats-test.html (it rides along in this folder)
-   from Finder onto the browser window. All six
-   promises must read exactly as they did under 0.19:
-   a floated box in a paragraph with the text wrapping
-   it, two floated columns inside a colored wrapper, a
-   row of floated boxes that must pack and wrap, a
-   right-floated box, a cleared heading that must start
-   below its float, and one relatively shifted box.
-5. Open a form page — the search box at
+   RIGHT with the article text wrapping around it, and
+   any picture that fails along the way should end up
+   wearing its "[Image: ...]" label rather than leaving
+   a hole. Wikipedia's own absolutely positioned pieces
+   should sit where they belong against their cards
+   and columns, not stranded in a pile at the top of
+   the document. And a new sight in 0.22: the article's
+   reference list stands in narrow columns — that is
+   the column machinery reading Wikipedia's own
+   column-width, working as intended, not a break.
+7. Open a form page — the search box at
    html.duckduckgo.com/html/ will do. The field and its
    button should sit in their places from the first
    moment and still be sitting there after the page's
@@ -369,21 +500,21 @@ THE TEST DRILL
    start typing in the field while pieces are still
    arriving: your words should survive the pictures
    landing.
-6. Start a slow page loading, then type a different
+8. Start a slow page loading, then type a different
    address and press Return before it finishes. The bar
    should restart for the new page, and the first page
    must never appear — not its text at first paint, and
    not its pictures arriving late over the new page —
    and none of its fixed overlays (if it had any) may
    survive onto the new page either.
-7. Open jesuslovestyler.com — the hub should look as it
+9. Open jesuslovestyler.com — the hub should look as it
    always has; nothing may slide or pile up.
-8. On any real page that pins a bar or banner with
-   position:fixed (many news and documentation sites
-   do), scroll slowly: the pinned element should hold
-   its place against the window while the article
-   moves beneath it, and it should still be there,
-   correctly sized, after the window is resized.
+10. On any real page that pins a bar or banner with
+    position:fixed (many news and documentation sites
+    do), scroll slowly: the pinned element should hold
+    its place against the window while the article
+    moves beneath it, and it should still be there,
+    correctly sized, after the window is resized.
 
 HOW TO RUN IT
 -------------

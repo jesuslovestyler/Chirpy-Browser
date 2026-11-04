@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.23 — The Finishing Set Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+  :root { --via-var: italic 19px Georgia, "Times New Roman", serif; }
+
+  .shorthand { font: italic bold 21px/1.7 Georgia, "Times New Roman", serif; }
+  .longhands { font-style: italic; font-weight: bold; font-size: 21px;
+               line-height: 1.7; font-family: Georgia, "Times New Roman", serif; }
+  .loud { font-style: italic; }
+  .loud.reset { font: 17px Georgia, serif; }
+  .via-var { font: var(--via-var); }
+  .fam { font-family: Georgia, "Times New Roman", serif; font-size: 19px; }
+  .caps { font-variant: small-caps; font-size: 19px; }
+
+  .gate { background-color: #d7e5ff; padding: 12px; }
+  @media (max-width: 750px) {
+    .gate { background-color: #ffd7d7; }
+  }
+  .scheme { background-color: #f4f4f4; color: #222222; padding: 12px; }
+  @media (prefers-color-scheme: dark) {
+    .scheme { background-color: #26262b; color: #e8e8e8; }
+  }
+  .motion { background-color: #eeeeee; padding: 12px; }
+  @media (prefers-reduced-motion: reduce) {
+    .motion { background-color: #d3ecd3; }
+  }
+
+  li:first-child { font-weight: bold; color: #b3001b; }
+  li:last-child { font-weight: bold; color: #0b5394; }
+  li:nth-child(2n) { background-color: #eef3e0; }
+  li:nth-child(3) { color: #6a1b9a; }
+
+  p.note:not(.plain) { background-color: #fff0b8; }
+
+  p.def:not(:empty) { background-color: #e2f2e2; }
+
+  a.session:link { color: #0b5394; }
+  a.session:visited { color: #7b1fa2; }
+
+  .card { background-color: #eef3e0; padding: 12px; }
+  .card:hover { background-color: #ffd9a8; color: #5b3000; }
+  a.hov { color: #0b5394; }
+  a.hov:hover { color: #b3001b; background-color: #ffe9a8;
+                text-decoration: none; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.23 — the finishing set test</h1>
+<p>Every effect on this page is drawn with CSS alone. Read down
+and check each numbered promise. Two honest notes before the
+promises: Chirpy answers media questions when a page loads, so
+the width promise below asks you to resize and reload; and
+hover here is paint, never layout — a hover may change colors
+and underlines, and it may never move a word.</p>
+
+<h2>1 — the font: shorthand, whole</h2>
+<p class="shorthand">This paragraph is styled with one line —
+font: italic bold 21px/1.7 Georgia, serif. It should stand
+slanted and bold, in a serif face, larger than the page's
+ordinary text, with roomy space between its lines.</p>
+<p class="longhands">This paragraph reaches the same look the
+long way, one longhand at a time — font-style, font-weight,
+font-size, line-height, font-family. Side by side, the two
+paragraphs should read as twins: the shorthand above is not
+a shortcut around the longhands, it is the longhands,
+gathered.</p>
+
+<h2>2 — the shorthand resets what it does not mention</h2>
+<p class="loud">This line is slanted by a font-style rule —
+a plain, upright size was never declared for it.</p>
+<p class="loud reset">This line carries the same slant rule,
+and a font: shorthand that never mentions slant at all. The
+shorthand resets what it does not mention, so this line
+should stand UPRIGHT, in Georgia, at 17px — the slant is
+gone, not inherited from the rule beside it.</p>
+
+<h2>3 — a font: that arrives through var()</h2>
+<p class="via-var">This paragraph's whole font: travelled
+inside a custom property — font: var(--via-var) — and only
+became concrete after substitution. It should still arrive:
+slanted, 19px, in Georgia.</p>
+
+<h2>4 — font-family and font-variant on their own</h2>
+<p class="fam">This line asks for Georgia by name, through
+the font-family longhand. It should wear a serif face,
+plainly different from the sans-serif of the page around
+it.</p>
+<p class="caps">This line is set in small capitals by
+font-variant: small-caps — lowercase letters wearing the
+shape of capitals at a smaller size.</p>
+
+<h2>5 — @media: the window's width</h2>
+<div class="gate">
+<p>This box answers (max-width: 750px). In a wide window it
+wears pale blue. Narrow the window below 750 points and
+RELOAD the page — the box should wear pale red instead.
+Widen it again and reload, and the blue returns. Chirpy
+answers media questions as the page loads, with the width
+of the window's text area as it stood when the load began,
+so the reload is part of the promise.</p>
+</div>
+
+<h2>6 — @media: the system's own answers</h2>
+<div class="scheme">
+<p>This box follows prefers-color-scheme, as it has since
+the variable step: pale in a light Mac, dark in a dark one.
+The finishing set kept the promise while widening the
+questions around it.</p>
+</div>
+<div class="motion">
+<p>This box answers prefers-reduced-motion. If your Mac's
+Reduce Motion accessibility setting is on, the box wears
+pale green; if it is off, the box stays gray. Either way the
+page has truly asked the system — open System Settings,
+Accessibility, Display to see which answer yours gives.</p>
+</div>
+
+<h2>7 — structural pseudo-classes: a list under rules</h2>
+<ul>
+  <li>First item — :first-child makes it bold and red.</li>
+  <li>Second item — :nth-child(2n) shades every even item pale green.</li>
+  <li>Third item — :nth-child(3) paints it purple (and 3 is odd, so no shading).</li>
+  <li>Fourth item — even again: shaded, but otherwise plain.</li>
+  <li>Fifth item — odd and unshaded, plain black text.</li>
+  <li>Sixth item — :last-child makes it bold and blue (and even, so shaded too).</li>
+</ul>
+
+<h2>8 — :not() and :empty</h2>
+<p class="note">This note is highlighted pale yellow: the
+rule .note:not(.plain) claims every note that does not carry
+the plain class, and this one does not.</p>
+<p class="note plain">This note carries the plain class, so
+the same rule passes it by — no highlight, however long it
+runs on about the weather, the garden, and the price of
+seed.</p>
+<p class="def">This definition is filled, and wears pale
+green by the rule .def:not(:empty) — a paragraph with words
+in it is not empty.</p>
+<p class="def"></p>
+<p class="def">Between the two green paragraphs sits a
+third .def paragraph with nothing in it at all. It shows no
+highlight and no words: :empty read it truly, and the
+:not() rule let it alone.</p>
+
+<h2>9 — :link and :visited, by this window's session</h2>
+<p><a class="session" href="floats-test.html">The floats test page</a>
+and <a class="session" href="positioning-test.html">the positioning test page</a>
+both begin in link blue. Open one of them, then come back
+with the Back arrow: the one you visited should now wear
+purple, and the one you have not opened should still be
+blue. Visited is this window's own session memory — quit
+Chirpy and relaunch, and both links are blue again; nothing
+is kept between launches.</p>
+
+<h2>10 — :hover, paint only</h2>
+<div class="card">
+<p>Rest the pointer on this card. The tint behind its words
+should warm to amber and the words themselves should turn
+dark brown — and not one word should move. Move the pointer
+away and the card settles back, exactly as it was.</p>
+</div>
+<p>Now rest the pointer on
+<a class="hov" href="multicolumn-test.html">this link to the multi-column test</a>.
+It should redden, lose its underline, and gain a pale wash
+behind its words. Click it if you like — but the hover alone
+is the promise, and it should feel instant.</p>
+
+</body>
+</html>
