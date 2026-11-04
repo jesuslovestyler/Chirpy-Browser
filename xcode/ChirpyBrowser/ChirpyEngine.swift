@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.18.0 (Swift)
+//  Chirpy Browser — engine 0.19.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -95,6 +95,16 @@
 //      and while the fetched page renders its styles and
 //      pictures. An HTML file dropped on the window opens
 //      through the same load path.
+//    * Parallel loading (0.19): a page's external
+//      stylesheets fetch concurrently and join the
+//      cascade strictly in document order; images,
+//      background photos and floated pictures fetch with
+//      bounded concurrency — at most six in flight —
+//      with every result collected before the pass that
+//      seats them runs. Block floats still finish one
+//      float at a time. Nothing paints until the page is
+//      whole: first paint, caching and prefetching are
+//      future steps, not this one.
   Not yet: other pseudo-classes (:hover) and @-rules,
 //  color-mix(), the font: shorthand, position:
 //  absolute/fixed, CSS multi-column (column-count),
@@ -200,7 +210,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -218,7 +228,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -272,7 +282,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -350,7 +360,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -359,6 +369,44 @@ func tbFetchData(urlString: String) async -> Data? {
     }
     if let http = response as? HTTPURLResponse, http.statusCode >= 400 { return nil }
     return data
+}
+
+// Fetch a batch of binary resources with bounded
+// concurrency (0.19): at most `limit` requests in flight
+// at once — six, the browsers' classic per-host number —
+// where a pass that lets everything fly at once can swamp
+// a small server, and one that queues behind a single
+// file makes the page wait on every round trip in turn.
+// Every result is collected before the caller proceeds,
+// keyed by the job's index in the batch, so the consuming
+// pass walks its jobs in their original order whatever
+// order the replies landed in. All of it goes through
+// tbFetchData and the one shared session, so connections
+// are reused; a failed fetch is simply absent from the
+// results. Child tasks only fetch and hand values back —
+// they never touch the caller's state.
+func tbFetchDataBatch(_ jobs: [(index: Int, url: String)],
+                      limit: Int = 6) async -> [Int: Data] {
+    if jobs.isEmpty { return [:] }
+    var results: [Int: Data] = [:]
+    await withTaskGroup(of: (Int, Data?).self) { group in
+        var next = 0
+        let window = min(limit, jobs.count)
+        while next < window {
+            let job = jobs[next]
+            group.addTask { (job.index, await tbFetchData(urlString: job.url)) }
+            next += 1
+        }
+        for await (index, data) in group {
+            if let data = data { results[index] = data }
+            if next < jobs.count {
+                let job = jobs[next]
+                group.addTask { (job.index, await tbFetchData(urlString: job.url)) }
+                next += 1
+            }
+        }
+    }
+    return results
 }
 
 // Decode a data: URI in place (base64 or plain text payload).
@@ -561,7 +609,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.18.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1963,7 +2011,8 @@ final class TBRenderer {
         return out
     }
 
-    // Fetch every registered image in parallel and seat it
+    // Fetch every registered image — with bounded
+    // concurrency since 0.19 — and seat it
     // in its attachment, fitted to its CSS/attribute box, or
     // its natural size capped at the nominal page width. An
     // image that cannot be fetched or decoded is replaced in
@@ -1972,18 +2021,21 @@ final class TBRenderer {
     func finishImages() async {
         if imageJobs.isEmpty { return }
         var dataByIndex: [Int: Data] = [:]
-        await withTaskGroup(of: (Int, Data?).self) { group in
-            for (index, job) in imageJobs.enumerated() {
-                if job.url.hasPrefix("data:") {
-                    dataByIndex[index] = tbDecodeDataURI(job.url)
-                } else {
-                    let url = job.url
-                    group.addTask { (index, await tbFetchData(urlString: url)) }
-                }
+        // Data URIs decode in place; the rest fetch with
+        // bounded concurrency (0.19) — at most six in
+        // flight — with every result in hand, keyed by
+        // job, before the seating below proceeds.
+        var fetchJobs: [(index: Int, url: String)] = []
+        for (index, job) in imageJobs.enumerated() {
+            if job.url.hasPrefix("data:") {
+                dataByIndex[index] = tbDecodeDataURI(job.url)
+            } else {
+                fetchJobs.append((index: index, url: job.url))
             }
-            for await (index, data) in group {
-                if let data = data { dataByIndex[index] = data }
-            }
+        }
+        let fetched = await tbFetchDataBatch(fetchJobs)
+        for (index, data) in fetched {
+            dataByIndex[index] = data
         }
         for (index, job) in imageJobs.enumerated() {
             guard let data = dataByIndex[index], let image = NSImage(data: data) else {
@@ -2046,18 +2098,20 @@ final class TBRenderer {
         if jobs.isEmpty { return }
         let capped = Array(jobs.prefix(8))
         var dataByIndex: [Int: Data] = [:]
-        await withTaskGroup(of: (Int, Data?).self) { group in
-            for (index, job) in capped.enumerated() {
-                if job.url.hasPrefix("data:") {
-                    dataByIndex[index] = tbDecodeDataURI(job.url)
-                } else {
-                    let url = job.url
-                    group.addTask { (index, await tbFetchData(urlString: url)) }
-                }
+        // The same bounded fetching as the flow's images
+        // (0.19): the cap of eight jobs still applies
+        // first, then at most six fly at once.
+        var fetchJobs: [(index: Int, url: String)] = []
+        for (index, job) in capped.enumerated() {
+            if job.url.hasPrefix("data:") {
+                dataByIndex[index] = tbDecodeDataURI(job.url)
+            } else {
+                fetchJobs.append((index: index, url: job.url))
             }
-            for await (index, data) in group {
-                if let data = data { dataByIndex[index] = data }
-            }
+        }
+        let fetched = await tbFetchDataBatch(fetchJobs)
+        for (index, data) in fetched {
+            dataByIndex[index] = data
         }
         for (index, job) in capped.enumerated() {
             if let data = dataByIndex[index] {
@@ -2069,12 +2123,37 @@ final class TBRenderer {
     func render(root: TBNode) async -> NSAttributedString {
         var sources: [TBStyleSource] = []
         tbCollectStyleSources(root, base: base, into: &sources)
+        // Every external stylesheet fetches concurrently
+        // (0.19) — a page's sheets no longer queue behind
+        // one another's round trips — but they are parsed
+        // and appended strictly in document order below:
+        // the cascade honors the order the page declares,
+        // never the order the replies land in. A sheet
+        // that fails to arrive is skipped, exactly as it
+        // was when the fetches ran one by one.
+        var sheetTexts: [Int: String] = [:]
+        var sheetJobs: [(index: Int, url: String)] = []
+        for (index, source) in sources.enumerated() {
+            if case .external(let url) = source {
+                sheetJobs.append((index: index, url: url))
+            }
+        }
+        if !sheetJobs.isEmpty {
+            await withTaskGroup(of: (Int, String?).self) { group in
+                for job in sheetJobs {
+                    group.addTask { (job.index, await tbFetchText(urlString: job.url)) }
+                }
+                for await (index, text) in group {
+                    if let text = text { sheetTexts[index] = text }
+                }
+            }
+        }
         var order = 0
-        for source in sources {
+        for (index, source) in sources.enumerated() {
             let cssText: String?
             switch source {
             case .inline(let text): cssText = text
-            case .external(let url): cssText = await tbFetchText(urlString: url)
+            case .external: cssText = sheetTexts[index]
             }
             guard let text = cssText else { continue }
             let parsed = tbParseCSS(text, orderStart: order)
@@ -2660,18 +2739,19 @@ final class TBRenderer {
     func finishFloatImages() async {
         if !floatImageJobs.isEmpty {
             var dataByIndex: [Int: Data] = [:]
-            await withTaskGroup(of: (Int, Data?).self) { group in
-                for (index, job) in floatImageJobs.enumerated() {
-                    if job.url.hasPrefix("data:") {
-                        dataByIndex[index] = tbDecodeDataURI(job.url)
-                    } else {
-                        let url = job.url
-                        group.addTask { (index, await tbFetchData(urlString: url)) }
-                    }
+            // The floated pictures fetch the same bounded
+            // way as the flow's images (0.19).
+            var fetchJobs: [(index: Int, url: String)] = []
+            for (index, job) in floatImageJobs.enumerated() {
+                if job.url.hasPrefix("data:") {
+                    dataByIndex[index] = tbDecodeDataURI(job.url)
+                } else {
+                    fetchJobs.append((index: index, url: job.url))
                 }
-                for await (index, data) in group {
-                    if let data = data { dataByIndex[index] = data }
-                }
+            }
+            let fetched = await tbFetchDataBatch(fetchJobs)
+            for (index, data) in fetched {
+                dataByIndex[index] = data
             }
             for (index, job) in floatImageJobs.enumerated() {
                 let spec = job.spec
@@ -2698,6 +2778,14 @@ final class TBRenderer {
             }
             floatImageJobs = []
         }
+        // The block floats themselves still finish one at
+        // a time, in order (0.19's honest limit): each
+        // sub-renderer's own pictures and backgrounds now
+        // fetch with bounded concurrency inside its finish
+        // passes, but overlapping one float's finishing
+        // with the next's would mean several renderers'
+        // state in flight at once, and this build does
+        // not reach across renderers that way.
         for pending in pendingBlockFloats {
             await pending.sub.finishImages()
             await pending.sub.finishBackgrounds()

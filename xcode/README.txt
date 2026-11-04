@@ -7,6 +7,43 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.19.0 — PARALLEL LOADING
+---------------------------------------
+The diagnosis after living with 0.18: pages felt slow
+mostly because their pieces arrived in single file —
+each stylesheet and picture paying its own full round
+trip in turn. 0.19 fetches them side by side:
+
+* Stylesheets. Every external stylesheet on a page is
+  fetched at the same time instead of one after another.
+  They still join the cascade in the order the page
+  declares them — arrival order never decides which
+  rules win — and a sheet that fails is skipped, exactly
+  as before.
+* Images, background photos, and floated pictures.
+  These flew together before, but all at once; now at
+  most six requests are in flight at any moment (the
+  browsers' classic per-host number), each new one
+  launching as another lands, and every result is
+  collected before the page is laid out.
+* Everything still travels through the one shared
+  session, so connections are reused, and the progress
+  bar behaves exactly as in 0.18 — the document's own
+  download is its measured part; the rendering, parallel
+  fetches and all, stays indeterminate. No blended
+  percentage was invented for the pieces.
+
+Honest limits, plainly: block floats still finish one
+float at a time — each floated box's own pictures now
+fetch in parallel inside it, but the boxes themselves
+take their turns, because overlapping them would mean
+reaching into several renderers' state at once. And
+nothing yet paints until the page is whole: showing the
+text before the pictures land (first paint), remembering
+pages and pictures between visits (a cache), and
+fetching pages ahead are all future steps, named here
+so their absence is a plan, not a surprise.
+
 WHAT'S NEW IN 0.18.0 — A PROGRESS BAR, AND DRAG-AND-DROP
 --------------------------------------------------------
 Two things asked for after living with 0.17:
@@ -48,14 +85,20 @@ into the window is not handled — files only.
 THE TEST DRILL
 --------------
 1. Build and run. The home page's status line should read
-   "Chirpy Engine 0.18.0".
-2. Open a heavy page — en.wikipedia.org/wiki/Cat. The bar
-   should appear under the address bar as the article
-   downloads, move while it comes in, turn indeterminate
-   while the page is laid out, and vanish when the page
-   settles. The infobox should still sit at the RIGHT
-   with the article text wrapping around it (the 0.17
-   check, unchanged).
+   "Chirpy Engine 0.19.0".
+2. Open a heavy page — en.wikipedia.org/wiki/Cat — and
+   compare with your memory of 0.18 on the same network:
+   the article should arrive noticeably sooner, now that
+   its styles and pictures no longer queue in single
+   file. The bar should still appear under the address
+   bar as the article downloads, move while it comes in,
+   turn indeterminate while the page is laid out, and
+   vanish when the page settles. The infobox should
+   still sit at the RIGHT with the article text wrapping
+   around it (the 0.17 check, unchanged), and any picture
+   that fails along the way should show its
+   "[Image: ...]" label rather than a hole — the page
+   must still render whole.
 3. Start a slow page loading, then type a different
    address and press Return before it finishes. The bar
    should restart for the new page, and the first page

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.18.0 (Swift)
+//  Chirpy Browser — prototype 0.19.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.18.0 (Swift) — floats, forms, progress bar, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.19.0 (Swift) — floats, forms, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -174,7 +174,7 @@ final class BrowserModel: ObservableObject {
                 self.pageForms = forms
                 self.pageFields = fields
                 self.pageLayoutEvents = layoutEvents
-                self.statusLine = "\(finalURL)  ·  Chirpy Engine 0.18.0 (Swift) — floats, forms, progress bar, no JavaScript yet"
+                self.statusLine = "\(finalURL)  ·  Chirpy Engine 0.19.0 (Swift) — floats, forms, progress bar, parallel loading, no JavaScript yet"
             } catch {
                 guard generation == self.loadGeneration else { return }
                 self.currentURL = target
