@@ -105,7 +105,7 @@
 //      float at a time. Nothing paints until the page is
 //      whole: first paint, caching and prefetching are
 //      future steps, not this one.
-  Not yet: other pseudo-classes (:hover) and @-rules,
+//  Not yet: other pseudo-classes (:hover) and @-rules,
 //  color-mix(), the font: shorthand, position:
 //  absolute/fixed, CSS multi-column (column-count),
 //  JavaScript (the mountain).
