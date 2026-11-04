@@ -7,6 +7,58 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.20.0 — FIRST PAINT, AND BATCHED FLOATS
+------------------------------------------------------
+Living with 0.19 made the remaining problem plain: a
+page showed nothing at all until its very last picture
+had arrived and every float had been resolved — one
+Wikipedia article sat loading for minutes while the
+window showed the previous page. Two changes:
+
+* First paint. The page is handed to the window the
+  moment it has been walked — all of its text, its
+  links live, ready to read and scroll — while its
+  pictures are still fetching. A picture whose size the
+  page declares (most do) has its box reserved at that
+  exact size from the start, so when the picture lands
+  it fills its box without moving a single word. The
+  progress bar settles at first paint, because the page
+  is readable then; while pieces are still arriving the
+  status line says so ("pictures still arriving"), and
+  when the last one lands the finished page is quietly
+  re-installed behind the reader — final picture sizes,
+  labels on the ones that failed — and the floats are
+  resolved once more against the finished geometry.
+* Batched float layout. Resolving the floats used to
+  cost one full layout of the whole text per float —
+  dozens of passes on an article that floats every
+  thumbnail. Now all the placements are computed
+  together from the layout as it stands, applied
+  together, and recomputed against the new layout until
+  they stop moving: at most three passes, and the
+  resting place they settle into is the same one the
+  old way reached.
+
+Honest limits, plainly. A block floated box (a sidebar
+made of text, say) still gets its true size by being
+measured after its own pictures land, so floated boxes
+of that kind take their places at the arrivals moment,
+not at first paint — floated pictures and the text
+wrapping around them are there from the first moment.
+A picture that declares no size can only reserve a
+small standard box until it lands, so its text may
+re-wrap once when its real size arrives. Typing in a
+form is safe — words typed while pictures are still
+arriving are carried across the re-install — but a
+text selection made in those first moments is not.
+And the walk itself is still one unbroken pass: on a
+very heavy page the window can still hold still while
+the text is being walked, just for much less of the
+wait than before. The roadmap from here is Tyler's:
+CSS finished first (positioned layout next), then the
+cache; JavaScript stays off the plan unless he calls
+it back.
+
 WHAT'S NEW IN 0.19.0 — PARALLEL LOADING
 ---------------------------------------
 The diagnosis after living with 0.18: pages felt slow
@@ -85,32 +137,47 @@ into the window is not handled — files only.
 THE TEST DRILL
 --------------
 1. Build and run. The home page's status line should read
-   "Chirpy Engine 0.19.0".
-2. Open a heavy page — en.wikipedia.org/wiki/Cat — and
-   compare with your memory of 0.18 on the same network:
-   the article should arrive noticeably sooner, now that
-   its styles and pictures no longer queue in single
-   file. The bar should still appear under the address
-   bar as the article downloads, move while it comes in,
-   turn indeterminate while the page is laid out, and
-   vanish when the page settles. The infobox should
-   still sit at the RIGHT with the article text wrapping
-   around it (the 0.17 check, unchanged), and any picture
-   that fails along the way should show its
-   "[Image: ...]" label rather than a hole — the page
-   must still render whole.
-3. Start a slow page loading, then type a different
+   "Chirpy Engine 0.20.0".
+2. Open a heavy page — en.wikipedia.org/wiki/Cat. The
+   article's TEXT should be on screen and readable
+   within moments — long before its pictures have all
+   arrived — and the pictures should pop into their
+   boxes as they land, the declared ones without moving
+   the text around them. The whole page should also
+   finish settling plainly sooner than it did under
+   0.19 on the same network, now that the floats no
+   longer cost a layout apiece. The bar should appear
+   under the address bar as the article downloads, turn
+   indeterminate while the page is walked, and VANISH
+   at first paint; the status line should say
+   "pictures still arriving" until the last one lands,
+   then drop the note. The infobox should sit at the
+   RIGHT with the article text wrapping around it (the
+   0.17 check, unchanged), and any picture that fails
+   along the way should end up wearing its
+   "[Image: ...]" label rather than leaving a hole.
+3. Drag floats-test.html (it rides along in this folder)
+   from Finder onto the browser window. All six
+   promises must read exactly as they did under 0.19:
+   a floated box in a paragraph with the text wrapping
+   it, two floated columns inside a colored wrapper, a
+   row of floated boxes that must pack and wrap, a
+   right-floated box, a cleared heading that must start
+   below its float, and one relatively shifted box.
+4. Open a form page — the search box at
+   html.duckduckgo.com/html/ will do. The field and its
+   button should sit in their places from the first
+   moment and still be sitting there after the page's
+   pictures land. If the connection is slow enough,
+   start typing in the field while pieces are still
+   arriving: your words should survive the pictures
+   landing.
+5. Start a slow page loading, then type a different
    address and press Return before it finishes. The bar
    should restart for the new page, and the first page
-   must never appear or disturb the new one's bar.
-4. Drag floats-test.html (it rides along in this folder)
-   from Finder onto the browser window. The test page
-   should open: a floated box in a paragraph, two floated
-   columns inside a colored wrapper, a row of floated
-   boxes that must pack and wrap, a right-floated box, a
-   cleared heading that must start below its float, and
-   one relatively shifted box.
-5. Open jesuslovestyler.com — the hub should look as it
+   must never appear — not its text at first paint, and
+   not its pictures arriving late over the new page.
+6. Open jesuslovestyler.com — the hub should look as it
    always has; nothing may slide or pile up.
 
 HOW TO RUN IT

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.19.0 (Swift)
+//  Chirpy Browser — prototype 0.20.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.19.0 (Swift) — floats, forms, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.20.0 (Swift) — first paint, floats, forms, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -31,12 +31,18 @@ final class BrowserModel: ObservableObject {
     // the document fetch's fraction of the bar (the fetch
     // fills its first 70%) — nil while loading means there
     // is no honest fraction to show: the server declared
-    // no length, or the page is in and now rendering its
-    // styles and pictures. The window then shows an
-    // indeterminate bar. Both clear when the page settles,
-    // on success and on failure alike.
+    // no length, or the page is in and being walked. The
+    // window then shows an indeterminate bar. Both clear
+    // at first paint (0.20) — the moment the page is
+    // readable — on success and on failure alike; pieces
+    // still arriving after that are the status line's
+    // business ("pictures still arriving"), not the bar's.
     @Published var isLoading = false
     @Published var loadProgress: Double? = nil
+    // First paint (0.20): true from a page's first paint
+    // until its pictures have all landed, so the view
+    // knows to re-install the finished page when they do.
+    @Published var pageArrivalsPending = false
     private var loadGeneration = 0
     private var activeFetch: TBProgressFetcher? = nil
 
@@ -154,27 +160,51 @@ final class BrowserModel: ObservableObject {
                     fetched = try await tbFetch(urlString: target)
                 }
                 let (finalURL, html) = fetched
-                // Fetched; rendering now. The render's own
-                // fetches (styles, pictures, floats) have no
-                // single honest fraction across their
-                // passes, so the bar goes indeterminate
-                // until the page settles.
+                // Fetched; rendering now. The walk has no
+                // single honest fraction, so the bar goes
+                // indeterminate until the first paint
+                // settles it.
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let (title, body, pageBG, columnW, forms, fields, landedURL, layoutEvents) =
-                    await tbRenderPage(html: html, base: finalURL)
-                guard generation == self.loadGeneration else { return }
-                self.currentURL = landedURL
-                self.addressText = landedURL
-                self.pageTitle = title
-                self.pageText = body
-                self.pageBackground = pageBG
-                self.columnTextWidth = columnW
-                self.pageForms = forms
-                self.pageFields = fields
-                self.pageLayoutEvents = layoutEvents
-                self.statusLine = "\(finalURL)  ·  Chirpy Engine 0.19.0 (Swift) — floats, forms, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.20.0 (Swift) — first paint, floats, forms, progress bar, parallel loading, no JavaScript yet"
+                // First paint (0.20): the render hands the
+                // walked page over the moment it exists —
+                // the install below runs then (the render
+                // calls it on the main actor), settling the
+                // bar while the page's pictures are still
+                // fetching. The render's second stage, the
+                // arrivals, may touch this page afterwards
+                // only while this load is still the latest.
+                let paint = await tbRenderPage(html: html, base: finalURL) { first in
+                    guard generation == self.loadGeneration else { return }
+                    self.currentURL = first.landedURL
+                    self.addressText = first.landedURL
+                    self.pageTitle = first.title
+                    self.pageText = first.body
+                    self.pageBackground = first.pageBackground
+                    self.columnTextWidth = first.columnWidth
+                    self.pageForms = first.forms
+                    self.pageFields = first.fields
+                    self.pageLayoutEvents = first.layoutEvents
+                    self.pageArrivalsPending = first.arrivalsPending
+                    self.statusLine = first.arrivalsPending
+                        ? settledStatus + "  ·  pictures still arriving"
+                        : settledStatus
+                    self.isLoading = false
+                    self.loadProgress = nil
+                    self.activeFetch = nil
+                    self.canGoBack = !self.backStack.isEmpty
+                    self.canGoForward = !self.forwardStack.isEmpty
+                    self.pageID += 1
+                }
+                // The arrivals have landed (or a newer load
+                // has superseded this one — then nothing
+                // here may touch the window).
+                if generation == self.loadGeneration, paint.arrivalsPending {
+                    self.pageArrivalsPending = false
+                    self.statusLine = settledStatus
+                }
             } catch {
                 guard generation == self.loadGeneration else { return }
                 self.currentURL = target
@@ -193,14 +223,15 @@ final class BrowserModel: ObservableObject {
                 self.pageForms = []
                 self.pageFields = []
                 self.pageLayoutEvents = []
+                self.pageArrivalsPending = false
                 self.statusLine = "Load failed"
+                self.isLoading = false
+                self.loadProgress = nil
+                self.activeFetch = nil
+                self.canGoBack = !self.backStack.isEmpty
+                self.canGoForward = !self.forwardStack.isEmpty
+                self.pageID += 1
             }
-            self.isLoading = false
-            self.loadProgress = nil
-            self.activeFetch = nil
-            self.canGoBack = !self.backStack.isEmpty
-            self.canGoForward = !self.forwardStack.isEmpty
-            self.pageID += 1
         }
     }
 }
@@ -255,6 +286,14 @@ struct PageTextView: NSViewRepresentable {
             context.coordinator.layoutEvents = model.pageLayoutEvents
             context.coordinator.floatLayoutDirty = true
             context.coordinator.settleFloatLayout()
+            context.coordinator.awaitingArrivals = model.pageArrivalsPending
+        }
+        // First paint (0.20): this page's pictures have
+        // all landed since it was installed — re-install
+        // its finished text and resolve it again.
+        if context.coordinator.awaitingArrivals && !model.pageArrivalsPending {
+            context.coordinator.awaitingArrivals = false
+            context.coordinator.refreshAfterArrivals()
         }
         context.coordinator.columnWidth = model.columnTextWidth
         context.coordinator.refreshInsets()
@@ -288,6 +327,10 @@ struct PageTextView: NSViewRepresentable {
         var layoutEvents: [TBLayoutEvent] = []
         var floatLayoutDirty = false
         private var floatWidth: CGFloat = 0
+        // First paint (0.20): this page was installed
+        // before its pictures landed; when the model says
+        // they have, the finished page is re-installed.
+        var awaitingArrivals = false
 
         init(model: BrowserModel) {
             self.model = model
@@ -414,6 +457,30 @@ struct PageTextView: NSViewRepresentable {
             repositionFormViews()
         }
 
+        // First paint (0.20): the page's pictures have all
+        // landed — the renderer's string is final now
+        // (pictures seated at their true sizes, failures
+        // wearing their labels). Re-install it so the
+        // window matches the finished page exactly, rebuild
+        // the form controls over it, and resolve the floats
+        // against the final geometry. What the reader typed
+        // into a field meanwhile is carried across; the
+        // scroll stays where the reader left it — they may
+        // be halfway down the article by now.
+        func refreshAfterArrivals() {
+            guard let textView = textView,
+                  let storage = textView.textStorage else { return }
+            var typed: [Int: String] = [:]
+            for (id, field) in fieldViews { typed[id] = field.stringValue }
+            storage.setAttributedString(model.pageText)
+            rebuildFormViews()
+            for (id, value) in typed {
+                fieldViews[id]?.stringValue = value
+            }
+            floatLayoutDirty = true
+            settleFloatLayout()
+        }
+
         // Positioned layout (0.17): resolve the page's float
         // and clear events against the column's real width.
         // Each float packs at the highest band it fits —
@@ -430,6 +497,9 @@ struct PageTextView: NSViewRepresentable {
         // special: the exclusion narrows its lines for as
         // long as the float lasts, and full width resumes
         // below it — the sidebar pattern falls out of this.
+        // The placements themselves are computed in
+        // whole-page passes since 0.20 — see the batched
+        // layout note inside.
         func settleFloatLayout() {
             guard let textView = textView,
                   let layoutManager = textView.layoutManager,
@@ -450,112 +520,161 @@ struct PageTextView: NSViewRepresentable {
                 return
             }
             layoutManager.ensureLayout(for: container)
-            var placed: [(rect: NSRect, side: TBFloatSide, anchor: Int)] = []
-            var paints: [(rect: NSRect, spec: TBFloatSpec)] = []
-            var exclusions: [NSBezierPath] = []
 
-            func overlaps(_ a: NSRect, _ b: NSRect) -> Bool {
-                a.minX < b.maxX && b.minX < a.maxX
-                    && a.minY < b.maxY && b.minY < a.maxY
+            // Batched layout (0.20): placements for the
+            // whole page are computed at once from the
+            // layout as it currently stands, then every
+            // exclusion is applied together, the text is
+            // re-laid out, and the computation repeats
+            // against the new layout until the placements
+            // stop moving — at most three passes. 0.17
+            // applied one exclusion at a time with a layout
+            // between events, so a long, float-heavy page
+            // (an article that floats every thumbnail)
+            // paid a layout pass per float over the whole
+            // text. The fixed point this converges to is
+            // the same one 0.17 reached: a pass that moves
+            // nothing proves every anchor was measured as
+            // the text truly lies. A clear can alternate
+            // between two passes (its own exclusion moves
+            // its anchor), so the bound can end the loop —
+            // the last pass still applies, measured with
+            // the floats live, the measurement 0.17 took.
+            func computePlacements() -> (exclusions: [NSBezierPath],
+                                         paints: [(rect: NSRect, spec: TBFloatSpec)]) {
+                var placed: [(rect: NSRect, side: TBFloatSide, anchor: Int)] = []
+                var paints: [(rect: NSRect, spec: TBFloatSpec)] = []
+                var exclusions: [NSBezierPath] = []
+
+                func overlaps(_ a: NSRect, _ b: NSRect) -> Bool {
+                    a.minX < b.maxX && b.minX < a.maxX
+                        && a.minY < b.maxY && b.minY < a.maxY
+                }
+
+                for event in self.layoutEvents {
+                    switch event {
+                    case .float(let spec):
+                        let marginW = spec.borderWidth + spec.marginLeft + spec.marginRight
+                        let marginH = spec.borderHeight + spec.marginTop + spec.marginBottom
+                        var top = self.floatAnchorY(spec.anchorCharIndex)
+                        // A float never rises above an earlier one.
+                        for other in placed { top = max(top, other.rect.minY) }
+                        var y = top
+                        var marginX: CGFloat? = nil
+                        var tries = 0
+                        while marginX == nil && tries < 80 {
+                            tries += 1
+                            let blockers = placed.filter {
+                                $0.rect.minY < y + marginH && y < $0.rect.maxY
+                            }
+                            var candidates: [CGFloat] = [
+                                spec.side == .left ? 0 : width - marginW
+                            ]
+                            for blocker in blockers {
+                                candidates.append(spec.side == .left
+                                    ? blocker.rect.maxX
+                                    : blocker.rect.minX - marginW)
+                            }
+                            candidates.sort { spec.side == .left ? $0 < $1 : $0 > $1 }
+                            for x in candidates {
+                                if x < -0.5 || x + marginW > width + 0.5 { continue }
+                                let rect = NSRect(x: x, y: y,
+                                                  width: marginW, height: marginH)
+                                if blockers.allSatisfy({ !overlaps($0.rect, rect) }) {
+                                    marginX = x
+                                    break
+                                }
+                            }
+                            if marginX == nil {
+                                // The band is full: drop below the
+                                // shallowest blocker and try again.
+                                // With nothing in the way but a box
+                                // wider than the column, take the
+                                // edge and let it overflow.
+                                let bottoms = blockers.map { $0.rect.maxY }
+                                    .filter { $0 > y }
+                                if let next = bottoms.min() {
+                                    y = next
+                                } else {
+                                    marginX = spec.side == .left
+                                        ? 0 : max(0, width - marginW)
+                                }
+                            }
+                        }
+                        let placedX = marginX ?? 0
+                        let marginRect = NSRect(x: placedX, y: y,
+                                                width: marginW, height: marginH)
+                        placed.append((rect: marginRect, side: spec.side,
+                                       anchor: spec.anchorCharIndex))
+                        paints.append((rect: NSRect(x: placedX + spec.marginLeft,
+                                                    y: y + spec.marginTop,
+                                                    width: spec.borderWidth,
+                                                    height: spec.borderHeight),
+                                       spec: spec))
+                        exclusions.append(NSBezierPath(rect: marginRect))
+                    case .clear(let spec):
+                        // A clear at the very end of the text has
+                        // nothing after it to push — skip it, so a
+                        // trailing float is never mistaken for a
+                        // reason to move the last line.
+                        guard spec.anchorCharIndex < storage.length else { continue }
+                        let anchorTop = self.floatAnchorY(spec.anchorCharIndex)
+                        var limit: CGFloat = 0
+                        for other in placed {
+                            if spec.side == .left && other.side != .left { continue }
+                            if spec.side == .right && other.side != .right { continue }
+                            if let start = spec.rangeStart,
+                               !(other.anchor >= start
+                                 && other.anchor < spec.anchorCharIndex) {
+                                continue
+                            }
+                            limit = max(limit, other.rect.maxY)
+                        }
+                        if limit > anchorTop + 1 {
+                            exclusions.append(NSBezierPath(rect: NSRect(
+                                x: 0, y: anchorTop, width: width,
+                                height: limit - anchorTop)))
+                        }
+                    }
+                }
+                return (exclusions, paints)
             }
-            func applyExclusions(from charIndex: Int) {
+            func samePaints(_ a: [(rect: NSRect, spec: TBFloatSpec)],
+                            _ b: [(rect: NSRect, spec: TBFloatSpec)]) -> Bool {
+                guard a.count == b.count else { return false }
+                for i in a.indices {
+                    if a[i].rect != b[i].rect || a[i].spec !== b[i].spec {
+                        return false
+                    }
+                }
+                return true
+            }
+            // No exclusion can move text above the first
+            // event's anchor, so re-layout starts there.
+            let firstAnchor = layoutEvents.map { event -> Int in
+                switch event {
+                case .float(let spec): return spec.anchorCharIndex
+                case .clear(let spec): return spec.anchorCharIndex
+                }
+            }.min() ?? 0
+            var exclusions: [NSBezierPath] = []
+            var paints: [(rect: NSRect, spec: TBFloatSpec)] = []
+            var pass = 0
+            while true {
+                pass += 1
+                let computed = computePlacements()
+                let stable = pass > 1 && samePaints(computed.paints, paints)
+                exclusions = computed.exclusions
+                paints = computed.paints
                 container.exclusionPaths = exclusions
-                if charIndex < storage.length {
+                if stable || pass >= 3 { break }
+                if firstAnchor < storage.length {
                     layoutManager.invalidateLayout(
-                        forCharacterRange: NSRange(location: charIndex,
-                                                   length: storage.length - charIndex),
+                        forCharacterRange: NSRange(location: firstAnchor,
+                                                   length: storage.length - firstAnchor),
                         actualCharacterRange: nil)
                 }
                 layoutManager.ensureLayout(for: container)
-            }
-
-            for event in layoutEvents {
-                switch event {
-                case .float(let spec):
-                    let marginW = spec.borderWidth + spec.marginLeft + spec.marginRight
-                    let marginH = spec.borderHeight + spec.marginTop + spec.marginBottom
-                    var top = floatAnchorY(spec.anchorCharIndex)
-                    // A float never rises above an earlier one.
-                    for other in placed { top = max(top, other.rect.minY) }
-                    var y = top
-                    var marginX: CGFloat? = nil
-                    var tries = 0
-                    while marginX == nil && tries < 80 {
-                        tries += 1
-                        let blockers = placed.filter {
-                            $0.rect.minY < y + marginH && y < $0.rect.maxY
-                        }
-                        var candidates: [CGFloat] = [
-                            spec.side == .left ? 0 : width - marginW
-                        ]
-                        for blocker in blockers {
-                            candidates.append(spec.side == .left
-                                ? blocker.rect.maxX
-                                : blocker.rect.minX - marginW)
-                        }
-                        candidates.sort { spec.side == .left ? $0 < $1 : $0 > $1 }
-                        for x in candidates {
-                            if x < -0.5 || x + marginW > width + 0.5 { continue }
-                            let rect = NSRect(x: x, y: y,
-                                              width: marginW, height: marginH)
-                            if blockers.allSatisfy({ !overlaps($0.rect, rect) }) {
-                                marginX = x
-                                break
-                            }
-                        }
-                        if marginX == nil {
-                            // The band is full: drop below the
-                            // shallowest blocker and try again.
-                            // With nothing in the way but a box
-                            // wider than the column, take the
-                            // edge and let it overflow.
-                            let bottoms = blockers.map { $0.rect.maxY }
-                                .filter { $0 > y }
-                            if let next = bottoms.min() {
-                                y = next
-                            } else {
-                                marginX = spec.side == .left
-                                    ? 0 : max(0, width - marginW)
-                            }
-                        }
-                    }
-                    let placedX = marginX ?? 0
-                    let marginRect = NSRect(x: placedX, y: y,
-                                            width: marginW, height: marginH)
-                    placed.append((rect: marginRect, side: spec.side,
-                                   anchor: spec.anchorCharIndex))
-                    paints.append((rect: NSRect(x: placedX + spec.marginLeft,
-                                                y: y + spec.marginTop,
-                                                width: spec.borderWidth,
-                                                height: spec.borderHeight),
-                                   spec: spec))
-                    exclusions.append(NSBezierPath(rect: marginRect))
-                    applyExclusions(from: spec.anchorCharIndex)
-                case .clear(let spec):
-                    // A clear at the very end of the text has
-                    // nothing after it to push — skip it, so a
-                    // trailing float is never mistaken for a
-                    // reason to move the last line.
-                    guard spec.anchorCharIndex < storage.length else { continue }
-                    let anchorTop = floatAnchorY(spec.anchorCharIndex)
-                    var limit: CGFloat = 0
-                    for other in placed {
-                        if spec.side == .left && other.side != .left { continue }
-                        if spec.side == .right && other.side != .right { continue }
-                        if let start = spec.rangeStart,
-                           !(other.anchor >= start
-                             && other.anchor < spec.anchorCharIndex) {
-                            continue
-                        }
-                        limit = max(limit, other.rect.maxY)
-                    }
-                    if limit > anchorTop + 1 {
-                        exclusions.append(NSBezierPath(rect: NSRect(
-                            x: 0, y: anchorTop, width: width,
-                            height: limit - anchorTop)))
-                        applyExclusions(from: spec.anchorCharIndex)
-                    }
-                }
             }
             band?.floatPaints = paints
             textView.needsDisplay = true

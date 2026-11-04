@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.19.0 (Swift)
+//  Chirpy Browser — engine 0.20.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -87,7 +87,7 @@
 //      box's paint by its offsets without disturbing the
 //      flow position. position: absolute/fixed and the
 //      multi-column properties are NOT read — honestly out.
-////    * Load progress (0.18): the main document fetch is
+//    * Load progress (0.18): the main document fetch is
 //      delegate-driven and reports the bytes received
 //      against the response's expected length; the window
 //      shows them as a progress bar under the address bar
@@ -105,6 +105,14 @@
 //      float at a time. Nothing paints until the page is
 //      whole: first paint, caching and prefetching are
 //      future steps, not this one.
+//    * First paint (0.20): the walked page reaches the
+//      window before its pictures — the text paints with
+//      declared picture boxes reserved, and the fetched
+//      pixels fill their boxes as they land; floated
+//      pictures are placed from their declared geometry
+//      at first paint and painted when they arrive. The
+//      view resolves a page's floats in a few whole
+//      passes instead of one layout per float.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
 //  color-mix(), the font: shorthand, position:
 //  absolute/fixed, CSS multi-column (column-count),
@@ -210,7 +218,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -228,7 +236,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -282,7 +290,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -360,7 +368,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -609,7 +617,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.19.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -2037,12 +2045,17 @@ final class TBRenderer {
         for (index, data) in fetched {
             dataByIndex[index] = data
         }
+        var failedIndices = Set<Int>()
         for (index, job) in imageJobs.enumerated() {
             guard let data = dataByIndex[index], let image = NSImage(data: data) else {
+                failedIndices.insert(index)
                 continue
             }
             let natural = image.size
-            if natural.width < 2 || natural.height < 2 { continue }
+            if natural.width < 2 || natural.height < 2 {
+                failedIndices.insert(index)
+                continue
+            }
             var width = job.preferredWidth ?? natural.width
             var height = job.preferredHeight ?? natural.height
             if job.preferredWidth != nil && job.preferredHeight == nil {
@@ -2060,8 +2073,12 @@ final class TBRenderer {
         // Replace attachments that never got a picture with
         // their labels, found by identity, replaced backwards
         // so earlier ranges stay put.
-        let failedIDs = Set(imageJobs.compactMap { job -> ObjectIdentifier? in
-            job.attachment.image == nil ? ObjectIdentifier(job.attachment) : nil
+        // Failure is tracked by job, not by the attachment's
+        // image: since 0.20 an attachment may already carry
+        // its clear seat from the walk, so a nil image no
+        // longer means "never arrived".
+        let failedIDs = Set(failedIndices.map {
+            ObjectIdentifier(imageJobs[$0].attachment)
         })
         if !failedIDs.isEmpty {
             var failed: [(range: NSRange, alt: String)] = []
@@ -2120,7 +2137,13 @@ final class TBRenderer {
         }
     }
 
-    func render(root: TBNode) async -> NSAttributedString {
+    // First paint (0.20), the first stage: styles, then
+    // the walk. The string this returns is the page the
+    // window shows at once — text complete, links live,
+    // declared picture boxes reserved — while everything
+    // the walk registered as still-to-fetch waits for
+    // finishArrivals().
+    func renderFirstPaint(root: TBNode) async -> NSAttributedString {
         var sources: [TBStyleSource] = []
         tbCollectStyleSources(root, base: base, into: &sources)
         // Every external stylesheet fetches concurrently
@@ -2171,10 +2194,35 @@ final class TBRenderer {
         if let body = findTag(root, "body") ?? findTag(root, "html") {
             pageBackground = tbBackgroundColor(resolvedStyle(node: body))
         }
+        return out
+    }
+
+    // First paint (0.20): is anything still out fetching?
+    // The window shows the walked page immediately and
+    // notes in its status line that pictures are still
+    // arriving; this is what tells it so.
+    var hasPendingArrivals: Bool {
+        if !imageJobs.isEmpty || !floatImageJobs.isEmpty
+            || !pendingBlockFloats.isEmpty { return true }
+        for box in backgroundBoxes.values {
+            for layer in box.layers {
+                if case .image = layer.kind { return true }
+            }
+        }
+        return false
+    }
+
+    // First paint (0.20), the second stage: fetch
+    // everything the walk registered, in the order the
+    // old single-pass render finished them — the flow's
+    // pictures seat themselves (or become their labels),
+    // background photos fill their layers, and the
+    // floated pictures land in their specs while the
+    // block floats are measured and given their contents.
+    func finishArrivals() async {
         await finishImages()
         await finishBackgrounds()
         await finishFloatImages()
-        return out
     }
 
     private func findTag(_ node: TBNode, _ tag: String) -> TBNode? {
@@ -2831,14 +2879,28 @@ final class TBRenderer {
                 let absolute = src.hasPrefix("data:")
                     ? src
                     : (URL(string: src, relativeTo: URL(string: base))?.absoluteString ?? src)
+                let preferredW = tbLengthValue(own["width"] ?? node.attrs["width"],
+                                               fontSize: f.pointSize)
+                let preferredH = tbLengthValue(own["height"] ?? node.attrs["height"],
+                                                fontSize: f.pointSize)
                 let attachment = NSTextAttachment()
-                attachment.bounds = CGRect(x: 0, y: 0, width: 24, height: 18)
+                if let w = preferredW, let h = preferredH {
+                    // First paint (0.20): both dimensions are
+                    // declared, so the picture's box is
+                    // reserved at its final size from the
+                    // start — a clear seat, exactly as the
+                    // form controls reserve theirs — and the
+                    // fetched picture replaces the seat when
+                    // it lands, without moving any text.
+                    attachment.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+                    attachment.image = tbClearSeat(width: w, height: h)
+                } else {
+                    attachment.bounds = CGRect(x: 0, y: 0, width: 24, height: 18)
+                }
                 imageJobs.append(TBImageJob(
                     attachment: attachment, url: absolute, alt: alt,
-                    preferredWidth: tbLengthValue(own["width"] ?? node.attrs["width"],
-                                                  fontSize: f.pointSize),
-                    preferredHeight: tbLengthValue(own["height"] ?? node.attrs["height"],
-                                                   fontSize: f.pointSize)))
+                    preferredWidth: preferredW,
+                    preferredHeight: preferredH))
                 return NSAttributedString(attachment: attachment)
             }
             return NSAttributedString(
@@ -3009,27 +3071,49 @@ func tbScriptBounceTargets(html: String, base: String) -> [String] {
     return Array(found.prefix(3))
 }
 
-func tbRenderPage(html: String, base: String) async
-    -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
-        columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField],
-        landedURL: String, layoutEvents: [TBLayoutEvent]) {
-    return await tbRenderFollowingRefresh(html: html, base: base, depth: 0)
+// First paint (0.20): everything the window needs to
+// show a page the moment it is walked — and, in
+// arrivalsPending, whether pieces of it are still out
+// fetching. The body is the renderer's own string: the
+// finish passes keep working on it after the hand-off,
+// which is how the window's re-install at arrivals time
+// sees the finished page.
+struct TBFirstPaint {
+    let title: String
+    let body: NSAttributedString
+    let pageBackground: NSColor?
+    let columnWidth: CGFloat?
+    let forms: [TBFormSpec]
+    let fields: [TBFormField]
+    let landedURL: String
+    let layoutEvents: [TBLayoutEvent]
+    let arrivalsPending: Bool
 }
 
-private func tbRenderFollowingRefresh(html: String, base: String, depth: Int) async
-    -> (title: String, body: NSAttributedString, pageBackground: NSColor?,
-        columnWidth: CGFloat?, forms: [TBFormSpec], fields: [TBFormField],
-        landedURL: String, layoutEvents: [TBLayoutEvent]) {
+// Render a page in two stages: onFirstPaint is called
+// (on the main actor) with the walked page as soon as
+// it exists, and the same value is returned once every
+// arrival has landed in it.
+func tbRenderPage(html: String, base: String,
+                  onFirstPaint: (TBFirstPaint) -> Void) async -> TBFirstPaint {
+    return await tbRenderFollowingRefresh(html: html, base: base, depth: 0,
+                                          onFirstPaint: onFirstPaint)
+}
+
+private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
+                                      onFirstPaint: (TBFirstPaint) -> Void)
+    async -> TBFirstPaint {
     let title = tbExtractTitle(html: html)
     let tree = tbParse(html: html)
     if depth < 3, let target = tbMetaRefreshTarget(root: tree, base: base),
        target != base,
        let (newBase, newHTML) = try? await tbFetch(urlString: target) {
         return await tbRenderFollowingRefresh(html: newHTML, base: newBase,
-                                              depth: depth + 1)
+                                              depth: depth + 1,
+                                              onFirstPaint: onFirstPaint)
     }
     let renderer = TBRenderer(base: base)
-    let body = await renderer.render(root: tree)
+    let body = await renderer.renderFirstPaint(root: tree)
     // A script-only send-on (a search engine's click
     // bounce, say) renders as a black void. When the walk
     // found no words at all, offer the destinations the
@@ -3057,11 +3141,28 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int) as
                                  .foregroundColor: NSColor.linkColor,
                                  .underlineStyle: NSUnderlineStyle.single.rawValue]))
             }
-            return (title.isEmpty ? "This page needs JavaScript" : title,
-                    notice, nil, nil, [], [], base, [])
+            let paint = TBFirstPaint(
+                title: title.isEmpty ? "This page needs JavaScript" : title,
+                body: notice, pageBackground: nil, columnWidth: nil,
+                forms: [], fields: [], landedURL: base, layoutEvents: [],
+                arrivalsPending: false)
+            await MainActor.run { onFirstPaint(paint) }
+            return paint
         }
     }
-    return (title.isEmpty ? base : title, body, renderer.pageBackground,
-            renderer.columnTextWidth(root: tree), renderer.forms, renderer.fields,
-            base, renderer.layoutEvents)
+    let paint = TBFirstPaint(
+        title: title.isEmpty ? base : title,
+        body: body,
+        pageBackground: renderer.pageBackground,
+        columnWidth: renderer.columnTextWidth(root: tree),
+        forms: renderer.forms,
+        fields: renderer.fields,
+        landedURL: base,
+        layoutEvents: renderer.layoutEvents,
+        arrivalsPending: renderer.hasPendingArrivals)
+    // The page goes to the window now, on the main
+    // actor; the arrivals fetch on behind it.
+    await MainActor.run { onFirstPaint(paint) }
+    await renderer.finishArrivals()
+    return paint
 }
