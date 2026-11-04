@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.20.0 (Swift)
+//  Chirpy Browser — engine 0.21.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -113,9 +113,26 @@
 //      at first paint and painted when they arrive. The
 //      view resolves a page's floats in a few whole
 //      passes instead of one layout per float.
+//    * Positioned layout (0.21): position:absolute lifts
+//      a box out of the flow altogether — no exclusion,
+//      no wrap; it overlays, resolved by the view against
+//      its containing block: the nearest positioned
+//      ancestor's painted surface (the renderer records
+//      the ancestor's range in the text as it walks), or
+//      the page column. position:fixed answers to the
+//      viewport instead: the box becomes a real overlay
+//      view the window keeps glued to the visible area
+//      while the page scrolls beneath it. Insets are
+//      lengths or percentages of the containing block;
+//      left+right (or top+bottom) with no declared size
+//      derives that size; z-index orders the overlays,
+//      document order breaking ties. Declared geometry
+//      places at first paint; boxes measured from their
+//      contents place at arrivals, like block floats.
+//      position: sticky and transforms are not read.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
-//  color-mix(), the font: shorthand, position:
-//  absolute/fixed, CSS multi-column (column-count),
+//  color-mix(), the font: shorthand, position: sticky,
+//  CSS multi-column (column-count),
 //  JavaScript (the mountain).
 //
 
@@ -218,7 +235,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -236,7 +253,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -290,7 +307,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -368,7 +385,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -552,6 +569,102 @@ final class TBClearSpec {
 enum TBLayoutEvent {
     case float(TBFloatSpec)
     case clear(TBClearSpec)
+    case positioned(TBPositionedSpec)
+}
+
+// Positioned layout (0.21): an element with position
+// other than static establishes the containing block for
+// its absolutely positioned descendants. The renderer
+// tracks those ancestors as character ranges in the
+// rendered text — the start is known when the block
+// opens, the end is patched when it closes (the same
+// trick TBClearSpec's anchors play) — and the view turns
+// the range into the ancestor's painted surface rect:
+// full column width, from its surface's top edge stamp
+// to its bottom edge stamp, shifted by any relative
+// offset the ancestor itself carries.
+final class TBContainingBlock {
+    let startCharIndex: Int
+    var endCharIndex: Int
+    init(startCharIndex: Int) {
+        self.startCharIndex = startCharIndex
+        self.endCharIndex = startCharIndex
+    }
+}
+
+// One inset of a positioned box (top/right/bottom/left):
+// a length in points, or a percentage kept as its raw
+// number (50 for 50%) until the view knows the
+// containing block it resolves against. A missing or
+// "auto" inset is nil.
+enum TBInsetValue {
+    case points(CGFloat)
+    case percent(CGFloat)
+}
+
+enum TBPositionKind { case absolute, fixed }
+
+// A box lifted out of the flow by position:absolute or
+// position:fixed (0.21). Like a float it is recorded at
+// the walk and resolved by the view — but it makes no
+// exclusion and no text wraps it: it overlays. Its size
+// is final at first paint when the page declares it;
+// a box measured from its contents is sized by the
+// arrivals finish, as block floats are. Which dimension
+// the insets themselves must decide (left+right with no
+// width, top+bottom with no height) only the view can
+// settle, against the true containing block — the flags
+// carry that; the renderer leaves those sizes at zero.
+final class TBPositionedSpec {
+    // Where the box was met in the text; an inset left
+    // auto on an axis falls back to the position the
+    // box would have had in the flow, measured from here.
+    let anchorCharIndex: Int
+    let kind: TBPositionKind
+    // Absolute only: the nearest positioned ancestor's
+    // range in the text, or nil for the page column.
+    // Fixed boxes answer to the viewport instead.
+    let containingBlock: TBContainingBlock?
+    var top: TBInsetValue? = nil
+    var right: TBInsetValue? = nil
+    var bottom: TBInsetValue? = nil
+    var left: TBInsetValue? = nil
+    var zIndex: Int = 0
+    let isImage: Bool
+    var borderWidth: CGFloat
+    var borderHeight: CGFloat
+    var widthDeclared = false
+    var heightDeclared = false
+    var widthFromInsets = false
+    var heightFromInsets = false
+    var marginTop: CGFloat = 0
+    var marginRight: CGFloat = 0
+    var marginBottom: CGFloat = 0
+    var marginLeft: CGFloat = 0
+    var paddingTop: CGFloat = 0
+    var paddingRight: CGFloat = 0
+    var paddingBottom: CGFloat = 0
+    var paddingLeft: CGFloat = 0
+    var backgroundColor: NSColor? = nil
+    var backgroundBox: TBBackgroundBox? = nil
+    // An image box's picture (nil until fetched).
+    var image: NSImage? = nil
+    var imageFailed = false
+    var alt = ""
+    // A block box's own rendered contents, painted by
+    // the view inside the box's padding.
+    var content: NSAttributedString? = nil
+
+    init(anchorCharIndex: Int, kind: TBPositionKind,
+         containingBlock: TBContainingBlock?, isImage: Bool,
+         borderWidth: CGFloat, borderHeight: CGFloat) {
+        self.anchorCharIndex = anchorCharIndex
+        self.kind = kind
+        self.containingBlock = containingBlock
+        self.isImage = isImage
+        self.borderWidth = borderWidth
+        self.borderHeight = borderHeight
+    }
 }
 
 // Parse an element's background-image into a box of
@@ -617,7 +730,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.20.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1769,6 +1882,18 @@ final class TBRenderer {
     private var lastFlushRange: NSRange? = nil
     var nominalWidth: CGFloat = 1000
 
+    // Positioned layout (0.21): the positioned boxes the
+    // walk met and what they still wait on — pictures to
+    // fetch, contents to measure — and the stack of
+    // positioned ancestors currently open, whose ranges
+    // an absolutely positioned descendant resolves
+    // against. A block-level relative ancestor pushes in
+    // walkBlock; a relative span pushes in inline().
+    private var positionedCount = 0
+    private var positionedImageJobs: [(spec: TBPositionedSpec, url: String)] = []
+    private var pendingPositioned: [(spec: TBPositionedSpec, sub: TBRenderer)] = []
+    private var containingBlocks: [TBContainingBlock] = []
+
     private func edgeIndex(color: NSColor?, box: TBBackgroundBox?) -> Int? {
         surfaceEdges.lastIndex { edge in
             guard edge.box === box else { return false }
@@ -2203,7 +2328,9 @@ final class TBRenderer {
     // arriving; this is what tells it so.
     var hasPendingArrivals: Bool {
         if !imageJobs.isEmpty || !floatImageJobs.isEmpty
-            || !pendingBlockFloats.isEmpty { return true }
+            || !pendingBlockFloats.isEmpty
+            || !positionedImageJobs.isEmpty
+            || !pendingPositioned.isEmpty { return true }
         for box in backgroundBoxes.values {
             for layer in box.layers {
                 if case .image = layer.kind { return true }
@@ -2223,6 +2350,7 @@ final class TBRenderer {
         await finishImages()
         await finishBackgrounds()
         await finishFloatImages()
+        await finishPositioned()
     }
 
     private func findTag(_ node: TBNode, _ tag: String) -> TBNode? {
@@ -2421,6 +2549,23 @@ final class TBRenderer {
             relDX += offset.dx
             relDY += offset.dy
         }
+        // Positioned layout (0.21): a relatively positioned
+        // block is the containing block for the absolutely
+        // positioned descendants walked beneath it — open
+        // its range now; the close at the end of this walk
+        // patches where the range ends. (A span carrying
+        // block descendants is walked here too, so its
+        // range is tracked; a span walked purely inline,
+        // inside a sentence, establishes none — its
+        // positioned descendants resolve against the next
+        // block ancestor out, or the page.)
+        var openedContainingBlock: TBContainingBlock? = nil
+        if !insideFloat, node.tag != "document",
+           (own["position"] ?? "").lowercased() == "relative" {
+            let block = TBContainingBlock(startCharIndex: entryLength)
+            containingBlocks.append(block)
+            openedContainingBlock = block
+        }
         // Surface edges (0.15): this block's before-spacing
         // joins the carry — its own first flushed paragraph
         // consumes it, and a block that flushes nothing (a
@@ -2468,6 +2613,31 @@ final class TBRenderer {
             // controls keep their in-flow seating even when a
             // page styles them floated; past sixty floats the
             // rest simply flow, as they did before 0.17.
+            // Positioned layout (0.21): a child lifted by
+            // position:absolute or position:fixed leaves
+            // the flow entirely — no exclusion, no wrap; it
+            // overlays, resolved by the view like the
+            // floats are. Position is checked before float:
+            // CSS computes float away on a positioned box.
+            // The words before it flush first (with no
+            // invented gap), exactly as they do for a float.
+            if !insideFloat, child.tag != "#text", positionedCount < 60,
+               !["input", "select", "textarea", "button"].contains(child.tag),
+               let kind = positionKind(childOwn["position"]) {
+                flushedOwn = flushForFloat(buffer: &buffer, style: style, font: effFont,
+                                           align: effAlign, background: effBackground,
+                                           backgroundBox: effBox, metrics: metrics,
+                                           ownSurface: declaresSurface) || flushedOwn
+                if child.tag == "img" {
+                    registerPositionedImage(child, own: childOwn, kind: kind,
+                                            font: effFont)
+                } else {
+                    registerPositionedBlock(child, own: childOwn, kind: kind,
+                                            font: effFont, color: effColor,
+                                            align: effAlign)
+                }
+                continue
+            }
             if !insideFloat, child.tag != "#text", floatCount < 60,
                !["input", "select", "textarea", "button"].contains(child.tag),
                let side = floatSide(childOwn["float"]) {
@@ -2564,6 +2734,13 @@ final class TBRenderer {
             }
             out.insert(marker, at: insertAt)
         }
+
+        // Positioned layout (0.21): this block's range as a
+        // containing block ends where its content did.
+        if let block = openedContainingBlock {
+            block.endCharIndex = out.length
+            containingBlocks.removeLast()
+        }
     }
 
     // MARK: - Positioned layout (0.17)
@@ -2604,6 +2781,46 @@ final class TBRenderer {
         if let top = length(decls["top"]) { dy = top }
         else if let bottom = length(decls["bottom"]) { dy = -bottom }
         return (dx, dy)
+    }
+
+    // Positioned layout (0.21): which out-of-flow
+    // position a box declares, if any. Relative stays in
+    // the flow (its offset is the 0.17 machinery above);
+    // sticky is not read.
+    private func positionKind(_ raw: String?) -> TBPositionKind? {
+        switch (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased() {
+        case "absolute": return .absolute
+        case "fixed": return .fixed
+        default: return nil
+        }
+    }
+
+    // One positioned inset, parsed: a length in points,
+    // or a percentage kept raw — tbLengthValue would
+    // resolve a percentage against the nominal width at
+    // once, but an inset's percentage belongs to the
+    // containing block (or the viewport), which only
+    // the view knows. Missing and "auto" are nil.
+    private func insetValue(_ raw: String?, fontSize: CGFloat) -> TBInsetValue? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespaces),
+              !raw.isEmpty else { return nil }
+        let v = raw.lowercased()
+        if v == "auto" { return nil }
+        if v.hasSuffix("%"), let pct = Double(v.dropLast()) {
+            return .percent(CGFloat(pct))
+        }
+        if let points = tbLengthValue(v, fontSize: fontSize) {
+            return .points(points)
+        }
+        return nil
+    }
+
+    // z-index: an integer, or 0 for "auto" and anything
+    // unparseable — the document order then decides, as
+    // it does among equals in CSS.
+    private func zIndexValue(_ raw: String?) -> Int {
+        guard let raw = raw?.trimmingCharacters(in: .whitespaces) else { return 0 }
+        return Int(raw) ?? 0
     }
 
     // A box's four margin or padding lengths, in the
@@ -2778,6 +2995,216 @@ final class TBRenderer {
         }
         spec.borderWidth = max(spec.borderWidth, 1)
         spec.borderHeight = max(spec.borderHeight, 1)
+    }
+
+    // MARK: - Positioned layout (0.21)
+
+    // The declarations every positioned box shares,
+    // read once: insets, stacking order, margins and
+    // padding, backgrounds, and which of its dimensions
+    // the page declared, the insets must derive, or its
+    // contents must measure.
+    private func dressPositioned(_ spec: TBPositionedSpec,
+                                 own: [String: String], fontSize: CGFloat) {
+        spec.top = insetValue(own["top"], fontSize: fontSize)
+        spec.right = insetValue(own["right"], fontSize: fontSize)
+        spec.bottom = insetValue(own["bottom"], fontSize: fontSize)
+        spec.left = insetValue(own["left"], fontSize: fontSize)
+        spec.zIndex = zIndexValue(own["z-index"])
+        let margins = boxLengths(own, "margin", fontSize: fontSize)
+        spec.marginTop = margins.top
+        spec.marginRight = margins.right
+        spec.marginBottom = margins.bottom
+        spec.marginLeft = margins.left
+        let padding = boxLengths(own, "padding", fontSize: fontSize)
+        spec.paddingTop = padding.top
+        spec.paddingRight = padding.right
+        spec.paddingBottom = padding.bottom
+        spec.paddingLeft = padding.left
+        spec.backgroundColor = tbBackgroundColor(own)
+        spec.backgroundBox = backgroundBox(decls: own)
+        spec.widthFromInsets = !spec.widthDeclared
+            && spec.left != nil && spec.right != nil
+        spec.heightFromInsets = !spec.heightDeclared
+            && spec.top != nil && spec.bottom != nil
+    }
+
+    private func registerPositionedImage(_ node: TBNode, own: [String: String],
+                                         kind: TBPositionKind, font: NSFont) {
+        let src = (node.attrs["src"] ?? "").trimmingCharacters(in: .whitespaces)
+        // A declared 1x1 is a tracking pixel, not a picture.
+        let isPixel = node.attrs["width"] == "1" || node.attrs["height"] == "1"
+        guard !src.isEmpty, !isPixel else { return }
+        let ownFont = tbFontApplying(own, to: font)
+        let declaredW = tbLengthValue(own["width"] ?? node.attrs["width"],
+                                      fontSize: ownFont.pointSize)
+        let declaredH = tbLengthValue(own["height"] ?? node.attrs["height"],
+                                        fontSize: ownFont.pointSize)
+        let spec = TBPositionedSpec(
+            anchorCharIndex: out.length, kind: kind,
+            containingBlock: kind == .absolute ? containingBlocks.last : nil,
+            isImage: true,
+            borderWidth: declaredW ?? 220, borderHeight: declaredH ?? 140)
+        spec.widthDeclared = declaredW != nil
+        spec.heightDeclared = declaredH != nil
+        spec.alt = node.attrs["alt"] ?? ""
+        dressPositioned(spec, own: own, fontSize: ownFont.pointSize)
+        // A picture the insets must stretch has no size
+        // until the view derives it there.
+        if spec.widthFromInsets { spec.borderWidth = 0 }
+        if spec.heightFromInsets { spec.borderHeight = 0 }
+        let absolute = src.hasPrefix("data:")
+            ? src
+            : (URL(string: src, relativeTo: URL(string: base))?.absoluteString ?? src)
+        layoutEvents.append(.positioned(spec))
+        positionedCount += 1
+        positionedImageJobs.append((spec: spec, url: absolute))
+    }
+
+    private func registerPositionedBlock(_ node: TBNode, own: [String: String],
+                                         kind: TBPositionKind, font: NSFont,
+                                         color: NSColor?, align: NSTextAlignment) {
+        let childFont = tbFontApplying(own, to: font)
+        let fontSize = childFont.pointSize
+        let declaredW = tbLengthValue(own["width"], fontSize: fontSize)
+        let declaredH = tbLengthValue(own["height"], fontSize: fontSize)
+        let spec = TBPositionedSpec(
+            anchorCharIndex: out.length, kind: kind,
+            containingBlock: kind == .absolute ? containingBlocks.last : nil,
+            isImage: false,
+            borderWidth: declaredW ?? 0, borderHeight: declaredH ?? 0)
+        spec.widthDeclared = declaredW != nil
+        spec.heightDeclared = declaredH != nil
+        dressPositioned(spec, own: own, fontSize: fontSize)
+        // The box's contents render in a renderer of their
+        // own, exactly as a block float's do — same rules,
+        // same base, no layout events of its own: a
+        // positioned box inside this one simply flows.
+        let sub = TBRenderer(base: base)
+        sub.rules = rules
+        sub.insideFloat = true
+        sub.nominalWidth = nominalWidth
+        sub.walkBlock(node: node, style: tbStyle(for: node.tag), baseFont: childFont,
+                      color: color, align: align,
+                      inheritedBackground: nil, inheritedBackgroundBox: nil)
+        layoutEvents.append(.positioned(spec))
+        positionedCount += 1
+        pendingPositioned.append((spec: spec, sub: sub))
+    }
+
+    // A positioned block's contents are finished: clean
+    // them as a block float's are cleaned (see
+    // finalizeBlockFloat — link targets and form
+    // controls cannot work inside a painted box), then
+    // size the box: a declared dimension wins, a
+    // dimension the insets must derive stays at zero
+    // for the view to settle, and the rest shrink to
+    // the measured contents, capped at the column.
+    private func finalizePositioned(spec: TBPositionedSpec, sub: TBRenderer) {
+        let cleaned = NSMutableAttributedString(attributedString: sub.out)
+        var swaps: [(range: NSRange, text: String)] = []
+        cleaned.enumerateAttribute(
+            .attachment, in: NSRange(location: 0, length: cleaned.length)
+        ) { value, range, _ in
+            if let submit = value as? TBSubmitAttachment {
+                swaps.append((range: range, text: " [\(submit.label)] "))
+            } else if let field = value as? TBFieldAttachment {
+                let name = sub.fields.first { $0.id == field.fieldID }
+                    .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
+                swaps.append((range: range, text: " [\(name)] "))
+            }
+        }
+        cleaned.enumerateAttribute(
+            .link, in: NSRange(location: 0, length: cleaned.length)
+        ) { _, range, _ in
+            let text = (cleaned.string as NSString).substring(with: range)
+            if text.hasPrefix(" ["), text.hasSuffix("]") {
+                let digits = text.dropFirst(2).dropLast()
+                if !digits.isEmpty, digits.allSatisfy({ $0.isNumber }) {
+                    swaps.append((range: range, text: ""))
+                }
+            }
+        }
+        for swap in swaps.sorted(by: { $0.range.location > $1.range.location }) {
+            cleaned.replaceCharacters(in: swap.range, with: NSAttributedString(
+                string: swap.text,
+                attributes: [.font: NSFont.systemFont(ofSize: 12),
+                             .foregroundColor: NSColor.secondaryLabelColor]))
+        }
+        cleaned.removeAttribute(.link,
+                                range: NSRange(location: 0, length: cleaned.length))
+        spec.content = cleaned
+        let padH = spec.paddingLeft + spec.paddingRight
+        let padV = spec.paddingTop + spec.paddingBottom
+        if !spec.widthDeclared && !spec.widthFromInsets {
+            let natural = measureText(cleaned, width: nominalWidth).width
+            spec.borderWidth = min(max(natural + padH, 1), nominalWidth)
+        }
+        if !spec.heightDeclared && !spec.heightFromInsets {
+            // A width the view will derive is measured
+            // here at the column's width, the honest
+            // approximation this engine makes everywhere;
+            // the contents re-lay themselves out at the
+            // box's true width when the view paints them.
+            let measureWidth = spec.widthFromInsets ? nominalWidth : spec.borderWidth
+            let contentWidth = max(measureWidth - padH, 10)
+            spec.borderHeight = measureText(cleaned, width: contentWidth).height + padV
+        }
+        if !spec.widthFromInsets { spec.borderWidth = max(spec.borderWidth, 1) }
+        if !spec.heightFromInsets { spec.borderHeight = max(spec.borderHeight, 1) }
+    }
+
+    // Arrivals for the positioned boxes (0.21): fetch
+    // their pictures the bounded way, then measure the
+    // block boxes from their finished contents — the
+    // same two-stage life floats lead (declared geometry
+    // at first paint, measured geometry at arrivals).
+    func finishPositioned() async {
+        if !positionedImageJobs.isEmpty {
+            var dataByIndex: [Int: Data] = [:]
+            var fetchJobs: [(index: Int, url: String)] = []
+            for (index, job) in positionedImageJobs.enumerated() {
+                if job.url.hasPrefix("data:") {
+                    dataByIndex[index] = tbDecodeDataURI(job.url)
+                } else {
+                    fetchJobs.append((index: index, url: job.url))
+                }
+            }
+            let fetched = await tbFetchDataBatch(fetchJobs)
+            for (index, data) in fetched {
+                dataByIndex[index] = data
+            }
+            for (index, job) in positionedImageJobs.enumerated() {
+                let spec = job.spec
+                guard let data = dataByIndex[index], let image = NSImage(data: data),
+                      image.size.width >= 2, image.size.height >= 2 else {
+                    spec.imageFailed = true
+                    continue
+                }
+                let natural = image.size
+                var width = spec.widthDeclared ? spec.borderWidth : natural.width
+                var height = spec.heightDeclared ? spec.borderHeight : natural.height
+                if spec.widthDeclared && !spec.heightDeclared {
+                    height = natural.height * (width / natural.width)
+                } else if spec.heightDeclared && !spec.widthDeclared {
+                    width = natural.width * (height / natural.height)
+                }
+                if width > nominalWidth {
+                    height *= nominalWidth / width
+                    width = nominalWidth
+                }
+                spec.image = image
+                if !spec.widthFromInsets { spec.borderWidth = width }
+                if !spec.heightFromInsets { spec.borderHeight = height }
+            }
+            positionedImageJobs = []
+        }
+        for pending in pendingPositioned {
+            await pending.sub.finishImages()
+            await pending.sub.finishBackgrounds()
+            finalizePositioned(spec: pending.spec, sub: pending.sub)
+        }
+        pendingPositioned = []
     }
 
     // Fetch the floated pictures (as finishImages does for

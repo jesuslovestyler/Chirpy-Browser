@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chirpy positioning test — Engine 0.21</title>
+<style>
+  body { font-family: Georgia, serif; font-size: 17px; line-height: 1.5;
+         margin: 24px; color: #222; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 19px; margin-top: 34px; }
+  .card { position: relative; background: #fdf3d8; padding: 18px;
+          margin: 28px 10px; }
+  .badge { position: absolute; top: -10px; right: -10px; width: 52px;
+           height: 24px; background: #b03030; color: #ffffff;
+           text-align: center; }
+  .pagebox { position: absolute; top: 120px; left: 24px; width: 150px;
+             height: 64px; background: #7a4fd0; color: #ffffff;
+             padding: 8px; }
+  .topbar { position: fixed; top: 0; left: 0; right: 0; height: 36px;
+            background: #205030; color: #ffffff; padding: 6px 12px; }
+  .stage { position: relative; height: 170px; background: #eef2ee;
+           margin: 16px 10px; }
+  .za { position: absolute; top: 20px; left: 20px; width: 130px;
+        height: 84px; background: #e08a2e; z-index: 1; padding: 6px; }
+  .zb { position: absolute; top: 54px; left: 84px; width: 130px;
+        height: 84px; background: #2e8a7a; z-index: 2; padding: 6px;
+        color: #ffffff; }
+  .wrap { position: relative; height: 96px; background: #eef2ee;
+          margin: 16px 10px; }
+  .derived { position: absolute; left: 40px; right: 40px; top: 24px;
+             height: 44px; background: #3060b0; color: #ffffff;
+             padding: 6px; }
+  .filler { color: #555; }
+</style>
+</head>
+<body>
+
+<div class="topbar">FIXED BAR — promise 3: I stay at the top while you scroll.</div>
+
+<h1>Chirpy positioning test — Engine 0.21</h1>
+
+<p>Five promises, numbered. If one breaks, its number names it.
+The purple box belongs to promise 2 — it is pinned near the top-left
+of the page itself, so it scrolls away as you read down. The green
+bar belongs to promise 3 — it is fixed to the window, so it must
+still be sitting at the top of your screen right now, and at every
+scroll position below.</p>
+
+<h2>Promise 1 — a badge on a card's corner</h2>
+
+<p>The card below is an ordinary box with position:relative. The red
+badge is positioned absolutely against it, ten points up and ten
+points out past its top-right corner, overlapping the edge. The
+card's words flow exactly as if the badge were not there — an
+absolute box leaves the flow completely and overlays.</p>
+
+<div class="card">
+  <div class="badge">NEW</div>
+  <p>This is the card. Its text begins at the card's own top-left,
+  undisturbed by the badge, and wraps at the card's own width. The
+  badge hangs off the corner: half over the card's yellow, half over
+  the white page beyond it, painting above both.</p>
+</div>
+
+<h2>Promise 2 — absolute scrolls away</h2>
+
+<p>The purple box near the top of this page was placed 120 points
+down and 24 points in from the page column's own top-left corner.
+It belongs to the page, not the window: by the time you are reading
+this paragraph it should be gone from your screen, scrolled off
+with everything else up there. Scroll back up and it is waiting
+exactly where the page put it.</p>
+
+<div class="pagebox">ABSOLUTE — I scroll away with the page.</div>
+
+<h2>Promise 3 — fixed stays</h2>
+
+<p>The green bar at the top of the window is position:fixed, set
+with top, left and right and no width at all — its width is derived
+from the two insets against the window itself. It is a real overlay
+view, reseated over the page on every scroll. Everything in this
+section is filler so the page is tall enough to prove it: keep
+scrolling and watch the bar refuse to move.</p>
+
+<p class="filler">Filler, so the page stands tall. A fixed box is
+measured against the viewport — the part of the page you can see —
+and not against the document, which is why it can hold its place
+while the document moves under it. Browsers have done this since
+the earliest style sheets: a fixed bar is the page's furniture,
+bolted to the window frame.</p>
+
+<p class="filler">More filler. The bar above should still read
+“FIXED BAR” in white on green, spanning the whole width of the
+window, its right edge flush with the window's right edge. If it
+has drifted, narrowed, or scrolled even a little, promise 3 is
+broken and its number names it.</p>
+
+<h2>Promise 4 — z-index decides the overlap</h2>
+
+<p>Two boxes overlap inside the pale stage below. The orange box
+comes first in the document and carries z-index 1; the teal box
+comes second and carries z-index 2. Where they cross, teal must
+win — not because it is later, but because its z-index is higher.
+Swap the numbers and orange would cover teal instead.</p>
+
+<div class="stage">
+  <div class="za">z-index 1 — orange, underneath where we cross.</div>
+  <div class="zb">z-index 2 — teal, on top where we cross.</div>
+</div>
+
+<h2>Promise 5 — width from left and right</h2>
+
+<p>The blue box in the pale wrapper below declares no width. It
+declares left:40 and right:40 against its relative wrapper, and a
+height — so its width is whatever the wrapper leaves between the
+two insets: forty points of pale showing on each side, blue filling
+everything between.</p>
+
+<div class="wrap">
+  <div class="derived">My width was derived from left + right.</div>
+</div>
+
+<p class="filler">The end of the page. Scroll back to the top and
+check the promises in order: the badge on the card's corner, the
+purple box back at its post by the page's top-left, the green bar
+that never left, teal over orange in the stage, and the blue box
+spanning its wrapper inset to inset.</p>
+
+</body>
+</html>

@@ -7,6 +7,88 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.21.0 — POSITIONED LAYOUT
+------------------------------------------------------
+The CSS completion Tyler called for starts here: the
+two position modes the engine has honestly listed as
+not read since floats landed in 0.17.
+
+* position:absolute. The box leaves the flow
+  completely — no exclusion path, no wrapping; the
+  text beneath it never knows it exists, and it paints
+  over the page. Its containing block is the nearest
+  ancestor with a position of its own (a relative card
+  or wrapper — the renderer now tracks those ranges as
+  it walks), or the page column itself when there is
+  none. Offsets top/right/bottom/left take lengths or
+  percentages — across against the containing block's
+  width, down against its painted height where it has
+  one (an ancestor's surface), against the laid-out
+  text height for the page itself. Declared width and
+  height win; left and right together derive the
+  width (top and bottom the height); anything left
+  open is measured from the box's contents, the way a
+  block float is measured, by a sub-renderer.
+* position:fixed. The box is seated against the
+  window instead of the page, so it must stay while
+  the page scrolls beneath it — and in this engine
+  that means a real overlay view, the way form
+  controls are real views. The coordinator creates one
+  view per fixed box, paints its backgrounds and its
+  rendered contents into it (blocked-out text, links
+  shown as bracketed labels, pictures when they
+  arrive), and reseats it against the visible area on
+  every scroll, resize and rebuild. Percentages are of
+  the viewport.
+* z-index. An integer z-index orders the positioned
+  boxes where they overlap, document order breaking
+  ties. Boxes at zero or above paint after the text
+  itself, so a badge truly covers the card it hangs
+  off. A negative z-index paints in the background
+  pass — above the page's background surfaces but
+  below its floats and words; real CSS stacks such a
+  box behind its own containing block's background,
+  interleaved element by element, and this engine's
+  one background pass cannot do that interleaving
+  honestly, so the approximation is named here rather
+  than hidden. Fixed overlays are real views, so they
+  sit above every in-document box rather than
+  interleaving with them by z-index across the two
+  kinds.
+
+Staging follows 0.20's two acts. A positioned box
+whose size is declared takes its place at first paint
+— its backgrounds paint from the first moment and its
+words join at arrivals, when its contents are
+measured and cleaned; a box whose size must be
+measured from its contents takes its place at
+arrivals, like a block float. Fixed overlays appear
+on the same terms. And the generation guard covers
+them exactly as it covers floats and form views: a
+superseded page's overlays are torn down with it and
+never leak into the next page.
+
+Honest limits, plainly. position:sticky is still not
+read, and neither are transforms. A positioned box
+never moves any other box — that is the specification,
+not a shortcut. Positioned elements are lifted only
+when the walk meets them as block-level children, the
+same rule floats live by: one buried inside a run of
+inline text flows as text, and one inside a floated
+box flows inside that box. A relative element that is
+purely inline — a span inside a sentence — establishes
+no tracked containing block, so an absolute descendant
+resolves against the next block ancestor out, or the
+page. Where an inset is left auto, the fallback is the
+static position approximated: the containing block's
+edge across, the line where the box would have flowed
+down. A fixed box whose height is not declared is
+measured at the column's width, so if its true
+inset-derived width is very different its text may
+re-wrap when the overlay draws it. Printing a fixed
+box on every page is out — there is no printing yet
+to repeat it in.
+
 WHAT'S NEW IN 0.20.0 — FIRST PAINT, AND BATCHED FLOATS
 ------------------------------------------------------
 Living with 0.19 made the remaining problem plain: a
@@ -137,8 +219,23 @@ into the window is not handled — files only.
 THE TEST DRILL
 --------------
 1. Build and run. The home page's status line should read
-   "Chirpy Engine 0.20.0".
-2. Open a heavy page — en.wikipedia.org/wiki/Cat. The
+   "Chirpy Engine 0.21.0".
+2. Drag positioning-test.html (it rides along in this
+   folder) onto the browser window. Five promises:
+   (1) a red badge hanging off the top-right corner of
+   a yellow card, overlapping its edge, the card's text
+   undisturbed; (2) a purple box pinned near the page's
+   own top-left that scrolls AWAY as you read down —
+   that is what makes it absolute and not fixed;
+   (3) a green bar fixed to the top of the window that
+   stays exactly there at every scroll position,
+   spanning the full width though it declares no width;
+   (4) two overlapping boxes in a pale stage where the
+   TEAL one (z-index 2) covers the orange one
+   (z-index 1) where they cross; (5) a blue box whose
+   width is derived from left:40 and right:40 against
+   its wrapper, pale showing on both sides.
+3. Open a heavy page — en.wikipedia.org/wiki/Cat. The
    article's TEXT should be on screen and readable
    within moments — long before its pictures have all
    arrived — and the pictures should pop into their
@@ -156,7 +253,12 @@ THE TEST DRILL
    0.17 check, unchanged), and any picture that fails
    along the way should end up wearing its
    "[Image: ...]" label rather than leaving a hole.
-3. Drag floats-test.html (it rides along in this folder)
+   New in 0.21: watch Wikipedia's own absolutely
+   positioned pieces — the pieces the page lifts out of
+   its flow — and check they sit where they belong
+   against their cards and columns, not stranded in a
+   pile at the top of the document.
+4. Drag floats-test.html (it rides along in this folder)
    from Finder onto the browser window. All six
    promises must read exactly as they did under 0.19:
    a floated box in a paragraph with the text wrapping
@@ -164,7 +266,7 @@ THE TEST DRILL
    row of floated boxes that must pack and wrap, a
    right-floated box, a cleared heading that must start
    below its float, and one relatively shifted box.
-4. Open a form page — the search box at
+5. Open a form page — the search box at
    html.duckduckgo.com/html/ will do. The field and its
    button should sit in their places from the first
    moment and still be sitting there after the page's
@@ -172,13 +274,21 @@ THE TEST DRILL
    start typing in the field while pieces are still
    arriving: your words should survive the pictures
    landing.
-5. Start a slow page loading, then type a different
+6. Start a slow page loading, then type a different
    address and press Return before it finishes. The bar
    should restart for the new page, and the first page
    must never appear — not its text at first paint, and
-   not its pictures arriving late over the new page.
-6. Open jesuslovestyler.com — the hub should look as it
+   not its pictures arriving late over the new page —
+   and none of its fixed overlays (if it had any) may
+   survive onto the new page either.
+7. Open jesuslovestyler.com — the hub should look as it
    always has; nothing may slide or pile up.
+8. On any real page that pins a bar or banner with
+   position:fixed (many news and documentation sites
+   do), scroll slowly: the pinned element should hold
+   its place against the window while the article
+   moves beneath it, and it should still be there,
+   correctly sized, after the window is resized.
 
 HOW TO RUN IT
 -------------
