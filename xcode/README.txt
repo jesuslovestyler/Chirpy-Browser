@@ -101,6 +101,24 @@ purple; and the hover card and link, which must repaint
 under the pointer and restore when it leaves, without
 anything moving.
 
+0.23.0 build fix (Nov 4): Tyler's first compile of the
+0.20–0.23 stack stopped on four errors in
+ContentView.swift, all in the finishing set's own new
+wiring, and all fixed at their cause. refreshInsets
+and refreshAfterArrivals are now @MainActor, like
+rebuildFormViews already was — so the width write and
+the arrivals re-install legally touch the model; the
+frame-change observer reaches refreshInsets through
+the same Task { @MainActor in } hop the fetch progress
+uses. And the hover hit test no longer calls an
+NSLayoutManager character-index label that does not
+exist: it asks the text view itself,
+characterIndexForInsertion(at:), with the old
+above/left-of-the-text guard restated in view
+coordinates. Nothing else changed; the three yellow
+warnings his build showed are warnings, not errors,
+and were left alone.
+
 WHAT'S NEW IN 0.22.0 — MULTI-COLUMN & COLOR-MIX
 ------------------------------------------------------
 Stage two of the CSS completion: the column properties

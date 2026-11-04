@@ -372,7 +372,9 @@ struct PageTextView: NSViewRepresentable {
             frameObserver = NotificationCenter.default.addObserver(
                 forName: NSView.frameDidChangeNotification,
                 object: scrollView.contentView, queue: .main) { [weak self] _ in
-                self?.refreshInsets()
+                // refreshInsets lives on the main actor;
+                // hop there, as the fetch progress does.
+                Task { @MainActor in self?.refreshInsets() }
             }
             // Scrolling changes the clip view's bounds, not
             // its frame: watch both, so a fixed overlay is
@@ -385,7 +387,7 @@ struct PageTextView: NSViewRepresentable {
             }
         }
 
-        func refreshInsets() {
+        @MainActor func refreshInsets() {
             guard let textView = textView, let clipView = clipView else { return }
             let available = clipView.frame.width
             // The finishing set (0.23): the model hands
@@ -522,7 +524,7 @@ struct PageTextView: NSViewRepresentable {
         // into a field meanwhile is carried across; the
         // scroll stays where the reader left it — they may
         // be halfway down the article by now.
-        func refreshAfterArrivals() {
+        @MainActor func refreshAfterArrivals() {
             guard let textView = textView,
                   let storage = textView.textStorage else { return }
             var typed: [Int: String] = [:]
@@ -1231,12 +1233,16 @@ final class TBPageTextView: NSTextView {
         }
         guard storage.length > 0 else { clearHover(); return }
         let inView = convert(event.locationInWindow, from: nil)
-        let point = NSPoint(x: inView.x - textContainerOrigin.x,
-                            y: inView.y - textContainerOrigin.y)
-        guard point.x >= 0, point.y >= 0 else { clearHover(); return }
-        let index = layoutManager.characterIndex(
-            for: point, in: container,
-            fractionOfDistanceBetweenGlyph: nil)
+        // The text view's own hit test (0.23 build fix):
+        // the character under the point, the point given
+        // in view coordinates. The guard is the old
+        // container-space one restated against the
+        // origin — nothing above or left of where the
+        // text begins can be hovered.
+        guard inView.x >= textContainerOrigin.x,
+              inView.y >= textContainerOrigin.y
+        else { clearHover(); return }
+        let index = characterIndexForInsertion(at: inView)
         guard index < storage.length else { clearHover(); return }
         var elementRange = NSRange(location: 0, length: 0)
         var blockRange = NSRange(location: 0, length: 0)
