@@ -7,6 +7,101 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.22.0 — MULTI-COLUMN & COLOR-MIX
+------------------------------------------------------
+Stage two of the CSS completion: the column properties
+and the color function the engine has honestly listed
+as not read since the beginning.
+
+* Multi-column. A block declaring column-count or
+  column-width (or the columns shorthand — a count, a
+  width, or both) lays its contents out in columns.
+  The mechanism is the one this architecture already
+  trusts for floated boxes: the block's contents are
+  sub-rendered on their own, then laid out across as
+  many text containers as the block has columns, and
+  painted into a space the flow reserves for them — a
+  clear-seat paragraph exactly as wide and as tall as
+  the columns. The balancing is real: the height is
+  binary-searched, with the layout manager's own
+  chaining (down one column, continuing at the top of
+  the next) as the test, until the content just fills
+  the columns — so the columns end even with each
+  other the way CSS balances them, and the number the
+  seat reserves is the number the paint needs. A
+  declared width derives its count by the spec's
+  formula (as many as fit, gaps between; a declared
+  count alongside only lowers it); column-gap takes a
+  length or `normal`, the spec's word for 1em; a
+  column narrower than 60 points sheds columns until
+  each can hold text. column-rule is read — shorthand
+  or longhands, width/style/color in any order — and
+  painted in the gaps: solid styles fill (double,
+  groove, ridge, inset and outset paint solid too; a
+  rule a point or three wide has no bevel to show),
+  dotted and dashed stroke a dashed line. Pictures
+  inside a column block arrive in the arrivals act
+  like a floated box's: the contents are cleaned and
+  the columns re-balanced, and the seat in the page is
+  corrected to the final height.
+* color-mix(). color-mix(in srgb, …) is now read
+  anywhere a color is — text, backgrounds, rules,
+  gradient stops (the stop reader now finds the
+  paren that balances, so a mix may nest inside a
+  mix) — and because var() substitution is textual
+  and runs first, a mix may arrive whole from a
+  custom property. The mixing is the spec's:
+  percentages default (both omitted — 50/50; one
+  omitted — 100 minus the other), proportions rule
+  the hue, a sum under 100 scales the result's alpha,
+  and the channels mix in premultiplied-alpha form
+  and divide back out, so a fade toward transparent
+  does not darken through a gray it never declared.
+
+Honest limits, plainly. A multicolumn block's
+contents are paint, not live text — the floated
+box's bargain since 0.17: links inside show their
+colors but do not click, form controls stand as
+bracketed labels, and the words cannot be selected.
+column-span is not read — a child asking to span
+all columns flows inside one column like everything
+else in the block. The break properties (break-
+inside and friends) are not read, and column-fill
+is always balance. A block whose columns resolve to
+one column simply flows as it always did — the
+bargain is not struck for nothing. Columns are laid
+at the page column's width, as every measured box in
+this engine is; a window narrower than the column
+shows them at that measure, the floats' own
+approximation. Nested multicolumn — a column block
+inside another painted box — flows uncolumned.
+color-mix reads the srgb space only: another space
+named in the value (lab, oklab, srgb-linear…) makes
+the color unreadable rather than approximated under
+its name, and relative-color syntax is not read.
+
+The drill. Drag multicolumn-test.html onto the
+window: (1) the numbered sentences read down the
+first column, continue at the top of the second,
+then the third, the columns ending even, a dark red
+rule standing in each gap, the next paragraph full
+width below; (2) the width-declared block stands in
+four columns of a width, dotted rules in the gaps;
+(3) the shorthand's two columns hold both paragraphs
+between them; (4) the green stands behind all three
+columns as one surface; (5) the swatches wear the
+colors their labels promise — purple, blue-violet,
+middle gray, orange, pale lavender, a gradient from
+a mix to a mix, the variable's muted navy, a heading
+in mixed gray; (6) the spanning heading stays inside
+its column, as the page honestly says it will.
+floats-test.html and positioning-test.html should
+look exactly as they did. en.wikipedia.org/wiki/Cat
+should load as before — except that its references
+list, which Wikipedia declares in columns, may now
+stand in columns near the bottom: that is the
+feature working, not a break. The hub is unchanged.
+
 WHAT'S NEW IN 0.21.0 — POSITIONED LAYOUT
 ------------------------------------------------------
 The CSS completion Tyler called for starts here: the

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.21.0 (Swift)
+//  Chirpy Browser — prototype 0.22.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.21.0 (Swift) — first paint, positioned layout, floats, forms, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.22.0 (Swift) — first paint, positioned layout, floats, columns, color-mix, forms, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -167,7 +167,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.21.0 (Swift) — first paint, positioned layout, floats, forms, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.22.0 (Swift) — first paint, positioned layout, floats, columns, color-mix, forms, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -755,6 +755,7 @@ struct PageTextView: NSViewRepresentable {
             band?.floatPaints = []
             band?.positionedPaintsBelow = []
             band?.positionedPaints = []
+            band?.columnPaints = []
             if !container.exclusionPaths.isEmpty {
                 container.exclusionPaths = []
             }
@@ -885,6 +886,14 @@ struct PageTextView: NSViewRepresentable {
                         // the float passes, at the end of
                         // settleFloatLayout.
                         continue
+                    case .columns:
+                        // Multicolumn blocks (0.22) make no
+                        // exclusions either: their seat is
+                        // ordinary flow text and already
+                        // stands where it should. They
+                        // resolve after the float passes,
+                        // with the positioned boxes.
+                        continue
                     }
                 }
                 return (exclusions, paints)
@@ -906,6 +915,7 @@ struct PageTextView: NSViewRepresentable {
                 case .float(let spec): return spec.anchorCharIndex
                 case .clear(let spec): return spec.anchorCharIndex
                 case .positioned(let spec): return spec.anchorCharIndex
+                case .columns(let spec): return spec.anchorCharIndex
                 }
             }.min() ?? 0
             var exclusions: [NSBezierPath] = []
@@ -978,6 +988,33 @@ struct PageTextView: NSViewRepresentable {
             band?.positionedPaints = above
                 .sorted { ($0.spec.zIndex, $0.order) < ($1.spec.zIndex, $1.order) }
                 .map { (rect: $0.rect, spec: $0.spec) }
+
+            // Multi-column layout (0.22): a multicolumn
+            // block's seat already stands in the flow at
+            // its reserved height — the columns paint into
+            // the seat's line, resolved here from the
+            // seat's own line fragment, so a clear or a
+            // float above the block that moved its line
+            // moves the columns with it. The seat's glyph
+            // is located the way a form control's seat is:
+            // the fragment's start plus the glyph's own
+            // advance within the line.
+            var columnPaints: [(rect: NSRect, spec: TBMultiColumnSpec)] = []
+            for event in layoutEvents {
+                guard case .columns(let spec) = event,
+                      spec.anchorCharIndex < storage.length else { continue }
+                let glyph = layoutManager.glyphIndexForCharacter(
+                    at: spec.anchorCharIndex)
+                guard glyph < layoutManager.numberOfGlyphs else { continue }
+                let fragment = layoutManager.lineFragmentRect(
+                    forGlyphAt: glyph, effectiveRange: nil)
+                let spot = layoutManager.location(forGlyphAt: glyph)
+                columnPaints.append((rect: NSRect(
+                    x: fragment.minX + spot.x, y: fragment.minY,
+                    width: spec.totalWidth, height: spec.totalHeight),
+                    spec: spec))
+            }
+            band?.columnPaints = columnPaints
             rebuildFixedViews()
             textView.needsDisplay = true
             repositionFormViews()
@@ -1234,6 +1271,7 @@ final class TBBandLayoutManager: NSLayoutManager {
         paintContinuousSurfaces(forGlyphRange: glyphsToShow, at: origin)
         paintPositionedBelow(at: origin)
         paintFloats(at: origin)
+        paintColumns(at: origin)
     }
 
     private func paintContinuousSurfaces(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -1338,6 +1376,111 @@ final class TBBandLayoutManager: NSLayoutManager {
                               y: origin.y + paint.rect.minY,
                               width: paint.rect.width, height: paint.rect.height)
             paintBox(rect: rect, source: paint.spec)
+        }
+    }
+
+    // Multi-column layout (0.22): the multicolumn blocks
+    // the coordinator has resolved for this page — each
+    // seat's rect in container coordinates, with the spec
+    // carrying the block's contents and column geometry —
+    // painted in drawBackground, after the floats: the
+    // rules first (they stand under the columns' words),
+    // then the columns themselves across their containers.
+    var columnPaints: [(rect: NSRect, spec: TBMultiColumnSpec)] = [] {
+        didSet { columnLayouts = [:] }
+    }
+    private var columnLayouts:
+        [ObjectIdentifier: (NSLayoutManager, [NSTextContainer])] = [:]
+
+    private func paintColumns(at origin: NSPoint) {
+        for paint in columnPaints {
+            let spec = paint.spec
+            let rect = NSRect(x: origin.x + paint.rect.minX,
+                              y: origin.y + paint.rect.minY,
+                              width: paint.rect.width,
+                              height: paint.rect.height)
+            // One rule per gap, as tall as the columns,
+            // centered in the gap. Of the border styles,
+            // solid paints as a fill — and double, groove,
+            // ridge, inset and outset paint solid too: a
+            // rule a point or three wide has no bevel to
+            // show. Dotted and dashed stroke a line with
+            // a dash pattern instead.
+            if spec.columnCount > 1, spec.ruleWidth > 0,
+               spec.ruleStyle != "none", spec.ruleStyle != "hidden",
+               let color = spec.ruleColor {
+                for i in 1..<spec.columnCount {
+                    let centerX = rect.minX + CGFloat(i) * spec.columnWidth
+                        + CGFloat(i - 1) * spec.gap + spec.gap / 2
+                    if spec.ruleStyle == "dotted"
+                        || spec.ruleStyle == "dashed" {
+                        let path = NSBezierPath()
+                        path.move(to: NSPoint(x: centerX, y: rect.minY))
+                        path.line(to: NSPoint(x: centerX,
+                                              y: rect.minY + spec.columnHeight))
+                        path.lineWidth = spec.ruleWidth
+                        let dash: CGFloat = spec.ruleStyle == "dotted"
+                            ? spec.ruleWidth : spec.ruleWidth * 3
+                        path.setLineDash([dash, dash], count: 2, phase: 0)
+                        color.setStroke()
+                        path.stroke()
+                    } else {
+                        color.setFill()
+                        NSRect(x: centerX - spec.ruleWidth / 2,
+                               y: rect.minY, width: spec.ruleWidth,
+                               height: spec.columnHeight).fill()
+                    }
+                }
+            }
+            drawColumnContent(spec, in: rect)
+        }
+    }
+
+    // Lay a multicolumn block's contents out across its
+    // containers — one per column, each the column's
+    // width and the balanced height the renderer
+    // measured — and paint them side by side: the text
+    // flows down one column and continues at the top of
+    // the next, the layout manager's own chaining. The
+    // layout is cached per block until the page resolves
+    // again, as a floated box's contents are.
+    private func drawColumnContent(_ spec: TBMultiColumnSpec, in rect: NSRect) {
+        guard let content = spec.content, content.length > 0,
+              spec.columnCount > 0 else { return }
+        let key = ObjectIdentifier(spec)
+        let manager: NSLayoutManager
+        let containers: [NSTextContainer]
+        if let cached = columnLayouts[key],
+           cached.1.count == spec.columnCount, !cached.1.isEmpty,
+           cached.1[0].size == NSSize(width: spec.columnWidth,
+                                      height: spec.columnHeight) {
+            manager = cached.0
+            containers = cached.1
+        } else {
+            let storage = NSTextStorage(attributedString: content)
+            manager = NSLayoutManager()
+            var built: [NSTextContainer] = []
+            for _ in 0..<spec.columnCount {
+                let container = NSTextContainer(
+                    size: NSSize(width: spec.columnWidth,
+                                 height: spec.columnHeight))
+                manager.addTextContainer(container)
+                built.append(container)
+            }
+            storage.addLayoutManager(manager)
+            columnLayouts[key] = (manager, built)
+            containers = built
+        }
+        guard let last = containers.last else { return }
+        manager.ensureLayout(for: last)
+        for (index, container) in containers.enumerated() {
+            let glyphs = manager.glyphRange(for: container)
+            guard glyphs.length > 0 else { continue }
+            let at = NSPoint(
+                x: rect.minX + CGFloat(index) * (spec.columnWidth + spec.gap),
+                y: rect.minY)
+            manager.drawBackground(forGlyphRange: glyphs, at: at)
+            manager.drawGlyphs(forGlyphRange: glyphs, at: at)
         }
     }
 
@@ -1540,12 +1683,35 @@ final class TBBandLayoutManager: NSLayoutManager {
         for part in stopParts {
             var colorText = part
             var positionText: Substring? = nil
-            if part.contains("("), let close = part.firstIndex(of: ")") {
-                colorText = String(part[...close])
-                let rest = part[part.index(after: close)...]
-                    .trimmingCharacters(in: .whitespaces)
-                if !rest.isEmpty { positionText = Substring(rest) }
-            } else if let space = part.firstIndex(of: " ") {
+            if part.contains("("), let open = part.firstIndex(of: "(") {
+                // The color may be a function wearing
+                // nested parentheses of its own — a
+                // color-mix with another mix inside it
+                // (0.22) — so its end is the paren that
+                // BALANCES the first one, not the first
+                // close that happens by. (For rgb() and
+                // an unnested mix the two are the same
+                // paren, so stops written before 0.22
+                // parse exactly as they did.)
+                var depth = 0
+                var close: String.Index? = nil
+                var j = open
+                while j < part.endIndex {
+                    if part[j] == "(" { depth += 1 }
+                    else if part[j] == ")" {
+                        depth -= 1
+                        if depth == 0 { close = j; break }
+                    }
+                    j = part.index(after: j)
+                }
+                if let close = close {
+                    colorText = String(part[...close])
+                    let rest = part[part.index(after: close)...]
+                        .trimmingCharacters(in: .whitespaces)
+                    if !rest.isEmpty { positionText = Substring(rest) }
+                }
+            }
+            if colorText == part, let space = part.firstIndex(of: " ") {
                 colorText = String(part[..<space])
                 positionText = part[part.index(after: space)...]
             }

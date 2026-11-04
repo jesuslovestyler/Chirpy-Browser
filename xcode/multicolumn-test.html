@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.22 — Multi-column &amp; color-mix Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+  .cols3 {
+    column-count: 3; column-gap: 36px;
+    column-rule: 2px solid #B22222;
+  }
+  .colsw {
+    column-width: 220px; column-gap: 24px;
+    column-rule: 1px dotted #4682B4;
+  }
+  .cols2 { columns: 2; column-gap: 32px; }
+  .greenbox {
+    column-count: 3; column-gap: 28px;
+    background-color: #2E8B57; color: #FFFFFF; padding: 12px;
+  }
+  .swatch { padding: 10px; margin: 6px 0; color: #FFFFFF; }
+  .mixA { background-color: color-mix(in srgb, red 50%, blue 50%); }
+  .mixB { background-color: color-mix(in srgb, red 25%, blue 75%); }
+  .mixC { background-color: color-mix(in srgb, white, black); }
+  .mixD { background-color: color-mix(in srgb, red, yellow); color: #000000; }
+  .mixE { background-color: color-mix(in srgb, color-mix(in srgb, red, blue), white); color: #000000; }
+  .mixF {
+    background-image: linear-gradient(color-mix(in srgb, red, yellow),
+                                      color-mix(in srgb, blue, green));
+    padding: 22px 10px;
+  }
+  :root { --brand: color-mix(in srgb, navy 70%, white); }
+  .mixG { background-color: var(--brand); }
+  .mixH { color: color-mix(in srgb, black 65%, white); }
+  .spanblock { column-count: 2; column-gap: 32px; }
+  .spanner { column-span: all; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.22 — multi-column &amp; color-mix test</h1>
+<p>Every effect on this page is drawn with CSS alone. Read down
+and check each numbered promise. One honest note before the
+promises: the words inside a column block are paint, not live
+text — the floated boxes' bargain since 0.17. You cannot select
+them, and a link inside a column block shows its colors but does
+not click.</p>
+
+<h2>1 — three columns, a gap, and a rule</h2>
+<div class="cols3">
+  <p>Sentence one opens the first column, and the text runs
+  downhill from here. Sentence two follows it down. Sentence
+  three keeps the column company. Sentence four is still in the
+  first column, roughly a third of the way through everything
+  this paragraph has to say. Sentence five presses on.
+  Sentence six nears the bottom of the first column. Sentence
+  seven is where the turn should come: the words after this one
+  continue at the TOP of the second column, not squeezed under
+  the first. Sentence eight proves the turn worked if you are
+  reading it at the top of the middle column. Sentence nine
+  descends the middle. Sentence ten is mid-column, mid-story.
+  Sentence eleven presses on down the middle column. Sentence
+  twelve nears its bottom. Sentence thirteen turns again, to
+  the top of the third column. Sentence fourteen descends the
+  last column. Sentence fifteen is nearly done. Sentence
+  sixteen closes the paragraph — and the third column should
+  end within a line or so of where the first two ended, not
+  run far past them or stop far short: the columns balance.</p>
+</div>
+<p>The promises in section 1: three columns stand side by side;
+the numbered sentences read in order down the first column,
+then down the second, then down the third; a dark red rule
+stands in each of the two gaps, as tall as the columns; the
+columns end at roughly the same height; and THIS paragraph
+begins below the whole block at full width, never beside it.</p>
+
+<h2>2 — columns by width, not by count</h2>
+<div class="colsw">
+  <p>This block declares a column WIDTH (220 points) and no
+  count at all. The engine fits as many columns of about that
+  width as the page holds — four stand here — each the same
+  width as its neighbours, with a gap of 24 between them and a
+  thin dotted blue rule standing in each gap. The words flow
+  down the first column and continue at the top of the second,
+  exactly as they did in section 1.</p>
+</div>
+<p>Following text — below the block, full width, as always.</p>
+
+<h2>3 — the shorthand, and more than one paragraph</h2>
+<div class="cols2">
+  <p>This block was declared with the shorthand
+  <i>columns: 2</i> — two columns, and it holds two paragraphs
+  rather than one, to show the columns are the block's and not
+  the paragraph's.</p>
+  <p>Second paragraph: it follows the first through the
+  columns, filling what the first one left. However the words
+  divide, the two columns should stand about even with each
+  other, and nothing here should spill into a third column —
+  the block was promised two and two it keeps.</p>
+</div>
+<p>Following text — below the block, full width.</p>
+
+<h2>4 — a colored column block</h2>
+<div class="greenbox">
+  <p>The wrapper here paints its own green behind three
+  columns of white words. The green should stand behind ALL
+  the columns as one unbroken surface — behind the gaps too —
+  not as three green stripes with dark seams between them.
+  The words themselves divide into three columns inside the
+  color, reading down one and continuing at the top of the
+  next, the same promise as section 1 wearing a coat.</p>
+</div>
+<p>Following text — below the green, full width.</p>
+
+<h2>5 — color-mix swatches</h2>
+<div class="swatch mixA">A — color-mix(in srgb, red 50%, blue 50%):
+a true purple, halfway between red and blue.</div>
+<div class="swatch mixB">B — color-mix(in srgb, red 25%, blue 75%):
+the same pair, weighted — a blue-violet, much nearer blue.</div>
+<div class="swatch mixC">C — color-mix(in srgb, white, black), no
+percentages written: the spec's default is half and half, so a
+middle gray.</div>
+<div class="swatch mixD">D — color-mix(in srgb, red, yellow):
+orange — the mix red and yellow make — carrying dark text on
+top of it.</div>
+<div class="swatch mixE">E — a mix inside a mix:
+color-mix(in srgb, color-mix(in srgb, red, blue), white) — the
+purple of swatch A lightened halfway toward white, a pale
+lavender.</div>
+<div class="swatch mixF">F — a gradient whose two stops are
+mixes: orange (red + yellow) at the top melting into a teal
+green-blue (blue + green) at the bottom.</div>
+<div class="swatch mixG">G — the mix arrived by variable:
+--brand was defined on :root as color-mix(in srgb, navy 70%,
+white), and this band's background is var(--brand) — a muted,
+lightened navy.</div>
+<h3 class="mixH">H — this heading's TEXT is a mix: black 65%
+into white, a dark gray rather than true black.</h3>
+
+<h2>6 — the honest limit: column-span is not read yet</h2>
+<div class="spanblock">
+  <h3 class="spanner">A heading asking to span all columns</h3>
+  <p>The heading above declares column-span: all, which in a
+  full browser would stretch it across both columns. Chirpy
+  0.22 does not read column-span yet, so the truthful thing to
+  check here is the opposite: the heading stays INSIDE one
+  column like everything else in the block, and the text flows
+  around it within the columns. When span is someday read,
+  this promise gets rewritten.</p>
+</div>
+
+<p>End of the test page. If the columns stood, balanced, and
+ruled, and the swatches wore the colors their labels promised,
+multi-column and color-mix work.</p>
+</body>
+</html>

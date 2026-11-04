@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.21.0 (Swift)
+//  Chirpy Browser — engine 0.22.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -130,9 +130,25 @@
 //      places at first paint; boxes measured from their
 //      contents place at arrivals, like block floats.
 //      position: sticky and transforms are not read.
+//    * Multi-column and color-mix (0.22): a block with
+//      column-count or column-width lays its contents
+//      out in balanced columns — sub-rendered like a
+//      floated box, measured across as many text
+//      containers as it has columns (the height binary-
+//      searched until the content just fills them), its
+//      height reserved in the flow by a clear seat, and
+//      the columns and their rules painted into that
+//      space by the layout manager. column-gap and
+//      column-rule are read; column-span and the break
+//      properties are not, and a multicolumn block's own
+//      contents are paint, not live text — the floated
+//      box's bargain. color-mix(in srgb, …) is read
+//      anywhere a color is: premultiplied-alpha mixing
+//      per the spec, percentages defaulting and scaling
+//      alpha as the spec directs, nested mixes included;
+//      other color spaces are not read.
 //  Not yet: other pseudo-classes (:hover) and @-rules,
-//  color-mix(), the font: shorthand, position: sticky,
-//  CSS multi-column (column-count),
+//  the font: shorthand, position: sticky,
 //  JavaScript (the mountain).
 //
 
@@ -235,7 +251,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                       userInfo: [NSLocalizedDescriptionKey: "That address could not be understood."])
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -253,7 +269,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("application/x-www-form-urlencoded",
@@ -307,7 +323,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         landedURL = urlString
@@ -385,7 +401,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
 func tbFetchData(urlString: String) async -> Data? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 20
@@ -570,6 +586,7 @@ enum TBLayoutEvent {
     case float(TBFloatSpec)
     case clear(TBClearSpec)
     case positioned(TBPositionedSpec)
+    case columns(TBMultiColumnSpec)
 }
 
 // Positioned layout (0.21): an element with position
@@ -667,6 +684,54 @@ final class TBPositionedSpec {
     }
 }
 
+// Multi-column layout (0.22): the seat that reserves a
+// multicolumn block's height in the flow — a clear-seat
+// attachment like a form control's, one character wide
+// in the text and the whole block tall — and the spec
+// the walk records for the view: the block's contents,
+// sub-rendered and cleaned like a floated box's, with
+// the column geometry the renderer's balancing measured.
+// The view paints the columns into the seat's line.
+final class TBColumnSeatAttachment: NSTextAttachment {}
+
+final class TBMultiColumnSpec {
+    // Where the seat sits in the text; the view hangs the
+    // columns from the top of the line that holds it.
+    var anchorCharIndex: Int = 0
+    let columnCount: Int
+    // The used width of one column (its text container's
+    // width) and the balanced height every column stands.
+    var columnWidth: CGFloat
+    var columnHeight: CGFloat = 0
+    let gap: CGFloat
+    // The block's content-box width — the seat's width,
+    // and the span the columns and gaps together fill.
+    let totalWidth: CGFloat
+    var totalHeight: CGFloat = 0
+    // The rule painted in each gap: its width (0 or a
+    // style of none/hidden paints nothing), style and
+    // color (the element's own text color when the page
+    // declares none — currentColor, as the spec directs).
+    var ruleWidth: CGFloat = 0
+    var ruleStyle: String = "none"
+    var ruleColor: NSColor? = nil
+    // The block's rendered contents, painted by the view
+    // across the columns (paint, not live text — the
+    // floated box's bargain, struck in finalizeColumns).
+    var content: NSAttributedString? = nil
+    // The seat in the page's text, whose bounds the
+    // arrivals finish corrects to the final height.
+    var seat: TBColumnSeatAttachment? = nil
+
+    init(columnCount: Int, columnWidth: CGFloat, gap: CGFloat,
+         totalWidth: CGFloat) {
+        self.columnCount = columnCount
+        self.columnWidth = columnWidth
+        self.gap = gap
+        self.totalWidth = totalWidth
+    }
+}
+
 // Parse an element's background-image into a box of
 // layers. The longhand is the primary path; the
 // `background` shorthand is mined for layer chunks that
@@ -730,7 +795,7 @@ func tbBackgroundSpec(_ decls: [String: String], base: String)
 func tbFetchText(urlString: String) async -> String? {
     guard let url = URL(string: urlString) else { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.21.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.22.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
@@ -1415,6 +1480,7 @@ func tbParseColor(_ raw: String?) -> NSColor? {
     if v.isEmpty { return nil }
     if let hex = TBNamedColors[v] { return tbHexColor(hex) }
     if v.hasPrefix("#") { return tbHexColor(v) }
+    if v.hasPrefix("color-mix(") { return tbMixColor(v) }
     if v.hasPrefix("rgb") {
         let inner = v.drop(while: { $0 != "(" }).dropFirst().dropLast()
         var parts = inner.split(separator: ",")
@@ -1446,6 +1512,97 @@ func tbParseColor(_ raw: String?) -> NSColor? {
         }
     }
     return nil
+}
+
+// color-mix() (0.22): color-mix(in srgb, <color> p%?,
+// <color> p%?) — the one interpolation space this engine
+// reads; another space named in the value makes the whole
+// color unreadable (nil), never an approximation in srgb
+// wearing its name. Because var() substitution is textual
+// and runs before any color is parsed, a mix may arrive
+// whole from a custom property, and each side of the mix
+// is itself parsed by tbParseColor, so mixes nest.
+//
+// The mixing follows the CSS Color 5 algorithm. The two
+// percentages default per the spec — both omitted means
+// 50/50, one omitted means 100 minus the other — and are
+// clamped to 0...100. When they sum to less than 100 the
+// proportions still rule the hue but the result's alpha
+// is scaled by sum/100; above 100 the proportions simply
+// normalize. The components themselves mix in
+// premultiplied-alpha form (each channel weighted by its
+// own color's alpha as well as its proportion), then
+// divide back out by the mixed alpha — that is what keeps
+// a fade toward transparent from darkening through gray
+// it never declared.
+func tbMixColor(_ v: String) -> NSColor? {
+    guard v.hasSuffix(")") else { return nil }
+    let inner = String(v.dropFirst("color-mix(".count).dropLast())
+    let parts = tbSplitLayers(inner).map {
+        $0.trimmingCharacters(in: .whitespaces)
+    }
+    guard parts.count == 3 else { return nil }
+    let space = parts[0].split(whereSeparator: { tbIsSpace($0) })
+        .map { String($0).lowercased() }
+    guard space == ["in", "srgb"] else { return nil }
+
+    // One side of the mix: a color with an optional
+    // percentage trailing it, split at the last space that
+    // sits outside parentheses (a nested function's own
+    // spaces are all spoken for inside its parens).
+    func side(_ raw: String) -> (color: NSColor, percent: Double?)? {
+        var colorText = raw
+        var percent: Double? = nil
+        var depth = 0
+        var splitAt: String.Index? = nil
+        for i in raw.indices {
+            if raw[i] == "(" { depth += 1 }
+            else if raw[i] == ")" { depth -= 1 }
+            else if raw[i] == " " && depth == 0 { splitAt = i }
+        }
+        if let split = splitAt {
+            let tail = String(raw[raw.index(after: split)...])
+            if tail.hasSuffix("%"), let value = Double(tail.dropLast()) {
+                percent = min(100, max(0, value))
+                colorText = String(raw[..<split])
+            }
+        }
+        guard let color = tbParseColor(colorText) else { return nil }
+        return (color, percent)
+    }
+    guard let first = side(parts[1]), let second = side(parts[2])
+    else { return nil }
+
+    var p1 = first.percent
+    var p2 = second.percent
+    if p1 == nil && p2 == nil { p1 = 50; p2 = 50 }
+    else if p1 == nil { p1 = 100 - (p2 ?? 0) }
+    else if p2 == nil { p2 = 100 - (p1 ?? 0) }
+    let sum = (p1 ?? 0) + (p2 ?? 0)
+    guard sum > 0 else {
+        return NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0)
+    }
+    let alphaScale = sum < 100 ? CGFloat(sum / 100) : 1
+    let w1 = CGFloat((p1 ?? 0) / sum)
+    let w2 = CGFloat((p2 ?? 0) / sum)
+
+    func rgba(_ color: NSColor) -> (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (r, g, b, a)
+    }
+    let c1 = rgba(first.color)
+    let c2 = rgba(second.color)
+    let mixedAlpha = c1.a * w1 + c2.a * w2
+    func channel(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
+        let premixed = a * c1.a * w1 + b * c2.a * w2
+        guard mixedAlpha > 0 else { return 0 }
+        return min(1, max(0, premixed / mixedAlpha))
+    }
+    return NSColor(srgbRed: channel(c1.r, c2.r),
+                   green: channel(c1.g, c2.g),
+                   blue: channel(c1.b, c2.b),
+                   alpha: min(1, max(0, mixedAlpha * alphaScale)))
 }
 
 // The background color an element's declarations call for:
@@ -1894,6 +2051,12 @@ final class TBRenderer {
     private var pendingPositioned: [(spec: TBPositionedSpec, sub: TBRenderer)] = []
     private var containingBlocks: [TBContainingBlock] = []
 
+    // Multi-column layout (0.22): the multicolumn blocks
+    // the walk met, each with the sub-renderer holding
+    // its contents, waiting for the arrivals finish to
+    // clean and re-balance them, as block floats wait.
+    private var pendingColumns: [(spec: TBMultiColumnSpec, sub: TBRenderer)] = []
+
     private func edgeIndex(color: NSColor?, box: TBBackgroundBox?) -> Int? {
         surfaceEdges.lastIndex { edge in
             guard edge.box === box else { return false }
@@ -2330,7 +2493,8 @@ final class TBRenderer {
         if !imageJobs.isEmpty || !floatImageJobs.isEmpty
             || !pendingBlockFloats.isEmpty
             || !positionedImageJobs.isEmpty
-            || !pendingPositioned.isEmpty { return true }
+            || !pendingPositioned.isEmpty
+            || !pendingColumns.isEmpty { return true }
         for box in backgroundBoxes.values {
             for layer in box.layers {
                 if case .image = layer.kind { return true }
@@ -2351,6 +2515,7 @@ final class TBRenderer {
         await finishBackgrounds()
         await finishFloatImages()
         await finishPositioned()
+        await finishColumns()
     }
 
     private func findTag(_ node: TBNode, _ tag: String) -> TBNode? {
@@ -2599,7 +2764,35 @@ final class TBRenderer {
         if isForm { enterForm(node) }
 
         var buffer = NSMutableAttributedString()
-        for child in node.children {
+        // Multi-column layout (0.22): a block declaring
+        // columns hands its whole contents to the columns
+        // at once — sub-rendered, balanced, and seated in
+        // the flow — instead of flowing child by child, so
+        // the loop below stands down for it. The block's
+        // entry bookkeeping above (its spacing's carry,
+        // its surface, its clear) and the closing
+        // bookkeeping below (containment, the relative
+        // restore, a block-level anchor's link) are shared
+        // exactly as they stand; only the content between
+        // is the columns'. A block inside a painted box
+        // (insideFloat) never takes this path — nested
+        // columns simply flow.
+        var tookColumns = false
+        if !insideFloat, node.tag != "document",
+           let columnSpec = multiColumnSpec(
+               own, fontSize: effFont.pointSize,
+               totalWidth: nominalWidth - metrics.indent - metrics.tailIndent) {
+            if columnSpec.ruleColor == nil {
+                columnSpec.ruleColor = effColor
+            }
+            tookColumns = renderColumns(
+                node: node, spec: columnSpec, font: effFont,
+                color: color, align: align, background: effBackground,
+                backgroundBox: effBox, metrics: metrics,
+                ownSurface: declaresSurface)
+            flushedOwn = tookColumns
+        }
+        for child in tookColumns ? [] : node.children {
             if TBRenderSkipTags.contains(child.tag) { continue }
             // Layout step one: the child's computed display decides
             // whether it stands as its own block or flows inline —
@@ -2995,6 +3188,357 @@ final class TBRenderer {
         }
         spec.borderWidth = max(spec.borderWidth, 1)
         spec.borderHeight = max(spec.borderHeight, 1)
+    }
+
+    // MARK: - Multi-column layout (0.22)
+
+    // Split a declaration value at spaces outside
+    // parentheses — the token walk tbBoxValues does for
+    // box values, needed again here because a shorthand's
+    // color may be a function with spaces of its own (a
+    // color-mix, an rgb()).
+    private func valueTokens(_ raw: String) -> [String] {
+        var tokens: [String] = []
+        var depth = 0
+        var current = ""
+        for c in raw {
+            if c == "(" { depth += 1 }
+            else if c == ")" { depth -= 1 }
+            if tbIsSpace(c) && depth == 0 {
+                if !current.isEmpty { tokens.append(current); current = "" }
+            } else {
+                current.append(c)
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
+    }
+
+    // column-rule, shorthand first and longhands over it,
+    // token by token: a width (a length, or thin / medium
+    // / thick), a style word, and a color — in whatever
+    // order the page wrote them, as CSS allows. Defaults
+    // are the spec's own: medium width, no style (so no
+    // rule paints), and no color — the caller substitutes
+    // the element's text color, currentColor as directed.
+    private func columnRule(_ own: [String: String], fontSize: CGFloat)
+        -> (width: CGFloat, style: String, color: NSColor?) {
+        var width: CGFloat? = nil
+        var style: String? = nil
+        var color: NSColor? = nil
+        let styles: Set<String> = ["none", "hidden", "dotted", "dashed",
+                                   "solid", "double", "groove", "ridge",
+                                   "inset", "outset"]
+        func widthWord(_ t: String) -> CGFloat? {
+            switch t {
+            case "thin": return 1
+            case "medium": return 3
+            case "thick": return 5
+            default: return tbLengthValue(t, fontSize: fontSize)
+            }
+        }
+        func read(_ raw: String) {
+            for token in valueTokens(raw) {
+                let t = token.lowercased()
+                if styles.contains(t) { style = t }
+                else if let w = widthWord(t) { width = w }
+                else if let c = tbParseColor(token) { color = c }
+            }
+        }
+        if let shorthand = own["column-rule"] { read(shorthand) }
+        if let raw = own["column-rule-style"] {
+            let t = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            if styles.contains(t) { style = t }
+        }
+        if let raw = own["column-rule-width"],
+           let w = widthWord(raw.trimmingCharacters(in: .whitespaces)
+                                .lowercased()) {
+            width = w
+        }
+        if let c = tbParseColor(own["column-rule-color"]) { color = c }
+        return (width ?? 3, style ?? "none", color)
+    }
+
+    // A block's column declarations, resolved to the
+    // geometry the columns will stand in — or nil when
+    // the block declares no columns, or they resolve to
+    // a single column: one column is just the flow, and
+    // the painted-box bargain (below) is not worth
+    // striking for it.
+    private func multiColumnSpec(_ own: [String: String],
+                                 fontSize: CGFloat,
+                                 totalWidth: CGFloat) -> TBMultiColumnSpec? {
+        var count: Int? = nil
+        var width: CGFloat? = nil
+        if let shorthand = own["columns"] {
+            for token in valueTokens(shorthand) {
+                let t = token.lowercased()
+                if t == "auto" { continue }
+                if let n = Int(t) { count = n }
+                else if let w = tbLengthValue(t, fontSize: fontSize) { width = w }
+            }
+        }
+        if let raw = own["column-count"],
+           let n = Int(raw.trimmingCharacters(in: .whitespaces)) {
+            count = n
+        }
+        if let w = tbLengthValue(own["column-width"], fontSize: fontSize) {
+            width = w
+        }
+        guard count != nil || width != nil, totalWidth >= 120 else { return nil }
+        // column-gap: a length, or `normal` — the spec's
+        // own word for 1em of the block's font, which is
+        // also the gap when the page declares none.
+        var gap = fontSize
+        if let raw = own["column-gap"]?.lowercased()
+            .trimmingCharacters(in: .whitespaces),
+           raw != "normal", let value = tbLengthValue(raw, fontSize: fontSize) {
+            gap = max(0, value)
+        }
+        var n: Int
+        if let w = width, w > 0 {
+            // The spec's formula for a declared width: as
+            // many columns as the block's width holds,
+            // gaps between them — and a declared count, if
+            // there is one too, only ever lowers that.
+            let fit = max(1, Int(((totalWidth + gap) / (w + gap)).rounded(.down)))
+            n = count.map { min($0, fit) } ?? fit
+        } else if let c = count {
+            n = c
+        } else {
+            return nil
+        }
+        n = max(1, min(n, 12))
+        // A column narrower than 60 points cannot hold
+        // text honestly; shed columns until each can.
+        while n > 1 && (totalWidth - CGFloat(n - 1) * gap) / CGFloat(n) < 60 {
+            n -= 1
+        }
+        guard n >= 2 else { return nil }
+        let columnWidth = (totalWidth - CGFloat(n - 1) * gap) / CGFloat(n)
+        let spec = TBMultiColumnSpec(columnCount: n, columnWidth: columnWidth,
+                                     gap: gap, totalWidth: totalWidth)
+        let rule = columnRule(own, fontSize: fontSize)
+        spec.ruleWidth = rule.width
+        spec.ruleStyle = rule.style
+        spec.ruleColor = rule.color
+        return spec
+    }
+
+    // The balanced height of a block's contents laid
+    // across `count` columns of one width: the smallest
+    // container height at which the layout manager's own
+    // chaining — down one container, continuing at the
+    // top of the next — gets every character laid. Found
+    // by binary search between a point and the height the
+    // contents stand at in a single column; the search
+    // IS the balancing real CSS does, measured with the
+    // same containers the view will paint from, so the
+    // number the seat reserves is the number the paint
+    // needs. (Trailing separator newlines are discounted
+    // from the target: whether the last empty paragraph
+    // earns a glyph is the layout manager's business, and
+    // a column plan must not hinge on it.)
+    private func balanceColumns(_ content: NSAttributedString,
+                                count: Int, columnWidth: CGFloat) -> CGFloat {
+        guard content.length > 0, count > 0 else { return 0 }
+        let full = measureText(content, width: columnWidth).height
+        guard full > 0 else { return 0 }
+        var target = content.length
+        let string = content.string as NSString
+        while target > 0 && string.character(at: target - 1) == 10 {
+            target -= 1
+        }
+        func fits(_ height: CGFloat) -> Bool {
+            let storage = NSTextStorage(attributedString: content)
+            let manager = NSLayoutManager()
+            storage.addLayoutManager(manager)
+            var containers: [NSTextContainer] = []
+            for _ in 0..<count {
+                let container = NSTextContainer(
+                    size: NSSize(width: columnWidth, height: height))
+                manager.addTextContainer(container)
+                containers.append(container)
+            }
+            guard let last = containers.last else { return true }
+            manager.ensureLayout(for: last)
+            var laid = 0
+            for container in containers {
+                let glyphs = manager.glyphRange(for: container)
+                if glyphs.length > 0 {
+                    laid = max(laid, NSMaxRange(manager.characterRange(
+                        forGlyphRange: glyphs, actualGlyphRange: nil)))
+                }
+            }
+            return laid >= target
+        }
+        var lo: CGFloat = 1
+        var hi = full
+        var probes = 0
+        while hi - lo > 1 && probes < 24 {
+            probes += 1
+            let mid = (lo + hi) / 2
+            if fits(mid) { hi = mid } else { lo = mid }
+        }
+        return hi
+    }
+
+    // A multicolumn block, walked: its contents render in
+    // a renderer of their own — same rules, same base —
+    // which records no layout events (inside the columns,
+    // floats, positioned boxes and further column blocks
+    // simply flow, the way they do inside a floated box),
+    // and the block takes its place in this renderer's
+    // flow as a single seat: one attachment character as
+    // wide and as tall as the balanced columns, in a
+    // paragraph carrying the spacing and surface stamps
+    // flush would have given the block's own first
+    // paragraph. The view resolves the seat's line and
+    // paints the columns into it.
+    private func renderColumns(node: TBNode, spec: TBMultiColumnSpec,
+                               font: NSFont, color: NSColor?,
+                               align: NSTextAlignment,
+                               background: NSColor?,
+                               backgroundBox: TBBackgroundBox?,
+                               metrics: TBBlockMetrics,
+                               ownSurface: Bool) -> Bool {
+        let sub = TBRenderer(base: base)
+        sub.rules = rules
+        sub.insideFloat = true
+        sub.nominalWidth = nominalWidth
+        sub.walkBlock(node: node, style: tbStyle(for: node.tag),
+                      baseFont: font, color: color, align: align,
+                      inheritedBackground: nil, inheritedBackgroundBox: nil)
+        let visible = (sub.out.string as NSString)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !visible.isEmpty else { return false }
+        spec.content = sub.out
+        spec.columnHeight = balanceColumns(sub.out, count: spec.columnCount,
+                                           columnWidth: spec.columnWidth)
+        spec.totalHeight = spec.columnHeight
+        let seat = TBColumnSeatAttachment()
+        seat.image = tbClearSeat(width: spec.totalWidth,
+                                 height: spec.totalHeight)
+        seat.bounds = CGRect(x: 0, y: 0, width: spec.totalWidth,
+                             height: spec.totalHeight)
+        spec.seat = seat
+        let para = NSMutableAttributedString(NSAttributedString(attachment: seat))
+        para.addAttribute(.font, value: font,
+                          range: NSRange(location: 0, length: para.length))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .left
+        if spaceCarry > 0 { paragraph.paragraphSpacingBefore = spaceCarry }
+        if metrics.after > 0 { paragraph.paragraphSpacing = metrics.after }
+        if metrics.indent > 0 {
+            paragraph.headIndent = metrics.indent
+            paragraph.firstLineHeadIndent = metrics.indent
+        }
+        if metrics.tailIndent > 0 { paragraph.tailIndent = -metrics.tailIndent }
+        para.addAttribute(.paragraphStyle, value: paragraph,
+                          range: NSRange(location: 0, length: para.length))
+        if let background = background {
+            para.addAttribute(.backgroundColor, value: background,
+                              range: NSRange(location: 0, length: para.length))
+        }
+        let paraStart = out.length
+        spec.anchorCharIndex = paraStart
+        out.append(para)
+        lastFlushRange = NSRange(location: paraStart, length: para.length)
+        if relDX != 0 || relDY != 0 {
+            out.addAttribute(TBRelOffsetKey,
+                             value: NSValue(point: NSPoint(x: relDX, y: relDY)),
+                             range: NSRange(location: paraStart,
+                                            length: para.length))
+        }
+        if !pendingClears.isEmpty {
+            for clearSpec in pendingClears {
+                clearSpec.anchorCharIndex = paraStart
+            }
+            pendingClears = []
+        }
+        var separatorAttrs: [NSAttributedString.Key: Any] = [:]
+        if let background = background {
+            separatorAttrs[.backgroundColor] = background
+        }
+        if let backgroundBox = backgroundBox {
+            separatorAttrs[TBBackgroundKey] = backgroundBox
+        }
+        out.append(NSAttributedString(string: "\n\n", attributes: separatorAttrs))
+        noteSurfaceParagraph(
+            range: NSRange(location: paraStart, length: para.length),
+            color: background, box: backgroundBox,
+            after: metrics.after, ownSurface: ownSurface)
+        spaceCarry = 0
+        layoutEvents.append(.columns(spec))
+        pendingColumns.append((spec: spec, sub: sub))
+        return true
+    }
+
+    // A multicolumn block's contents are finished (its
+    // pictures fetched, its failures labelled): strip
+    // what cannot work inside a painted box — the link
+    // targets and their [n] markers, and the form
+    // controls, for which bracketed labels stand in —
+    // exactly the cleaning a floated box's contents get —
+    // then balance the columns again on the finished
+    // text and correct the seat in the page to the final
+    // height, so the re-installed page reserves the truth.
+    private func finalizeColumns(spec: TBMultiColumnSpec, sub: TBRenderer) {
+        let cleaned = NSMutableAttributedString(attributedString: sub.out)
+        var swaps: [(range: NSRange, text: String)] = []
+        cleaned.enumerateAttribute(
+            .attachment, in: NSRange(location: 0, length: cleaned.length)
+        ) { value, range, _ in
+            if let submit = value as? TBSubmitAttachment {
+                swaps.append((range: range, text: " [\(submit.label)] "))
+            } else if let field = value as? TBFieldAttachment {
+                let name = sub.fields.first { $0.id == field.fieldID }
+                    .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
+                swaps.append((range: range, text: " [\(name)] "))
+            }
+        }
+        cleaned.enumerateAttribute(
+            .link, in: NSRange(location: 0, length: cleaned.length)
+        ) { _, range, _ in
+            let text = (cleaned.string as NSString).substring(with: range)
+            if text.hasPrefix(" ["), text.hasSuffix("]") {
+                let digits = text.dropFirst(2).dropLast()
+                if !digits.isEmpty, digits.allSatisfy({ $0.isNumber }) {
+                    swaps.append((range: range, text: ""))
+                }
+            }
+        }
+        for swap in swaps.sorted(by: { $0.range.location > $1.range.location }) {
+            cleaned.replaceCharacters(in: swap.range, with: NSAttributedString(
+                string: swap.text,
+                attributes: [.font: NSFont.systemFont(ofSize: 12),
+                             .foregroundColor: NSColor.secondaryLabelColor]))
+        }
+        cleaned.removeAttribute(.link,
+                                range: NSRange(location: 0, length: cleaned.length))
+        spec.content = cleaned
+        spec.columnHeight = balanceColumns(cleaned, count: spec.columnCount,
+                                           columnWidth: spec.columnWidth)
+        spec.totalHeight = spec.columnHeight
+        if let seat = spec.seat {
+            seat.image = tbClearSeat(width: spec.totalWidth,
+                                     height: spec.totalHeight)
+            seat.bounds = CGRect(x: 0, y: 0, width: spec.totalWidth,
+                                 height: spec.totalHeight)
+        }
+    }
+
+    // Arrivals for the multicolumn blocks (0.22): each
+    // block's own pictures and backgrounds land first,
+    // then its contents are cleaned and re-balanced —
+    // the same two-stage life the block floats lead.
+    func finishColumns() async {
+        for pending in pendingColumns {
+            await pending.sub.finishImages()
+            await pending.sub.finishBackgrounds()
+            finalizeColumns(spec: pending.spec, sub: pending.sub)
+        }
+        pendingColumns = []
     }
 
     // MARK: - Positioned layout (0.21)
