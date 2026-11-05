@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.37.2 (Swift)
+//  Chirpy Browser — engine 0.37.3 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -742,6 +742,101 @@
 //  separates flow links from seat links so
 //  the remaining on-device question can be
 //  answered by one click each.
+//  0.37.3 is the third speed stage plus the
+//  link repair. The 0.37.2 decomposition's
+//  two remaining rooms are decomposed in
+//  their turn (harness, real "Jesus"
+//  article): the resting cascade's 33s is
+//  NOT candidate volume — the subject
+//  index offers 41.7 candidates per element
+//  on average — it is 11.08 million
+//  selector matches, 58s by the matcher's
+//  own clock, and inside the matcher the
+//  multiplication is the descendant walk:
+//  every compound of every matched-against
+//  selector climbs the ancestor chain and
+//  re-derives the element's class list by
+//  splitting its class attribute
+//  (12.88 million splits) and re-derives
+//  its element-sibling list (116 thousand
+//  scans over 5.3 million children). The
+//  matcher now reads per-element facts the
+//  walk stamps once — class list, element
+//  index among siblings, sibling counts —
+//  instead of re-deriving them per match;
+//  a node not yet stamped derives them as
+//  before, so values cannot move. And the
+//  walk's other room was mostly not the
+//  walk at all: of the 26.32s "inline
+//  walk," the state resolutions' variable
+//  environments took 13.5s — every one of
+//  41,313 state resolutions rebuilt the
+//  custom-property environment from the
+//  FULL rule array (a 1,204-rule filter
+//  plus an ancestor walk per call) though
+//  only 4 rules define a custom property.
+//  The environment is now built once per
+//  element and remembered beside the
+//  resting style (the resting resolution
+//  pays the same rebuild per element
+//  today — it shares the remembered one),
+//  the custom-rule filter is cached per
+//  rule set, and an element whose chain
+//  defines no custom property anywhere
+//  skips the ancestor walk entirely.
+//  Specificity, computed by reduction over
+//  a selector's compounds on every sort
+//  comparison, is computed once per rule.
+//  Cascade equivalence stays 0 mismatches
+//  on every corpus and check; the state
+//  census of 0.37.2 is untouched.
+//  The link repair: a block-level anchor
+//  styled display:grid/flex/columns (the
+//  hub's cards) laid its text down in its
+//  seat's private contents and NEVER
+//  received the .link stamp walkBlock's
+//  close gives a block anchor — the stamp
+//  measures from where the block's inline
+//  content began, and a seat's block lays
+//  none down in the page's text — so the
+//  card wore no link anywhere the pointer
+//  or the click looks: the I-beam on the
+//  hub, named in the field. The seat's
+//  spec now carries the container's own
+//  link, resolved where walkBlock resolves
+//  the anchor, and the seat hit test
+//  answers it for the seat's whole box
+//  when no item inside carries a nearer
+//  one. A floated or positioned anchor
+//  carries its link the same way. And a
+//  link whose address differs from the
+//  page's only in its #fragment is a
+//  scroll, not a load: the window no
+//  longer fetches and re-walks the whole
+//  page to move within it (wiki-shape #1,
+//  whose href is "#landed", reloaded the
+//  test page entire); elements' ids are
+//  stamped as anchors in the walk so the
+//  window can find the landing place.
+//  The overprint: 0.37.2's classification
+//  is CORRECTED in the README — there is
+//  no sibling-adjacency test in this
+//  engine at all (the selector grammar
+//  refuses + and ~ outright), and no
+//  `div.hatnote + p` rule reaches the lead
+//  paragraph. What the harness proves is
+//  in the README; the drawing itself is
+//  AppKit's, and Tyler's screenshot of the
+//  article's top remains its judge.
+//  First-paint arrivals: DECLINED, with
+//  the mechanism named in the README —
+//  the first hand-off is one indivisible
+//  walkBlock of the whole tree and the
+//  arrivals Tyler saw repainting beneath
+//  the header are picture seats filling,
+//  not text arriving in pieces; what
+//  would make an earlier first paint safe
+//  is named there too.
 //  0.37.2 is the second speed stage, aimed
 //  by Tyler's own Console Timing entry for
 //  the chased Wikipedia "Jesus" article:
@@ -1800,7 +1895,7 @@ func tbGETWithCache(urlString: String, accept: String,
         break
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue(accept, forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1872,7 +1967,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (got.finalURL, html)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1898,7 +1993,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2002,7 +2097,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.37.3 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2163,7 +2258,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
         return got.data
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2303,6 +2398,11 @@ let TBRelOffsetKey = NSAttributedString.Key("TBRelOffset")
 // pointer leaves — hover never touches layout.
 let TBHoverAttrsKey = NSAttributedString.Key("TBHoverAttrs")
 let TBHoverBlockAttrsKey = NSAttributedString.Key("TBHoverBlockAttrs")
+// The anchor-name stamp (0.37.3): the id (or <a name>)
+// of the block whose walked range carries it — the
+// target a fragment lands on. The view scans for it
+// when a fragment navigation asks to scroll.
+let TBAnchorNameKey = NSAttributedString.Key("TBAnchorName")
 
 // The interaction set (0.26): :focus and :active wear
 // the same paint as :hover — the same TBHoverStyle
@@ -2734,6 +2834,14 @@ enum TBFloatSide { case left, right }
 enum TBClearSide { case left, right, both }
 
 final class TBFloatSpec {
+    // The wrapping anchor's link, when this seat's
+    // block IS an <a> (0.37.3): the card links on
+    // real pages are anchors styled as grid/flex
+    // containers, and their text never lands in
+    // the main string for a stamp to reach — the
+    // seat itself carries the destination so hover
+    // and click can find it. Inner links inside
+    // the seat's own text still win over it.
     // Where the float was met in the text; the view hangs
     // the box from the top of the line that starts there.
     let anchorCharIndex: Int
@@ -2743,6 +2851,7 @@ final class TBFloatSpec {
     // floats the renderer's finish pass replaces the
     // provisional size with the picture's real one.
     var borderWidth: CGFloat
+    var containerLink: String? = nil
     var borderHeight: CGFloat
     var widthDeclared = false
     var heightDeclared = false
@@ -2869,6 +2978,14 @@ enum TBPositionKind { case absolute, fixed }
 // settle, against the true containing block — the flags
 // carry that; the renderer leaves those sizes at zero.
 final class TBPositionedSpec {
+    // The wrapping anchor's link, when this seat's
+    // block IS an <a> (0.37.3): the card links on
+    // real pages are anchors styled as grid/flex
+    // containers, and their text never lands in
+    // the main string for a stamp to reach — the
+    // seat itself carries the destination so hover
+    // and click can find it. Inner links inside
+    // the seat's own text still win over it.
     // Where the box was met in the text; an inset left
     // auto on an axis falls back to the position the
     // box would have had in the flow, measured from here.
@@ -2879,6 +2996,7 @@ final class TBPositionedSpec {
     // Fixed boxes answer to the viewport instead.
     let containingBlock: TBContainingBlock?
     var top: TBInsetValue? = nil
+    var containerLink: String? = nil
     var right: TBInsetValue? = nil
     var bottom: TBInsetValue? = nil
     var left: TBInsetValue? = nil
@@ -2964,10 +3082,19 @@ final class TBStickySpec {
 final class TBColumnSeatAttachment: NSTextAttachment {}
 
 final class TBMultiColumnSpec {
+    // The wrapping anchor's link, when this seat's
+    // block IS an <a> (0.37.3): the card links on
+    // real pages are anchors styled as grid/flex
+    // containers, and their text never lands in
+    // the main string for a stamp to reach — the
+    // seat itself carries the destination so hover
+    // and click can find it. Inner links inside
+    // the seat's own text still win over it.
     // The segments the block's contents were cut into
     // at its column-span: all children (0.27) — one
     // part when there is no spanner.
     var parts: [TBColumnPart] = []
+    var containerLink: String? = nil
     // The paint & motion set (0.27): the container's
     // shadows, paint transform and opacity — its seat's
     // surface reads the stamps for the shadow; the item
@@ -3093,12 +3220,21 @@ final class TBFlexItem {
 }
 
 final class TBFlexSpec {
+    // The wrapping anchor's link, when this seat's
+    // block IS an <a> (0.37.3): the card links on
+    // real pages are anchors styled as grid/flex
+    // containers, and their text never lands in
+    // the main string for a stamp to reach — the
+    // seat itself carries the destination so hover
+    // and click can find it. Inner links inside
+    // the seat's own text still win over it.
     // The paint & motion set (0.27): the container's
     // shadows, paint transform and opacity — its seat's
     // surface reads the stamps for the shadow; the item
     // and content painters wrap in the transform and
     // opacity so the whole container moves together.
     var boxShadows: TBBoxShadowSet? = nil
+    var containerLink: String? = nil
     var transformSpec: TBTransformSpec? = nil
     var opacityValue: CGFloat = 1
     // Where the seat sits in the text; the view hangs
@@ -3265,12 +3401,21 @@ final class TBGridItem {
 // one, the declared width cap, the height clamps, and
 // the laid-out height the seat reserves.
 final class TBGridSpec {
+    // The wrapping anchor's link, when this seat's
+    // block IS an <a> (0.37.3): the card links on
+    // real pages are anchors styled as grid/flex
+    // containers, and their text never lands in
+    // the main string for a stamp to reach — the
+    // seat itself carries the destination so hover
+    // and click can find it. Inner links inside
+    // the seat's own text still win over it.
     // The paint & motion set (0.27): the container's
     // shadows, paint transform and opacity — its seat's
     // surface reads the stamps for the shadow; the item
     // and content painters wrap in the transform and
     // opacity so the whole container moves together.
     var boxShadows: TBBoxShadowSet? = nil
+    var containerLink: String? = nil
     var transformSpec: TBTransformSpec? = nil
     var opacityValue: CGFloat = 1
     // Where the seat sits in the text; the view hangs
@@ -3423,7 +3568,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
             ?? String(decoding: got.data, as: UTF8.self)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.3 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -5381,6 +5526,22 @@ final class TBNode {
     // set itself is the window's, passed to each render;
     // nothing persists between launches.
     var linkVisited = false
+    // The matcher memo (0.37.3): the facts a compound
+    // match derives about this element — its class list
+    // as a set, and its place among its element
+    // siblings — derived once and read by every match
+    // thereafter. Before, each of the walk's millions
+    // of matches re-derived them: the class attribute
+    // re-split (12.88 million times on the measured
+    // article), the sibling list re-filtered. A node
+    // never stamped derives them on the spot, exactly
+    // as before, so an unstamped tree matches the same;
+    // a stamped one reads the same values from here.
+    var matchClassSet: Set<String>? = nil
+    var matchSiblingIndex: Int = -1   // 0-based among element siblings; -1 = derive
+    var matchSiblingCount: Int = -1
+    var matchTypeIndex: Int = -1      // 0-based among same-tag siblings
+    var matchTypeCount: Int = -1
     init(tag: String, text: String = "") {
         self.tag = tag
         self.text = text
@@ -5618,6 +5779,10 @@ func tbParse(html: String) -> TBNode {
             i = j
         }
     }
+    // The matcher memo (0.37.3): stamp the tree's
+    // per-element match facts before it is handed
+    // out — see tbStampMatchFacts.
+    tbStampMatchFacts(root)
     return root
 }
 
@@ -5933,6 +6098,45 @@ func tbElementSiblings(_ node: TBNode) -> [TBNode] {
     return parent.children.filter { $0.tag != "#text" }
 }
 
+// The matcher memo's stamp (0.37.3): walk a subtree
+// once and record, per element node, the facts the
+// matcher used to re-derive per match — the class
+// list as a set, and the node's place among its
+// element siblings (and among its same-tag siblings).
+// One derivation per parent, shared by its children.
+// tbParse stamps every tree it hands out, so these
+// are warm before the first match reads them; a node
+// built by hand and never stamped simply has no memo
+// and the matcher derives as it always did.
+func tbStampMatchFacts(_ node: TBNode) {
+    if node.tag != "#text" {
+        if let classAttr = node.attrs["class"] {
+            node.matchClassSet = Set(
+                classAttr.split(whereSeparator: { tbIsSpace($0) })
+                    .map(String.init))
+        } else {
+            node.matchClassSet = []
+        }
+    }
+    var elementIndex = 0
+    var typeCounts: [String: Int] = [:]
+    var typeIndexOf: [ObjectIdentifier: Int] = [:]
+    for child in node.children where child.tag != "#text" {
+        typeIndexOf[ObjectIdentifier(child)] = typeCounts[child.tag, default: 0]
+        typeCounts[child.tag, default: 0] += 1
+    }
+    for child in node.children {
+        if child.tag != "#text" {
+            child.matchSiblingIndex = elementIndex
+            child.matchSiblingCount = typeCounts.values.reduce(0, +)
+            child.matchTypeIndex = typeIndexOf[ObjectIdentifier(child)] ?? 0
+            child.matchTypeCount = typeCounts[child.tag] ?? 0
+            elementIndex += 1
+        }
+        tbStampMatchFacts(child)
+    }
+}
+
 // Does a 1-based index satisfy An+B for some n >= 0?
 func tbNthMatches(_ nth: TBNthExpr, index: Int) -> Bool {
     let a = nth.a, b = nth.b
@@ -5974,10 +6178,21 @@ func tbCompoundMatches(_ compound: TBCompound, node: TBNode,
     if let tag = compound.tag, tag != node.tag { return false }
     if let id = compound.id, node.attrs["id"] != id { return false }
     if !compound.classes.isEmpty {
-        let have = (node.attrs["class"] ?? "")
-            .split(whereSeparator: { tbIsSpace($0) }).map(String.init)
-        for wanted in compound.classes where !have.contains(wanted) {
-            return false
+        // The class test (0.37.3): the stamped set
+        // when the tree carries one — the split of
+        // the class attribute was the matcher's
+        // single largest repeated cost — else the
+        // derivation as it stood.
+        if let have = node.matchClassSet {
+            for wanted in compound.classes where !have.contains(wanted) {
+                return false
+            }
+        } else {
+            let have = (node.attrs["class"] ?? "")
+                .split(whereSeparator: { tbIsSpace($0) }).map(String.init)
+            for wanted in compound.classes where !have.contains(wanted) {
+                return false
+            }
         }
     }
     if let notBox = compound.notBox,
@@ -5996,24 +6211,44 @@ func tbCompoundMatches(_ compound: TBCompound, node: TBNode,
     if compound.firstChild || compound.lastChild || compound.nthChild != nil
         || compound.firstOfType || compound.lastOfType
         || compound.nthOfType != nil {
-        let siblings = tbElementSiblings(node)
-        guard let own = siblings.firstIndex(where: { $0 === node }) else {
-            return false
+        // The structural tests (0.37.3): the
+        // stamped place among the element
+        // siblings when the tree carries one,
+        // else the sibling scan as it stood.
+        let index: Int
+        let siblingCount: Int
+        var typeIndex: Int = -1
+        var typeCount: Int = -1
+        if node.matchSiblingIndex >= 0 {
+            index = node.matchSiblingIndex + 1   // CSS counts from 1
+            siblingCount = node.matchSiblingCount
+            typeIndex = node.matchTypeIndex + 1
+            typeCount = node.matchTypeCount
+        } else {
+            let siblings = tbElementSiblings(node)
+            guard let own = siblings.firstIndex(where: { $0 === node })
+            else { return false }
+            index = own + 1
+            siblingCount = siblings.count
+            if compound.firstOfType || compound.lastOfType
+                || compound.nthOfType != nil {
+                let ofType = siblings.filter { $0.tag == node.tag }
+                guard let ownType = ofType.firstIndex(where: { $0 === node })
+                else { return false }
+                typeIndex = ownType + 1
+                typeCount = ofType.count
+            }
         }
-        let index = own + 1   // CSS counts from 1
         if compound.firstChild && index != 1 { return false }
-        if compound.lastChild && index != siblings.count { return false }
+        if compound.lastChild && index != siblingCount { return false }
         if let nth = compound.nthChild, !tbNthMatches(nth, index: index) {
             return false
         }
         if compound.firstOfType || compound.lastOfType
             || compound.nthOfType != nil {
-            let ofType = siblings.filter { $0.tag == node.tag }
-            guard let ownType = ofType.firstIndex(where: { $0 === node })
-            else { return false }
-            let typeIndex = ownType + 1
+            if typeIndex < 0 { return false }
             if compound.firstOfType && typeIndex != 1 { return false }
-            if compound.lastOfType && typeIndex != ofType.count {
+            if compound.lastOfType && typeIndex != typeCount {
                 return false
             }
             if let nth = compound.nthOfType,
@@ -6714,16 +6949,17 @@ func tbExpandDeferredFont(_ decls: [String: String]) -> [String: String] {
 // element's inline style on top.
 func tbResolveStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
     if node.tag == "#text" { return [:] }
-    var matched: [TBCSSRule] = []
+    // Specificity once each (0.37.3): the sort used to
+    // re-derive it — a reduction over the selector's
+    // compounds — on every comparison it made.
+    var matched: [(spec: Int, order: Int, rule: TBCSSRule)] = []
     for rule in rules where tbSelectorMatches(rule.selector, node: node) {
-        matched.append(rule)
+        matched.append((rule.selector.specificity, rule.order, rule))
     }
-    matched.sort {
-        ($0.selector.specificity, $0.order) < ($1.selector.specificity, $1.order)
-    }
+    matched.sort { ($0.spec, $0.order) < ($1.spec, $1.order) }
     var out: [String: String] = [:]
-    for rule in matched {
-        tbMergeDeclarations(rule.declarations, into: &out)
+    for entry in matched {
+        tbMergeDeclarations(entry.rule.declarations, into: &out)
     }
     if let inlineStyle = node.attrs["style"] {
         tbMergeDeclarations(tbParseDeclarations(inlineStyle), into: &out)
@@ -6761,20 +6997,18 @@ func tbSelectorHasHover(_ selector: TBSelector) -> Bool {
 func tbResolveStateStyle(node: TBNode, rules: [TBCSSRule],
                          flag: TBStateFlag) -> [String: String] {
     if node.tag == "#text" { return [:] }
-    var matched: [TBCSSRule] = []
+    var matched: [(spec: Int, order: Int, rule: TBCSSRule)] = []
     for rule in rules where tbSelectorHasState(rule.selector, flag)
         && tbSelectorMatches(rule.selector, node: node,
                              hoverSatisfied: flag == .hover,
                              focusSatisfied: flag == .focus,
                              activeSatisfied: flag == .active) {
-        matched.append(rule)
+        matched.append((rule.selector.specificity, rule.order, rule))
     }
-    matched.sort {
-        ($0.selector.specificity, $0.order) < ($1.selector.specificity, $1.order)
-    }
+    matched.sort { ($0.spec, $0.order) < ($1.spec, $1.order) }
     var out: [String: String] = [:]
-    for rule in matched {
-        tbMergeDeclarations(rule.declarations, into: &out)
+    for entry in matched {
+        tbMergeDeclarations(entry.rule.declarations, into: &out)
     }
     return out
 }
@@ -6802,23 +7036,47 @@ func tbVariableEnvironment(node: TBNode, rules: [TBCSSRule]) -> [String: String]
     let customRules = rules.filter { rule in
         rule.declarations.contains { $0.key.hasPrefix("--") }
     }
+    return tbVariableEnvironment(node: node, customRules: customRules,
+                                 rules: rules)
+}
+
+// The environment builder with its custom-property
+// rules already filtered (0.37.3): the caller keeps
+// the filtered list per rule set instead of paying
+// a full-sheet filter per element, and an element
+// whose whole chain defines no custom property —
+// no matching custom rule, no inline style carrying
+// one — returns the empty environment without the
+// ancestor walk's matching passes at all. The
+// values are the unfiltered walk's values either
+// way: a chain that defines nothing has an empty
+// environment by definition.
+func tbVariableEnvironment(node: TBNode,
+                           customRules: [TBCSSRule],
+                           rules: [TBCSSRule]) -> [String: String] {
     var chain: [TBNode] = []
     var current: TBNode? = node
     while let element = current, element.tag != "document" {
         chain.append(element)
         current = element.parent
     }
+    if !customRules.isEmpty || chain.contains(where: {
+        ($0.attrs["style"] ?? "").contains("--")
+    }) {
+        // Something in the chain may define a name:
+        // fall through to the full build below.
+    } else {
+        return [:]
+    }
     var env: [String: String] = [:]
     for element in chain.reversed() {
-        var matched: [TBCSSRule] = []
+        var matched: [(spec: Int, order: Int, rule: TBCSSRule)] = []
         for rule in customRules where tbSelectorMatches(rule.selector, node: element) {
-            matched.append(rule)
+            matched.append((rule.selector.specificity, rule.order, rule))
         }
-        matched.sort {
-            ($0.selector.specificity, $0.order) < ($1.selector.specificity, $1.order)
-        }
-        for rule in matched {
-            for (name, value) in rule.declarations where name.hasPrefix("--") {
+        matched.sort { ($0.spec, $0.order) < ($1.spec, $1.order) }
+        for entry in matched {
+            for (name, value) in entry.rule.declarations where name.hasPrefix("--") {
                 env[name] = value
             }
         }
@@ -7693,6 +7951,41 @@ final class TBRenderer {
     // that repeated it many times over.
     private var styleCache: [ObjectIdentifier: [String: String]] = [:]
     private var stateCache: [String: [String: String]] = [:]
+    // The variable environment, remembered (0.37.3):
+    // an element's custom-property environment is a
+    // function of its ancestor chain and the rule set,
+    // neither of which changes during a walk — yet it
+    // was rebuilt for every resolution that needed it:
+    // the resting resolution once per element, and each
+    // of the three state resolutions again for the same
+    // element (41,313 state calls on the measured
+    // article, 13.5s of environment building, though
+    // the raw state cascades themselves cost ~0s).
+    // One build per element now serves all four.
+    private var envCache: [ObjectIdentifier: [String: String]] = [:]
+    // The custom-property rules of the current rule
+    // set, filtered once — the environment builder
+    // used to re-filter the whole sheet per call.
+    private var customRulesCache: [TBCSSRule] = []
+    private var customRulesCacheCount = -1
+
+    // The element's variable environment, from the
+    // remembered copy when there is one.
+    func variableEnvironment(node: TBNode) -> [String: String] {
+        let key = ObjectIdentifier(node)
+        if let kept = envCache[key] { return kept }
+        if customRulesCacheCount != rules.count {
+            customRulesCache = rules.filter { rule in
+                rule.declarations.contains { $0.key.hasPrefix("--") }
+            }
+            customRulesCacheCount = rules.count
+        }
+        let env = tbVariableEnvironment(node: node,
+                                        customRules: customRulesCache,
+                                        rules: rules)
+        envCache[key] = env
+        return env
+    }
     private var ruleIndex: [String: [TBCSSRule]] = [:]
     private var ruleIndexRuleCount = -1
 
@@ -7829,6 +8122,14 @@ final class TBRenderer {
     // positions them). A renderer inside a float records
     // no events of its own — nested floats simply flow.
     var layoutEvents: [TBLayoutEvent] = []
+    // The seat containers whose own node is an
+    // anchor (0.37.3), in document order: the
+    // render's nested seat specs carry no layout
+    // event of their own, so the finished page
+    // reports them separately and seat-shaped
+    // renderers (sub-renders inside floats and
+    // positioned boxes) can hand theirs up.
+    var containerLinkSeats: [(kind: String, link: String)] = []
     private var insideFloat = false
     private var pendingClears: [TBClearSpec] = []
     private var floatCount = 0
@@ -8389,7 +8690,7 @@ final class TBRenderer {
             styleCache[cacheKey] = raw
             return raw
         }
-        let env = tbVariableEnvironment(node: node, rules: rules)
+        let env = variableEnvironment(node: node)
         var out: [String: String] = [:]
         for (name, value) in raw {
             if name.hasPrefix("--") { continue }
@@ -8422,7 +8723,7 @@ final class TBRenderer {
             stateCache[cacheKey] = raw
             return raw
         }
-        let env = tbVariableEnvironment(node: node, rules: rules)
+        let env = variableEnvironment(node: node)
         var out: [String: String] = [:]
         for (name, value) in raw {
             if name.hasPrefix("--") { continue }
@@ -9499,10 +9800,29 @@ final class TBRenderer {
         // instead — the view finds it when it paints the
         // box. The entry and closing bookkeeping around
         // it is shared exactly as it stands.
+        // A seat container that is itself an anchor
+        // (0.37.3): the card links of the real web
+        // are <a> elements styled as grid or flex
+        // containers. Their children never join
+        // this string, so the close-time stamp below
+        // (which covers what the children DID lay
+        // down) finds nothing to stamp for them —
+        // the seat carries the destination instead,
+        // and the view's hover and click lookups
+        // consult it after the seat's own text.
+        let containerLink: String? = {
+            guard node.tag == "a",
+                  let href = node.attrs["href"], !href.isEmpty
+            else { return nil }
+            return URL(string: href,
+                       relativeTo: URL(string: base))?.absoluteString
+                ?? href
+        }()
         var tookFlex = false
         if node.tag != "document", flexCount < 60,
            let flexSpec = flexContainerSpec(own, fontSize: effFont.pointSize,
                                             metrics: metrics) {
+            flexSpec.containerLink = containerLink
             flexSpec.boxShadows = boxShadowSet(
                 own, color: effColor, fontSize: effFont.pointSize)
             flexSpec.transformSpec = transformSpec(
@@ -9534,6 +9854,7 @@ final class TBRenderer {
         if !tookFlex, node.tag != "document", gridCount < 1200,
            let gridSpec = gridContainerSpec(own, fontSize: effFont.pointSize,
                                             metrics: metrics) {
+            gridSpec.containerLink = containerLink
             gridSpec.boxShadows = boxShadowSet(
                 own, color: effColor, fontSize: effFont.pointSize)
             gridSpec.transformSpec = transformSpec(
@@ -9567,6 +9888,7 @@ final class TBRenderer {
             if columnSpec.ruleColor == nil {
                 columnSpec.ruleColor = effColor
             }
+            columnSpec.containerLink = containerLink
             columnSpec.boxShadows = boxShadowSet(
                 own, color: effColor, fontSize: effFont.pointSize)
             columnSpec.transformSpec = transformSpec(
@@ -9700,7 +10022,7 @@ final class TBRenderer {
         // so make the whole block clickable here, keeping the
         // colors its own CSS gave it, and give it its [n] marker.
         if node.tag == "a", let href = node.attrs["href"], !href.isEmpty,
-           out.length > linkStart {
+           (out.length > linkStart || containerLink != nil) {
             let absolute = URL(string: href, relativeTo: URL(string: base))?.absoluteString ?? href
             links.append(absolute)
             out.addAttribute(.link, value: absolute,
@@ -9727,6 +10049,39 @@ final class TBRenderer {
                 insertAt -= 1
             }
             out.insert(marker, at: insertAt)
+            if out.length > linkStart, linkStart < insertAt {
+                // The seat case (0.37.3): the card's
+                // characters live in the seat's own
+                // string, so the only walked text is
+                // the bare separator — stamp the link
+                // over the whole block range so the
+                // characters the seat sits on carry it
+                // and the native hover/click roads see
+                // the card as the link it is.
+                out.addAttribute(.link, value: absolute,
+                                 range: NSRange(location: linkStart,
+                                                length: out.length - linkStart))
+            }
+        }
+
+        // Anchor names (0.37.3): a block carrying an
+        // id (or an <a name>) names a place a fragment
+        // can land on. The name stamps over the
+        // block's own walked range, so the view can
+        // find it and scroll — the fragment road's
+        // other half (the click that sets the
+        // fragment is handled where links navigate).
+        // Anchors inside a seat's own contents live
+        // in that seat's private string and are not
+        // reachable this way — a named limit.
+        if node.tag != "document", out.length > entryLength {
+            let anchorName = node.attrs["id"]
+                ?? (node.tag == "a" ? node.attrs["name"] : nil)
+            if let anchorName = anchorName, !anchorName.isEmpty {
+                out.addAttribute(TBAnchorNameKey, value: anchorName,
+                                 range: NSRange(location: entryLength,
+                                                length: out.length - entryLength))
+            }
         }
 
         // Hover paint (0.23): a block's hover style is
@@ -9999,6 +10354,16 @@ final class TBRenderer {
         let spec = TBFloatSpec(anchorCharIndex: out.length, side: side, isImage: false,
                                borderWidth: declaredW ?? 0,
                                borderHeight: declaredH ?? 0)
+        // A floated anchor (0.37.3): the box IS the
+        // link, so the seat carries the destination.
+        if node.tag == "a", let href = node.attrs["href"], !href.isEmpty {
+            spec.containerLink = URL(string: href,
+                                     relativeTo: URL(string: base))?.absoluteString
+                ?? href
+            if let link = spec.containerLink {
+                containerLinkSeats.append((kind: "float", link: link))
+            }
+        }
         spec.widthDeclared = declaredW != nil
         spec.heightDeclared = declaredH != nil
         spec.widthPercent = widthPercent
@@ -10578,6 +10943,9 @@ final class TBRenderer {
             after: metrics.after, ownSurface: ownSurface)
         spaceCarry = 0
         layoutEvents.append(.columns(spec))
+        if let link = spec.containerLink {
+            containerLinkSeats.append((kind: "columns", link: link))
+        }
         pendingColumns.append((spec: spec, subs: subs))
         return true
     }
@@ -11222,6 +11590,9 @@ final class TBRenderer {
         if !insideFloat {
             layoutEvents.append(.flex(spec))
         }
+        if let link = spec.containerLink {
+            containerLinkSeats.append((kind: "flex", link: link))
+        }
         pendingFlex.append((spec: spec, subs: subs))
         flexCount += 1
         return true
@@ -11792,6 +12163,10 @@ final class TBRenderer {
                 - spec.flowTailIndent, 10)
             if let cap = spec.declaredContentWidth {
                 width = min(width, cap)
+            }
+            if let link = spec.containerLink,
+               !containerLinkSeats.contains(where: { $0.link == link }) {
+                containerLinkSeats.append((kind: "flex", link: link))
             }
             spec.totalWidth = width
             computeFlexLayout(spec: spec)
@@ -12957,6 +13332,9 @@ final class TBRenderer {
         if !insideFloat {
             layoutEvents.append(.grid(spec))
         }
+        if let link = spec.containerLink {
+            containerLinkSeats.append((kind: "grid", link: link))
+        }
         pendingGrid.append((spec: spec, subs: subs))
         gridCount += 1
         return true
@@ -13555,6 +13933,10 @@ final class TBRenderer {
             if let cap = spec.declaredContentWidth {
                 width = min(width, cap)
             }
+            if let link = spec.containerLink,
+               !containerLinkSeats.contains(where: { $0.link == link }) {
+                containerLinkSeats.append((kind: "grid", link: link))
+            }
             spec.totalWidth = width
             computeGridLayout(spec: spec)
             for item in spec.items {
@@ -13767,6 +14149,16 @@ final class TBRenderer {
             borderWidth: declaredW ?? 0, borderHeight: declaredH ?? 0)
         spec.widthDeclared = declaredW != nil
         spec.heightDeclared = declaredH != nil
+        // A positioned anchor (0.37.3): as with the
+        // floated one, the box IS the link.
+        if node.tag == "a", let href = node.attrs["href"], !href.isEmpty {
+            spec.containerLink = URL(string: href,
+                                     relativeTo: URL(string: base))?.absoluteString
+                ?? href
+            if let link = spec.containerLink {
+                containerLinkSeats.append((kind: "positioned", link: link))
+            }
+        }
         dressPositioned(spec, own: own, fontSize: fontSize)
         // The box's contents render in a renderer of their
         // own, exactly as a block float's do — same rules,

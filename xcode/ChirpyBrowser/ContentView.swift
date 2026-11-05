@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.37.2 (Swift)
+//  Chirpy Browser — prototype 0.37.3 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.37.2 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
+    @Published var statusLine = "Chirpy Engine 0.37.3 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -43,6 +43,13 @@ final class BrowserModel: ObservableObject {
     // until its pictures have all landed, so the view
     // knows to re-install the finished page when they do.
     @Published var pageArrivalsPending = false
+    // The fragment road (0.37.3): a navigation that
+    // changed only the fragment asks the view to
+    // scroll to the named anchor instead of fetching
+    // — the fragment itself, and a tick so repeated
+    // taps on the same anchor still scroll.
+    @Published var pendingFragment: String? = nil
+    @Published var fragmentScrollTick = 0
     private var loadGeneration = 0
     private var activeFetch: TBProgressFetcher? = nil
 
@@ -387,6 +394,40 @@ final class BrowserModel: ObservableObject {
 
     func load(_ raw: String, push: Bool = true, postBody: String? = nil) {
         let target = normalize(raw)
+        // The fragment road (0.37.3): a navigation
+        // that changes only the fragment — the reader
+        // tapped an in-page link, wiki-shape's first
+        // box among them — is a scroll inside the
+        // page already painted, not a load. Before
+        // this, such a tap fetched and re-walked the
+        // whole page and landed back at its top: on
+        // device, "the first link reloads the page."
+        // A fragment navigation is still history:
+        // back returns where the reader stood.
+        if postBody == nil {
+            let base = target.split(separator: "#",
+                                    maxSplits: 1).first.map(String.init)
+                ?? target
+            let currentBase = currentURL.split(separator: "#",
+                                               maxSplits: 1)
+                .first.map(String.init) ?? currentURL
+            if !currentURL.isEmpty, base == currentBase,
+               target != currentURL,
+               let hash = target.firstIndex(of: "#") {
+                if push {
+                    backStack.append(currentURL)
+                    forwardStack.removeAll()
+                }
+                currentURL = target
+                addressText = target
+                canGoBack = !backStack.isEmpty
+                canGoForward = !forwardStack.isEmpty
+                pendingFragment = String(target[target.index(after: hash)...])
+                fragmentScrollTick += 1
+                statusLine = "\(target)  ·  Chirpy Engine 0.37.3 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading, seat links, fragments"
+                return
+            }
+        }
         if push && !currentURL.isEmpty {
             backStack.append(currentURL)
             forwardStack.removeAll()
@@ -458,7 +499,7 @@ final class BrowserModel: ObservableObject {
                 // load is the doorway. Until the first
                 // paint reports, the fetched URL stands.
                 var settledLanded = finalURL
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.2 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.3 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -467,6 +508,23 @@ final class BrowserModel: ObservableObject {
                 // fetching. The render's second stage, the
                 // arrivals, may touch this page afterwards
                 // only while this load is still the latest.
+                // A load asked for by an address that
+                // carried a fragment (0.37.3): when
+                // the page it lands on is that
+                // address's own document, the landing
+                // scrolls to the fragment's anchor
+                // once the view installs the text.
+                let requestedFragment: String? = {
+                    guard postBody == nil,
+                          let hash = target.firstIndex(of: "#")
+                    else { return nil }
+                    let requestedBase = String(target[..<hash])
+                    let fragment = String(
+                        target[target.index(after: hash)...])
+                    return (!fragment.isEmpty
+                            && requestedBase == finalURL)
+                        ? fragment : nil
+                }()
                 let paint = await tbRenderPage(html: html, base: finalURL,
                                                visited: sessionVisited,
                                                mediaWidth: viewTextWidth,
@@ -526,7 +584,7 @@ final class BrowserModel: ObservableObject {
                     if let e = first.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(first.landedURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.37.2 (Swift)"
+                            + "  ·  Chirpy Engine 0.37.3 (Swift)"
                     }
                     self.statusLine = first.arrivalsPending
                         ? status + consoleNote
@@ -538,6 +596,10 @@ final class BrowserModel: ObservableObject {
                     self.canGoBack = !self.backStack.isEmpty
                     self.canGoForward = !self.forwardStack.isEmpty
                     if bodyChanged { self.pageID += 1 }
+                    if bodyChanged, let requestedFragment = requestedFragment {
+                        self.pendingFragment = requestedFragment
+                        self.fragmentScrollTick += 1
+                    }
                 }
                 // The arrivals have landed (or a newer load
                 // has superseded this one — then nothing
@@ -550,7 +612,7 @@ final class BrowserModel: ObservableObject {
                     if let e = paint.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(settledLanded)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.37.2 (Swift)"
+                            + "  ·  Chirpy Engine 0.37.3 (Swift)"
                     }
                     self.statusLine = status
                         + (paint.consoleLines.isEmpty ? ""
@@ -657,6 +719,16 @@ struct PageTextView: NSViewRepresentable {
             context.coordinator.awaitingArrivals = false
             context.coordinator.refreshAfterArrivals()
         }
+        // The fragment road (0.37.3): after any
+        // install above, a pending fragment scrolls
+        // to its anchor — consumed once per tick, so
+        // repeat taps on the same anchor still land.
+        if context.coordinator.lastFragmentTick != model.fragmentScrollTick {
+            context.coordinator.lastFragmentTick = model.fragmentScrollTick
+            if let fragment = model.pendingFragment {
+                context.coordinator.scrollToAnchor(fragment, in: textView)
+            }
+        }
         context.coordinator.columnWidth = model.columnTextWidth
         context.coordinator.refreshInsets()
     }
@@ -709,9 +781,49 @@ struct PageTextView: NSViewRepresentable {
         // before its pictures landed; when the model says
         // they have, the finished page is re-installed.
         var awaitingArrivals = false
+        // The fragment road (0.37.3): the last
+        // fragment tick the view has honored.
+        var lastFragmentTick = 0
 
         init(model: BrowserModel) {
             self.model = model
+        }
+
+        // The fragment road (0.37.3): find the anchor
+        // the fragment names in the installed text
+        // and bring it to the top of the view. The
+        // engine stamps each block's id (or an
+        // <a name>) as TBAnchorName over the block's
+        // range; the first stamp whose name matches
+        // is the landing. Nothing matches — a name
+        // the page does not carry, or one living
+        // inside a painted box's private string —
+        // and the view simply stays where it is.
+        func scrollToAnchor(_ fragment: String, in textView: NSTextView) {
+            guard let storage = textView.textStorage,
+                  storage.length > 0,
+                  let manager = textView.layoutManager,
+                  let container = textView.textContainer
+            else { return }
+            var found: Int? = nil
+            storage.enumerateAttribute(
+                TBAnchorNameKey,
+                in: NSRange(location: 0, length: storage.length),
+                options: []) { value, range, stop in
+                if let name = value as? String, name == fragment {
+                    found = range.location
+                    stop.pointee = true
+                }
+            }
+            guard let index = found, index < storage.length
+            else { return }
+            manager.ensureLayout(for: container)
+            let glyph = manager.glyphIndexForCharacter(at: index)
+            let rect = manager.lineFragmentRect(forGlyphAt: glyph,
+                                                effectiveRange: nil)
+            let y = max(0, rect.minY + textView.textContainerOrigin.y
+                        - textView.textContainerInset.height)
+            textView.scroll(NSPoint(x: 0, y: y))
         }
 
         // Layout step two: keep the text centered in the column
@@ -2487,8 +2599,19 @@ final class TBPageTextView: NSTextView {
             activeRange = nil
             repaintStatePaint()
         }
-        super.mouseUp(with: event)
+        // The seat consultation runs BEFORE super
+        // (0.37.3): it cannot double-navigate — its
+        // first act is to stand down wherever the
+        // character at the lift point carries a
+        // native link, leaving those to the native
+        // path super drives — and running it first
+        // removes "super consumed the lift before
+        // the seats were asked" from the field
+        // reports' suspect list: on-device, hover
+        // found every seat's link while seat clicks
+        // arrived nowhere at all.
         resolveSeatClick(with: event)
+        super.mouseUp(with: event)
         pressPoint = nil
     }
 
@@ -5111,6 +5234,14 @@ final class TBBandLayoutManager: NSLayoutManager {
                     return href
                 }
             }
+            // The container itself, when it is an
+            // anchor (0.37.3): its own destination
+            // covers the whole seat — the gaps and
+            // the item padding included — wherever
+            // no item link answered.
+            if paint.rect.contains(p), let href = paint.spec.containerLink {
+                return href
+            }
         }
         for paint in flexPaints.reversed() {
             for item in paint.spec.items {
@@ -5128,10 +5259,16 @@ final class TBBandLayoutManager: NSLayoutManager {
                     return href
                 }
             }
+            if paint.rect.contains(p), let href = paint.spec.containerLink {
+                return href
+            }
         }
         for paint in columnPaints {
             if let href = columnLink(spec: paint.spec,
                                      rect: paint.rect, point: p) {
+                return href
+            }
+            if paint.rect.contains(p), let href = paint.spec.containerLink {
                 return href
             }
         }
@@ -5178,8 +5315,13 @@ final class TBBandLayoutManager: NSLayoutManager {
     // paints it.
     private func boxLink(source: TBBoxPaintSource, rect: NSRect,
                          point: NSPoint) -> String? {
-        guard !source.isImage, let content = source.content,
-              content.length > 0 else { return nil }
+        // The box's own text first — an inner link
+        // beats the box's container link (0.37.3) —
+        // and the container's destination stands
+        // when the content bears none.
+        guard !source.isImage else { return nil }
+        guard let content = source.content, content.length > 0
+        else { return source.containerLink }
         let contentRect = NSRect(
             x: rect.minX + source.paddingLeft,
             y: rect.minY + source.paddingTop,
@@ -5188,10 +5330,13 @@ final class TBBandLayoutManager: NSLayoutManager {
             height: max(0, rect.height - source.paddingTop
                 - source.paddingBottom))
         guard contentRect.contains(point) else { return nil }
-        return linkInContent(
+        if let hit = linkInContent(
             content, size: contentRect.size,
             localPoint: NSPoint(x: point.x - contentRect.minX,
-                                y: point.y - contentRect.minY))
+                                y: point.y - contentRect.minY)) {
+            return hit
+        }
+        return source.containerLink
     }
 
     // A grid or flex item: the same inset bargain.

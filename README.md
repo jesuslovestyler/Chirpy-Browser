@@ -144,6 +144,27 @@ Honest limits, for now:
   painted seat with the layout that painted it. A
   container nested inside a box's own contents is
   not followed yet.
+- Speed, third stage (0.37.3): the same article was
+  decomposed once more, and the multiplication was in
+  the matching itself — 11 million selector matches
+  per load, each compound re-splitting the element's
+  class attribute and re-scanning its siblings, and
+  the custom-property environment rebuilt per element
+  by two separate roads though only 4 of 1,204 rules
+  define one. A parse-time pass now stamps each
+  element's class set and sibling positions once, and
+  the environment is computed once per element and
+  shared. In the headless harness the article's first
+  paint falls from about 73s to about 11s, with the
+  walked output byte-identical and cascade
+  equivalence still 0 mismatches; the remaining cost
+  is the raw matching itself, named in the project
+  README. Also in 0.37.3: a link that differs from
+  the page only in its `#fragment` is a scroll, not a
+  reload, and a block-level anchor that is itself a
+  grid, flex or column container (a directory card)
+  now carries its destination into its painted seat,
+  so the card hovers and clicks as the link it is.
 - The onward doors (0.37): scripts can send the reader
   onward — `window.location` (the same object at
   `document.location` and the bare name) carries `href`

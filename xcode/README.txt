@@ -7,6 +7,327 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.37.3 — THE THIRD SPEED
+STAGE AND THE LINK REPAIR
+------------------------------------------------------
+ITEM 1 — SPEED, THE TWO REMAINING
+ROOMS. 0.37.2's decomposition left the
+resting cascade at 33.17s and the
+inline walk at 26.32s on the real
+"Jesus" article (46,631 nodes, 1,204
+rules). Both rooms were decomposed
+again on the same corpus before
+anything was touched, and the
+multiplication was not where the
+brief first looked:
+
+* Candidate volume is cleared by the
+  count: the subject index offers
+  41.7 candidate rules per element on
+  average (135 at most), 0.18s of the
+  whole render. Sharpening the index
+  further would buy nothing.
+* The cascade's cost is the matching
+  itself: 11.08 million selector
+  matches per load. Inside the matcher
+  two habits multiplied it — every
+  compound match re-split the element's
+  class attribute (12.88 million
+  splits), and every structural test
+  re-scanned the element's siblings
+  (5.31 million sibling entries read).
+  A pass at parse time now stamps each
+  element's class set and its sibling
+  positions once, and the matcher
+  reads the stamps; trees built by
+  hand, without stamps, derive exactly
+  as before.
+* The largest single room was the
+  custom-property environment: the
+  resting resolution and each state
+  resolution rebuilt it per element —
+  a full-sheet filter plus an
+  ancestor-chain match and sort —
+  though only 4 of the 1,204 rules
+  define custom properties at all. It
+  is now computed once per element and
+  shared by both roads, the filter
+  behind it is cached per sheet, and
+  where no custom rules exist and no
+  ancestor carries an inline custom
+  property the build is skipped
+  outright. Specificity is likewise
+  precomputed once per resolution
+  instead of re-derived inside every
+  sort comparison.
+
+After (harness, same corpus): first
+paint 73.09s -> about 10.7s; resting
+cascade 34.44s -> about 3.3s; inline
+walk 17.66s -> about 2.4s; the state
+resolutions 15.25s -> about 1.2s,
+their environment share now 0.00s.
+Every walk count is identical to
+0.37.2 (45,676 style resolutions,
+27,455 cascade computes, 1,589 block
+walks, 27,701 inline builds, 3,120
+flushes) and the walked output is
+byte-identical at 193,735 characters.
+
+What remains slow, named plainly: the
+cascade's remaining ~3.3s is the raw
+matching — 11.08 million matches,
+each descendant compound climbing and
+re-matching the ancestor chain;
+memoizing ancestor matches is the
+next multiplication and was not
+touched. The walk's ~2.4s is string
+and run building; arrivals and
+finishing together are under a
+second. Tyler's Debug build remains
+the final verdict against his 57.29s.
+
+ITEM 2 — THE OVERPRINT: THE BRIEF'S
+PREMISE IS REFUTED, AND 0.37.2'S
+CLASSIFICATION (BELOW) IS CORRECTED.
+The audit found there is no
+node-adjacency sibling test to
+repair: this engine's selector parser
+rejects the "+" combinator outright —
+only descendant and child combinators
+exist — and the structural
+pseudo-classes have always counted
+element siblings only. The one
+hatnote "+" rule in the fetched
+sheets lives in a TemplateStyles
+inline style element and chains
+hatnote to hatnote; it never touches
+the lead paragraph, and no rule
+matching `.mw-parser-output div.hatnote
++ p` exists in the article's CSS at
+all. Enumeration, as the brief asked:
+since the false match never existed,
+NO element's computed style changes
+from an adjacency repair — there is
+nothing to enumerate. The hatnote in
+the real article is a div styled by
+`.mw-parser-output .hatnote` (italic)
+and `div.hatnote` (padding-left 1.6em,
+margin-bottom 0.5em), and the walk
+lays it and the lead as separate
+paragraphs. What then collides on the
+device is still unproven: the
+harness's walked output does not
+carry the hatnote's text in the main
+string to inspect (it rides a seat or
+private string), and the glyph
+collision may live in AppKit's band
+layout, which the harness has no way
+to reproduce. Tyler's screenshot of
+the article top remains the verdict;
+this stage ships no layout guess.
+
+ITEM 3 — FIRST-PAINT ARRIVALS:
+DECLINED, WITH THE MECHANISM. The
+first paint is exactly one walkBlock
+call over the whole tree; the render
+hands that single result over once.
+There is no point inside the walk
+where a partial string could be
+handed over without splitting
+walkBlock itself — attribute ranges,
+seat geometry and the links list are
+only coherent at block boundaries the
+walk does not currently expose. What
+Tyler's 0.37.2 screenshot showed was
+arrivals (picture seats) repainting
+below an already-painted header, not
+text arriving in pieces. What would
+make it safe: a walk that can suspend
+and resume at block boundaries with
+stable ranges — a stage of its own.
+The Timing entry keeps measuring the
+full load because nothing here paints
+incrementally.
+
+ITEM 4 — LINKS: HOVER, CLICK, AND
+DESTINATION, ACROSS FLOW AND SEATS.
+Tyler's field reports widened this
+item three times, and each report
+named a different road:
+
+* The fragment road (wiki-shape #1).
+  The witness page is honest — its
+  bytes were read: #1 points at
+  "#landed", an anchor lower on the
+  same page. The engine stamps the
+  link's value as the absolute URL,
+  page and fragment together, and
+  load() had no fragment handling at
+  all, so a fragment-only trip took
+  the full fetch-and-render road and
+  landed back on the same page —
+  Tyler's "reload", exactly. load()
+  now treats a same-document fragment
+  change as what it is: history is
+  pushed, the address gains the
+  fragment, and the view scrolls to
+  the named anchor (elements' ids, and
+  anchors' names, are now stamped at
+  walk time) with no fetch at all. A
+  fresh load to a fragment scrolls
+  after its first paint the same way.
+  Named limit: anchor targets inside
+  seat contents ride separate strings
+  and do not scroll.
+
+* The hub's cards (flow block
+  anchors). The hub was fetched live
+  and read: each card IS a grid
+  container — `<a class="link">` with
+  display:grid — wrapping three spans.
+  The cascade proves it (the real
+  chain resolves display:grid for the
+  card). The walk's block-anchor close
+  stamped the link only over text the
+  anchor laid into the main string —
+  for a seat container there is none,
+  so the stamp silently did nothing,
+  and the seat specs carried no link
+  of their own: hover found no .link
+  at the point, the seat lookup found
+  no container link, and the pointer
+  stayed an I-beam. Three repairs,
+  all in the walk and the view:
+  grid, flex and column specs now
+  carry their container's link when
+  the container is itself an anchor
+  (floated and positioned anchors
+  likewise); the block-anchor close
+  now stamps .link over the anchor's
+  whole walked range and registers
+  the destination even when the
+  anchor's content went into seats;
+  and the view's box and seat lookups
+  fall back to the container's link
+  when the content carries none —
+  inner content links still win.
+  Honest limit: the harness cannot
+  reproduce the hub's full walk (its
+  render of the live hub stops after
+  the header and intro, 183 characters,
+  where Tyler's device renders the
+  whole directory), so the hub half of
+  this repair is proven in code and by
+  the cascade, and its verdict is
+  Tyler's device. On the hub-shape
+  test page, whose cards are the same
+  shape, every card's grid now
+  registers its destination.
+
+* The seat clicks (#2–#5). Hover
+  proved the seat data sound — the
+  hand shows on all five boxes — and
+  the harness re-proves it here: on
+  the wiki-shape page the flow link
+  and its anchor stamp are present,
+  and the four seat kinds correctly
+  report no container link (their
+  anchors live inside the seats, as
+  content links). The click road
+  diverged from hover in one place:
+  mouseUp ran the system's own text
+  handling FIRST and consulted the
+  seats only afterwards, so a lift the
+  system consumed never reached the
+  seat lookup at all. The seat
+  consultation now runs before the
+  system's handling, and its built-in
+  guard — a point carrying a native
+  link is never seat-navigated — makes
+  double navigation impossible. This
+  half is AppKit event handling, which
+  the Linux harness cannot execute:
+  it is proven by elimination from the
+  code and is device-witnessed-pending.
+
+* Tyler's question — "maybe it needs
+  javascript?" — answered with
+  evidence: no. Navigation in Chirpy
+  is native: click -> href -> load;
+  the page's own scripts are not in
+  the click path anywhere. The doors
+  prove it: the script-navigation
+  door, the noscript door, and #1's
+  reload all fired on pages whose
+  scripts died at the lexer in this
+  engine. The hub's console script
+  errors are real but unrelated to its
+  dead links — its cards were dead for
+  the walk reason above, with the
+  scripts never consulted.
+
+REGRESSIONS, STATED PLAINLY. The 0.37
+suite's own harness extraction no
+longer compiles against the grown
+engine — the script slice now reaches
+a Shield check that lives outside the
+slices it was built from — so its
+31/31 stands as last fully run on
+0.37.2 code. On this tree, through the
+0.36 suite's harness: js-test keeps
+its 11/11 promises, the REPL checks
+pass, and all three cascade
+equivalence checks read 0 mismatches
+of 2,818 elements; the hub-shape
+cards register as above. Repairing
+the suite's extraction is named work
+for the next stage, not hidden. Both
+files parse clean; no new load( calls
+were added anywhere — the seat-click
+hop and every load( call site keep
+their 0.37 main-actor form.
+
+NAMED LIMITS CARRIED FORWARD: live
+fields inside grid and flex seats
+still render as bracketed
+placeholders; the hub's under-search
+void and full-width share buttons
+remain unproven mechanisms; nested
+column, float and positioned
+container links are not propagated
+into the seat registry (grid and flex
+are); an image box that is itself an
+anchor carries no container link.
+
+The drill: build and run — the status
+line should read "Chirpy Engine
+0.37.3 (Swift)". Open
+wiki-shape-test.html and click ALL
+FIVE boxes: #1 (flow) scrolls to the
+green "You landed here" box, the
+address gains #landed, and the page
+does NOT reload; #2 (float) lands on
+destination-script.html; #3 (grid) on
+destination-noscript.html; #4 (flex)
+on destination-script.html; #5
+(positioned) on destination-noscript
+.html — after each click the address
+bar should name the destination file.
+Then https://jesuslovestyler.com/ :
+hover the cards — the pointing hand
+should show — and click one through.
+Then the Timing errand: search
+DuckDuckGo for Jesus, click the
+Wikipedia result, and read the Timing
+entry against 57.29s. Take a
+screenshot of the article's top — the
+hatnote and the lead paragraph — the
+overprint's verdict. js-test still
+keeps its eleven promises, and
+interstitial-test still walks through
+both its doors.
+
 WHAT'S NEW IN 0.37.2 — THE SECOND SPEED STAGE
 ------------------------------------------------------
 Tyler's own Console Timing entry named
