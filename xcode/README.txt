@@ -7,6 +7,79 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.33.0 — JAVASCRIPT, THE FIRST SLICE
+------------------------------------------------------
+The mountain's first camp, called back onto the
+plan by your word: Chirpy now runs a page's own
+code — a small, honest slice of JavaScript, with
+the interpreter written from scratch like
+everything else in the engine.
+
+* Kept and run. The parser no longer throws
+  scripts away: a <script> is kept as raw text
+  with its attributes, the way style sheets and
+  text areas are kept, and after the page lands
+  (refresh followed first), every script runs in
+  document order before the page is painted — so
+  the words a script writes are the words you
+  read. Inline code and external src files
+  alike; an external file is fetched the way a
+  style sheet is, with the Shield asked first
+  and the cache beneath, and all of a page's
+  scripts share one scope, as in a browser.
+
+* The language. A lexer, a parser and an
+  evaluator of our own: var, let and const;
+  numbers, strings and booleans; arithmetic and
+  comparison, with + joining strings as it
+  should; if/else; for, while and do-while;
+  functions with parameters, return and
+  closures; arrays and plain objects, read and
+  written by member and by index; the ternary
+  and the logical operators; string and array
+  helpers — length, charAt, indexOf, slice,
+  split, trim, the case folds, push, pop, join,
+  concat; and parseInt, parseFloat, isNaN, and
+  the String and Number conversions.
+
+* The bridge to the page. document.
+  getElementById finds an element by its id;
+  its textContent and innerHTML read and write
+  its words (a write lands as text — markup a
+  script writes is not parsed in this slice);
+  document.title reads and sets the page's
+  title. console.log goes to the window's
+  status line, marked "Console:", and
+  window.alert rides the same road as a note —
+  there is no sheet. A script's error stops
+  that script alone and is noted on the status
+  line the same way; the page still paints.
+
+* Named out of this slice, plainly: event
+  handlers and attribute handlers (onclick and
+  kin), timers (setTimeout, setInterval), fetch
+  and XMLHttpRequest, script-driven navigation,
+  and the wider DOM — no querySelector, no
+  createElement, no style access from script.
+  A name nobody defined reads as undefined
+  rather than halting the page, a leniency real
+  pages lean on, taken knowingly.
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.33.0 (Swift)" and
+name "JavaScript's first slice". Then open
+js-test.html (keep js-test-helper.js beside it)
+and read the eleven promises: each numbered
+sentence was written into the page by the
+page's own scripts, and a promise still reading
+"waiting for the script" names a piece that did
+not run. Promise 10 is the title over the page;
+promise 11 lives on the status line itself.
+The closing section's button honestly cannot
+answer yet. Regression passes after: the home
+page, shield-test.html, controls-test.html,
+and a picture page for the cache.
+
 WHAT'S NEW IN 0.32.0 — THE CACHE
 ------------------------------------------------------
 The parked piece, built at last now that the CSS

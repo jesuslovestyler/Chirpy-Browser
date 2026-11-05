@@ -95,10 +95,17 @@ Honest limits, for now:
   word allows — `Cache-Control`, `Expires`, or a bounded
   heuristic — with conditional revalidation after that.
   A Clear cache button sits on the window's bar.
-- No JavaScript yet: its first slice is the next stage
-  (0.33), already called for. JavaScript-heavy sites will
-  look bare until it lands, and the heaviest will stay
-  bare for a while after it.
+- JavaScript runs in its first slice (0.33): inline and
+  external scripts, a from-scratch interpreter (variables,
+  functions and closures, arrays and objects, loops and
+  conditions), `document.getElementById` with `textContent`
+  and `innerHTML` read and written — a write lands as
+  text, as script-written markup is not parsed yet — and
+  console output on the status line. Not in the slice,
+  named plainly: event handlers, timers, `fetch` and
+  XMLHttpRequest, script-driven navigation, and the wider
+  DOM beyond `getElementById`. JavaScript-heavy sites
+  will still look bare where they lean on those.
 - One window, one page at a time — no tabs yet.
 - A known blemish, admitted rather than guessed at: on
   lists with alternating row backgrounds, the odd rows'

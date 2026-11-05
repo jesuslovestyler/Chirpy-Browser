@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.33 — JavaScript First Slice Test Page</title>
+<script src="js-test-helper.js"></script>
+<style>
+  body { font-family: sans-serif; }
+  .waiting { color: #777777; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.33 — JavaScript, first slice, test</h1>
+<p>Read down and check each numbered promise. Every sentence
+below that begins a promise was written into this page by the
+page's own scripts — if a promise still reads "waiting for the
+script", that piece did not run. First, the status line at the
+bottom of the window should read "Chirpy Engine 0.33.0 (Swift)"
+and name "JavaScript's first slice" among the features.
+Honest notes before the promises: this slice runs a page's
+scripts once, in order, as the page lands — inline code and
+external files, on one shared scope. It has no event handlers
+(a button's onclick does nothing yet), no timers, and no
+fetch or XMLHttpRequest; the last section says so again over
+a live example. innerHTML writes land as plain text in this
+slice — promise 8 shows exactly what that means.</p>
+
+<h2>1 — arithmetic, written into the page</h2>
+<p id="p1" class="waiting">waiting for the script</p>
+
+<h2>2 — strings and their helpers</h2>
+<p id="p2" class="waiting">waiting for the script</p>
+
+<h2>3 — if/else chooses the word</h2>
+<p id="p3" class="waiting">waiting for the script</p>
+
+<h2>4 — for gathers, while counts back down</h2>
+<p id="p4" class="waiting">waiting for the script</p>
+
+<h2>5 — functions, return, and a closure</h2>
+<p id="p5" class="waiting">waiting for the script</p>
+
+<h2>6 — an array, pushed and joined</h2>
+<p id="p6" class="waiting">waiting for the script</p>
+
+<h2>7 — a plain object, read and written</h2>
+<p id="p7" class="waiting">waiting for the script</p>
+
+<h2>8 — innerHTML lands as text in this slice</h2>
+<p id="p8" class="waiting">waiting for the script</p>
+
+<h2>9 — the external file's gifts</h2>
+<p id="p9" class="waiting">waiting for the script</p>
+
+<h2>10 — the title above</h2>
+<p>The script set this page's title itself, through
+document.title. Look at the title over the page: it should
+read "JavaScript Lives Here — Set by Script", not the title
+this file was written with.</p>
+
+<h2>11 — the console and the alert-note</h2>
+<p>The script spoke to the console twice and raised one
+alert. Look at the status line at the bottom of the window:
+it should carry a "Console:" note holding "the console is
+alive", a second line "second line with two arguments", and
+an "Alert:" note — in this slice an alert is a note on the
+status line, not a sheet.</p>
+
+<h2>Honestly not in this slice</h2>
+<p>The button below carries an onclick that would change
+its own label in a fuller browser. Here it does nothing —
+event handlers are named out of this slice, and the button
+keeps its label no matter how it is pressed. Timers
+(setTimeout, setInterval), fetch and XMLHttpRequest, and
+the wider DOM (querySelector, createElement, style access)
+are out the same way, until a later slice takes them up.</p>
+<p><button onclick="document.getElementById('p1').textContent = 'The button worked.'">Press me — I cannot answer yet</button></p>
+
+<script>
+// Promise 1 — arithmetic and precedence.
+var p1 = document.getElementById("p1");
+p1.textContent = "2 + 3 * 4 = " + (2 + 3 * 4) +
+  ", and 10 % 3 = " + (10 % 3) + ".";
+
+// Promise 2 — strings and their helpers.
+var word = "chirpy";
+document.getElementById("p2").textContent =
+  word.toUpperCase() + " has " + word.length +
+  " letters; its second letter is " + word.charAt(1) +
+  ", and in the phrase \"a chirpy bird\" the word sits at position " +
+  "a chirpy bird".indexOf("chirpy") + ".";
+
+// Promise 3 — if/else chooses the word.
+var hour = 15;
+var part;
+if (hour < 12) {
+  part = "morning";
+} else {
+  part = "afternoon";
+}
+document.getElementById("p3").textContent =
+  "The script's clock reads hour " + hour +
+  ", so if/else chose: " + part + ".";
+
+// Promise 4 — for gathers, while counts back down.
+var up = "";
+for (var i = 1; i <= 5; i++) {
+  if (i > 1) { up += ", "; }
+  up += i;
+}
+var down = "";
+var j = 5;
+while (j >= 1) {
+  if (j < 5) { down += ", "; }
+  down += j;
+  j = j - 1;
+}
+document.getElementById("p4").textContent =
+  "By for: " + up + ". By while, back down: " + down + ".";
+
+// Promise 5 — functions, return, and a closure.
+function add(a, b) { return a + b; }
+function makeCounter() {
+  var count = 0;
+  return function() { count = count + 1; return count; };
+}
+var counter = makeCounter();
+var firstCount = counter();
+var secondCount = counter();
+document.getElementById("p5").textContent =
+  "add(19, 23) = " + add(19, 23) +
+  ", and the closure counter says " + firstCount +
+  " then " + secondCount + ".";
+
+// Promise 6 — an array, pushed and joined.
+var virtues = ["faith", "hope"];
+virtues.push("love");
+document.getElementById("p6").textContent =
+  "The array holds " + virtues.length + " words — " +
+  virtues.join(", ") + " — the last of them at index " +
+  virtues.indexOf("love") + ".";
+
+// Promise 7 — a plain object, read and written.
+var book = { title: "The Pilgrim's Progress", year: 1678 };
+book.author = "John Bunyan";
+document.getElementById("p7").textContent =
+  book.title + " by " + book.author + " (" + book.year +
+  ") — the author was added by the script after the object was made.";
+
+// Promise 8 — innerHTML lands as text in this slice.
+document.getElementById("p8").innerHTML =
+  "Written through innerHTML. In this slice the write lands as plain text, so the markup inside it shows as letters: <b>not bold</b>.";
+
+// Promise 9 — the external file's gifts.
+document.getElementById("p9").textContent =
+  chirpyHelperGreet("reader") + " Its number is " +
+  chirpyHelperNumber + ".";
+
+// Promise 10 — the title above.
+document.title = "JavaScript Lives Here — Set by Script";
+
+// Promise 11 — the console and the alert-note.
+console.log("the console is alive");
+console.log("second line", "with two arguments");
+window.alert("An alert in this slice is a note on the status line, not a sheet.");
+</script>
+</body>
+</html>

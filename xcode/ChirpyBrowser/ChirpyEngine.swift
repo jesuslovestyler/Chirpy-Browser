@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.32.0 (Swift)
+//  Chirpy Browser — engine 0.33.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -488,10 +488,56 @@
 //      The cache is the only thing Chirpy keeps
 //      between launches, and nothing about it is
 //      reported anywhere.
-//  Not yet: JavaScript — called back onto the
-//  plan by Tyler's word (Nov 5, 2026); its first
-//  slice is the next stage (0.33). And the outs
-//  named in the README.
+//    * JavaScript, the first slice (0.33): the
+//      mountain's first camp. The parser keeps
+//      <script> as a raw-text element carrying
+//      its attributes, and after the parse —
+//      on the landed page, before the walk, so
+//      script-written words are what paint —
+//      every script runs in document order on
+//      one shared page scope: inline code, and
+//      external src files fetched the way style
+//      sheets are, the Shield asked first and
+//      the cache beneath. The interpreter is
+//      ours from the ground — a lexer, a parser,
+//      an evaluator — covering var, let and
+//      const; numbers, strings and booleans;
+//      arithmetic and comparison, with string
+//      concatenation; if/else; for, while and
+//      do-while; functions with parameters,
+//      return, and closures; arrays and plain
+//      objects with member and index access;
+//      and a working set of string and array
+//      helpers (length, charAt, indexOf, slice,
+//      split, trim, the case folds, push, pop,
+//      join, concat). The DOM bridge is small
+//      and named: document.getElementById finds
+//      an element by its id, and its textContent
+//      and innerHTML read and write its words —
+//      a write lands as text, because
+//      script-written markup is not parsed in
+//      this slice. document.title reads and
+//      sets the page's title. console.log goes
+//      to the window's status line, marked
+//      "Console:", and window.alert rides the
+//      same road as a note — there is no sheet.
+//      A script's error stops that script alone
+//      and is noted the same way; a name nobody
+//      defined reads as undefined rather than
+//      halting the page. NOT in this slice,
+//      named plainly: event handlers and
+//      attribute handlers (onclick and kin),
+//      timers (setTimeout, setInterval), fetch
+//      and XMLHttpRequest, script-driven
+//      navigation, and the wider DOM — no
+//      querySelector, no createElement, no
+//      style access. The drill page js-test.html
+//      promises each piece above, one numbered
+//      promise at a time.
+//  Not yet: JavaScript beyond the first slice
+//  above — event handlers, timers, fetch and
+//  XMLHttpRequest, and the wider DOM. And the
+//  outs named in the README.
 //
 
 import Foundation
@@ -1407,7 +1453,7 @@ func tbGETWithCache(urlString: String, accept: String,
         break
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue(accept, forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1479,7 +1525,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (got.finalURL, html)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1505,7 +1551,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1609,7 +1655,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1770,7 +1816,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
         return got.data
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3030,7 +3076,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
             ?? String(decoding: got.data, as: UTF8.self)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3040,6 +3086,1517 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
         return nil
     }
     return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+}
+
+// MARK: - JavaScript, first slice (0.33)
+//
+// The interpreter is ours from the ground up, the
+// way the rest of the engine is: a lexer, a
+// parser, and an evaluator, with a small bridge
+// to the parsed page. Its honest scope is in the
+// file header's 0.33 bullet; the drill page
+// js-test.html promises each piece of it.
+
+enum TBJSValue {
+    case undefined
+    case null
+    case boolean(Bool)
+    case number(Double)
+    case string(String)
+    case array([TBJSValue])
+    case object([String: TBJSValue])
+    case function(TBJSFunc)
+    case native(String)
+    case element(TBNode)
+    case document
+    case console
+    case window
+}
+
+struct TBJSFunc {
+    var params: [String]
+    var body: [TBJSStmt]
+    var env: TBJSEnv
+}
+
+final class TBJSEnv {
+    var vars: [String: TBJSValue] = [:]
+    var parent: TBJSEnv?
+    init(parent: TBJSEnv? = nil) { self.parent = parent }
+    func get(_ name: String) -> TBJSValue? {
+        if let value = vars[name] { return value }
+        return parent?.get(name)
+    }
+    // Assign where the name already lives; a name
+    // nobody holds is defined at the root, the
+    // way a browser's sloppy mode makes a global.
+    func set(_ name: String, _ value: TBJSValue) {
+        if vars[name] != nil { vars[name] = value; return }
+        if let parent = parent { parent.set(name, value); return }
+        vars[name] = value
+    }
+}
+
+enum TBJSFlow: Error {
+    case returnValue(TBJSValue)
+    case breakLoop
+    case continueLoop
+    case error(String)
+}
+
+final class TBJSContext {
+    var globals = TBJSEnv()
+    var logs: [String] = []
+    var title: String = ""
+    var titleSet = false
+    var elementsById: [String: TBNode] = [:]
+    // Mutating array natives (push, pop) set this
+    // to the array's new shape; the call site,
+    // which knows the expression the array came
+    // from, writes it back.
+    var mutatedThis: TBJSValue? = nil
+    init() {
+        globals.vars["document"] = .document
+        globals.vars["window"] = .window
+        globals.vars["console"] = .console
+        globals.vars["this"] = .window
+        globals.vars["undefined"] = .undefined
+        globals.vars["NaN"] = .number(Double.nan)
+        globals.vars["Infinity"] = .number(Double.infinity)
+        globals.vars["alert"] = .native("window.alert")
+        globals.vars["parseInt"] = .native("global.parseInt")
+        globals.vars["parseFloat"] = .native("global.parseFloat")
+        globals.vars["isNaN"] = .native("global.isNaN")
+        globals.vars["String"] = .native("global.String")
+        globals.vars["Number"] = .native("global.Number")
+    }
+}
+
+// The words of an element: every descendant text
+// node, in order — what textContent reads.
+func tbJSNodeText(_ node: TBNode) -> String {
+    if node.tag == "#text" { return node.text }
+    var out = ""
+    for child in node.children { out += tbJSNodeText(child) }
+    return out
+}
+
+// What a textContent (or innerHTML) write does:
+// the element's children become the one text.
+func tbJSSetNodeText(_ node: TBNode, _ text: String) {
+    node.children = []
+    if !text.isEmpty {
+        let textNode = TBNode(tag: "#text", text: text)
+        textNode.parent = node
+        node.children.append(textNode)
+    }
+}
+
+func tbJSNumberString(_ d: Double) -> String {
+    if d.isNaN { return "NaN" }
+    if d.isInfinite { return d > 0 ? "Infinity" : "-Infinity" }
+    if d == d.rounded() && abs(d) < 1e15 { return String(Int(d)) }
+    return String(d)
+}
+
+func tbJSString(_ value: TBJSValue) -> String {
+    switch value {
+    case .undefined: return "undefined"
+    case .null: return "null"
+    case .boolean(let b): return b ? "true" : "false"
+    case .number(let d): return tbJSNumberString(d)
+    case .string(let s): return s
+    case .array(let items):
+        return items.map { item in
+            switch item {
+            case .undefined, .null: return ""
+            default: return tbJSString(item)
+            }
+        }.joined(separator: ",")
+    case .object: return "[object Object]"
+    case .function, .native: return "function"
+    case .element: return "[object Element]"
+    case .document: return "[object HTMLDocument]"
+    case .console: return "[object Object]"
+    case .window: return "[object Window]"
+    }
+}
+
+func tbJSNumber(_ value: TBJSValue) -> Double {
+    switch value {
+    case .undefined: return Double.nan
+    case .null: return 0
+    case .boolean(let b): return b ? 1 : 0
+    case .number(let d): return d
+    case .string(let s):
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return 0 }
+        if let d = Double(trimmed) { return d }
+        if trimmed.hasPrefix("0x") || trimmed.hasPrefix("0X"),
+           let v = UInt64(String(trimmed.dropFirst(2)), radix: 16) {
+            return Double(v)
+        }
+        return Double.nan
+    case .array(let items): return tbJSNumber(.string(tbJSString(.array(items))))
+    case .object, .function, .native, .element, .document, .console, .window:
+        return Double.nan
+    }
+}
+
+func tbJSTruthy(_ value: TBJSValue) -> Bool {
+    switch value {
+    case .undefined, .null: return false
+    case .boolean(let b): return b
+    case .number(let d): return d != 0 && !d.isNaN
+    case .string(let s): return !s.isEmpty
+    default: return true
+    }
+}
+
+func tbJSTypeName(_ value: TBJSValue) -> String {
+    switch value {
+    case .undefined: return "undefined"
+    case .null: return "object"
+    case .boolean: return "boolean"
+    case .number: return "number"
+    case .string: return "string"
+    case .function, .native: return "function"
+    default: return "object"
+    }
+}
+
+func tbJSStrictEqual(_ a: TBJSValue, _ b: TBJSValue) -> Bool {
+    switch (a, b) {
+    case (.undefined, .undefined), (.null, .null): return true
+    case (.boolean(let x), .boolean(let y)): return x == y
+    case (.number(let x), .number(let y)): return x == y
+    case (.string(let x), .string(let y)): return x == y
+    case (.element(let x), .element(let y)): return x === y
+    default: return false
+    }
+}
+
+func tbJSLooseEqual(_ a: TBJSValue, _ b: TBJSValue) -> Bool {
+    if tbJSStrictEqual(a, b) { return true }
+    switch (a, b) {
+    case (.null, .undefined), (.undefined, .null): return true
+    case (.number(let x), .string(let y)): return x == tbJSNumber(.string(y))
+    case (.string(let x), .number(let y)): return tbJSNumber(.string(x)) == y
+    case (.boolean(let x), _): return tbJSLooseEqual(.number(x ? 1 : 0), b)
+    case (_, .boolean(let y)): return tbJSLooseEqual(a, .number(y ? 1 : 0))
+    case (.array, .string(let y)): return tbJSString(a) == y
+    case (.string(let x), .array): return x == tbJSString(b)
+    case (.array, .number(let y)): return tbJSNumber(a) == y
+    case (.number(let x), .array): return x == tbJSNumber(b)
+    default: return false
+    }
+}
+
+let TBJSStringMethods: [String: String] = [
+    "charAt": "string.charAt", "indexOf": "string.indexOf",
+    "toUpperCase": "string.toUpperCase",
+    "toLowerCase": "string.toLowerCase",
+    "slice": "string.slice", "split": "string.split",
+    "trim": "string.trim", "includes": "string.includes",
+]
+let TBJSArrayMethods: [String: String] = [
+    "push": "array.push", "pop": "array.pop",
+    "join": "array.join", "indexOf": "array.indexOf",
+    "slice": "array.slice", "concat": "array.concat",
+]
+
+func tbJSGetMember(_ base: TBJSValue, _ name: String,
+                   _ ctx: TBJSContext) -> TBJSValue {
+    switch base {
+    case .string(let s):
+        if name == "length" { return .number(Double(s.count)) }
+        if let native = TBJSStringMethods[name] { return .native(native) }
+        return .undefined
+    case .array(let items):
+        if name == "length" { return .number(Double(items.count)) }
+        if let native = TBJSArrayMethods[name] { return .native(native) }
+        return .undefined
+    case .object(let obj):
+        return obj[name] ?? .undefined
+    case .element(let node):
+        switch name {
+        case "textContent", "innerHTML":
+            return .string(tbJSNodeText(node))
+        case "id": return .string(node.attrs["id"] ?? "")
+        case "tagName": return .string(node.tag.uppercased())
+        default: return .undefined
+        }
+    case .document:
+        switch name {
+        case "title": return .string(ctx.title)
+        case "getElementById": return .native("document.getElementById")
+        default: return .undefined
+        }
+    case .console:
+        switch name {
+        case "log", "info", "warn", "error":
+            return .native("console.log")
+        default: return .undefined
+        }
+    case .window:
+        switch name {
+        case "document": return .document
+        case "console": return .console
+        case "window": return .window
+        case "alert": return .native("window.alert")
+        default: return ctx.globals.get(name) ?? .undefined
+        }
+    default:
+        return .undefined
+    }
+}
+
+// Returns the base's new shape (arrays and objects
+// are values here, so a write makes a new one the
+// caller writes back); element and document
+// writes land in place and return the base.
+func tbJSSetMember(_ base: TBJSValue, _ name: String, _ value: TBJSValue,
+                   _ ctx: TBJSContext) -> TBJSValue {
+    switch base {
+    case .object(var obj):
+        obj[name] = value
+        return .object(obj)
+    case .array(var items):
+        if name == "length" {
+            let wanted = Int(tbJSNumber(value))
+            if wanted >= 0 {
+                if wanted < items.count {
+                    items.removeSubrange(wanted..<items.count)
+                } else {
+                    while items.count < wanted { items.append(.undefined) }
+                }
+            }
+            return .array(items)
+        }
+        if let idx = Int(name), idx >= 0 {
+            while items.count <= idx { items.append(.undefined) }
+            items[idx] = value
+            return .array(items)
+        }
+        return base
+    case .element(let node):
+        if name == "textContent" || name == "innerHTML" {
+            tbJSSetNodeText(node, tbJSString(value))
+        }
+        return base
+    case .document:
+        if name == "title" {
+            ctx.title = tbJSString(value)
+            ctx.titleSet = true
+        }
+        return base
+    default:
+        return base
+    }
+}
+
+func tbJSGetIndex(_ base: TBJSValue, _ index: TBJSValue,
+                  _ ctx: TBJSContext) -> TBJSValue {
+    switch base {
+    case .array(let items):
+        if case .number(let d) = index {
+            let i = Int(d)
+            if d == Double(i) && i >= 0 && i < items.count {
+                return items[i]
+            }
+            return .undefined
+        }
+        return tbJSGetMember(base, tbJSString(index), ctx)
+    case .string(let s):
+        if case .number(let d) = index {
+            let i = Int(d)
+            let chars = Array(s)
+            if d == Double(i) && i >= 0 && i < chars.count {
+                return .string(String(chars[i]))
+            }
+            return .undefined
+        }
+        return tbJSGetMember(base, tbJSString(index), ctx)
+    case .object, .element, .document, .console, .window:
+        return tbJSGetMember(base, tbJSString(index), ctx)
+    default:
+        return .undefined
+    }
+}
+
+func tbJSSetIndex(_ base: TBJSValue, _ index: TBJSValue, _ value: TBJSValue,
+                  _ ctx: TBJSContext) -> TBJSValue {
+    switch base {
+    case .array(var items):
+        if case .number(let d) = index {
+            let i = Int(d)
+            if d == Double(i) && i >= 0 {
+                while items.count <= i { items.append(.undefined) }
+                items[i] = value
+                return .array(items)
+            }
+            return base
+        }
+        return tbJSSetMember(base, tbJSString(index), value, ctx)
+    case .object, .element, .document:
+        return tbJSSetMember(base, tbJSString(index), value, ctx)
+    default:
+        return base
+    }
+}
+
+// MARK: - JavaScript lexer and parser (0.33)
+
+enum TBJSToken {
+    case number(Double)
+    case string(String)
+    case ident(String)
+    case punct(String)
+    case eof
+}
+
+func tbJSLex(_ source: String) throws -> [TBJSToken] {
+    let chars = Array(source)
+    let n = chars.count
+    var i = 0
+    var tokens: [TBJSToken] = []
+    func isDigit(_ c: Character) -> Bool { c >= "0" && c <= "9" }
+    func isIdentStart(_ c: Character) -> Bool {
+        c.isLetter || c == "_" || c == "$"
+    }
+    func isIdentPart(_ c: Character) -> Bool {
+        c.isLetter || c.isNumber || c == "_" || c == "$"
+    }
+    while i < n {
+        let c = chars[i]
+        if c == " " || c == "\t" || c == "\n" || c == "\r" {
+            i += 1
+            continue
+        }
+        if c == "/" && i + 1 < n && chars[i + 1] == "/" {
+            while i < n && chars[i] != "\n" { i += 1 }
+            continue
+        }
+        if c == "/" && i + 1 < n && chars[i + 1] == "*" {
+            i += 2
+            while i + 1 < n && !(chars[i] == "*" && chars[i + 1] == "/") {
+                i += 1
+            }
+            i = min(i + 2, n)
+            continue
+        }
+        if isDigit(c) || (c == "." && i + 1 < n && isDigit(chars[i + 1])) {
+            var text = ""
+            if c == "0" && i + 1 < n
+                && (chars[i + 1] == "x" || chars[i + 1] == "X") {
+                i += 2
+                var hex = ""
+                while i < n && chars[i].isHexDigit {
+                    hex.append(chars[i])
+                    i += 1
+                }
+                tokens.append(.number(Double(UInt64(hex, radix: 16) ?? 0)))
+                continue
+            }
+            while i < n && (isDigit(chars[i]) || chars[i] == ".") {
+                text.append(chars[i])
+                i += 1
+            }
+            if i < n && (chars[i] == "e" || chars[i] == "E") {
+                var j = i + 1
+                if j < n && (chars[j] == "+" || chars[j] == "-") { j += 1 }
+                if j < n && isDigit(chars[j]) {
+                    text.append(chars[i])
+                    i += 1
+                    if i < n && (chars[i] == "+" || chars[i] == "-") {
+                        text.append(chars[i])
+                        i += 1
+                    }
+                    while i < n && isDigit(chars[i]) {
+                        text.append(chars[i])
+                        i += 1
+                    }
+                }
+            }
+            tokens.append(.number(Double(text) ?? Double.nan))
+            continue
+        }
+        if c == "\"" || c == "'" {
+            let quote = c
+            i += 1
+            var text = ""
+            var closed = false
+            while i < n {
+                let ch = chars[i]
+                if ch == quote { closed = true; i += 1; break }
+                if ch == "\\" && i + 1 < n {
+                    let esc = chars[i + 1]
+                    switch esc {
+                    case "n": text.append("\n")
+                    case "t": text.append("\t")
+                    case "r": text.append("\r")
+                    case "0": text.append("\0")
+                    case "u":
+                        var hex = ""
+                        var k = i + 2
+                        while k < n && hex.count < 4 && chars[k].isHexDigit {
+                            hex.append(chars[k])
+                            k += 1
+                        }
+                        if let v = UInt32(hex, radix: 16),
+                           let scalar = Unicode.Scalar(v) {
+                            text.append(Character(scalar))
+                        }
+                        i = k
+                        continue
+                    default: text.append(esc)
+                    }
+                    i += 2
+                    continue
+                }
+                text.append(ch)
+                i += 1
+            }
+            if !closed { throw TBJSFlow.error("unterminated string") }
+            tokens.append(.string(text))
+            continue
+        }
+        if isIdentStart(c) {
+            var name = ""
+            while i < n && isIdentPart(chars[i]) {
+                name.append(chars[i])
+                i += 1
+            }
+            tokens.append(.ident(name))
+            continue
+        }
+        let rest = String(chars[i..<min(i + 3, n)])
+        var matched: String? = nil
+        for op in ["===", "!==", "==", "!=", "<=", ">=", "&&", "||",
+                   "++", "--", "+=", "-=", "*=", "/=", "%="] {
+            if rest.hasPrefix(op) { matched = op; break }
+        }
+        if let op = matched {
+            tokens.append(.punct(op))
+            i += op.count
+            continue
+        }
+        if "(){}[];,.?:+-*/%<>=!".contains(c) {
+            tokens.append(.punct(String(c)))
+            i += 1
+            continue
+        }
+        throw TBJSFlow.error("unexpected character '\(c)'")
+    }
+    tokens.append(.eof)
+    return tokens
+}
+
+indirect enum TBJSExpr {
+    case literal(TBJSValue)
+    case ident(String)
+    case arrayLit([TBJSExpr])
+    case objectLit([(String, TBJSExpr)])
+    case member(TBJSExpr, String)
+    case index(TBJSExpr, TBJSExpr)
+    case call(TBJSExpr, [TBJSExpr])
+    case unary(String, TBJSExpr)
+    case prefix(String, TBJSExpr)
+    case postfix(String, TBJSExpr)
+    case binary(String, TBJSExpr, TBJSExpr)
+    case assign(TBJSExpr, TBJSExpr)
+    case opAssign(String, TBJSExpr, TBJSExpr)
+    case ternary(TBJSExpr, TBJSExpr, TBJSExpr)
+    case funcExpr([String], [TBJSStmt])
+}
+
+indirect enum TBJSStmt {
+    case empty
+    case expr(TBJSExpr)
+    case decl(String, TBJSExpr?)
+    case block([TBJSStmt])
+    case ifElse(TBJSExpr, TBJSStmt, TBJSStmt?)
+    case whileLoop(TBJSExpr, TBJSStmt)
+    case doWhile(TBJSStmt, TBJSExpr)
+    case forLoop(TBJSStmt?, TBJSExpr?, TBJSExpr?, TBJSStmt)
+    case funcDecl(String, [String], [TBJSStmt])
+    case returnStmt(TBJSExpr?)
+    case breakStmt
+    case continueStmt
+}
+
+struct TBJSParser {
+    var tokens: [TBJSToken]
+    var pos = 0
+
+    func peek() -> TBJSToken { tokens[min(pos, tokens.count - 1)] }
+    func peekIdent() -> String? {
+        if case .ident(let name) = peek() { return name }
+        return nil
+    }
+    func peekPunct() -> String? {
+        if case .punct(let p) = peek() { return p }
+        return nil
+    }
+    mutating func advance() { pos += 1 }
+    mutating func acceptPunct(_ p: String) -> Bool {
+        if peekPunct() == p { advance(); return true }
+        return false
+    }
+    mutating func acceptIdent(_ name: String) -> Bool {
+        if peekIdent() == name { advance(); return true }
+        return false
+    }
+    mutating func expectPunct(_ p: String) throws {
+        if !acceptPunct(p) {
+            throw TBJSFlow.error("expected '\(p)'")
+        }
+    }
+    mutating func expectIdent() throws -> String {
+        if case .ident(let name) = peek() {
+            advance()
+            return name
+        }
+        throw TBJSFlow.error("expected a name")
+    }
+    mutating func skipSemicolons() {
+        while acceptPunct(";") {}
+    }
+
+    mutating func parseProgram() throws -> [TBJSStmt] {
+        var stmts: [TBJSStmt] = []
+        while true {
+            if case .eof = peek() { break }
+            stmts.append(try parseStatement())
+        }
+        return stmts
+    }
+
+    mutating func parseBlock() throws -> [TBJSStmt] {
+        try expectPunct("{")
+        var stmts: [TBJSStmt] = []
+        while peekPunct() != "}" {
+            if case .eof = peek() {
+                throw TBJSFlow.error("unterminated block")
+            }
+            stmts.append(try parseStatement())
+        }
+        try expectPunct("}")
+        return stmts
+    }
+
+    // var/let/const with any number of declarators.
+    mutating func parseDeclList() throws -> [TBJSStmt] {
+        advance()  // the keyword itself
+        var stmts: [TBJSStmt] = []
+        while true {
+            let name = try expectIdent()
+            var initial: TBJSExpr? = nil
+            if acceptPunct("=") { initial = try parseAssign() }
+            stmts.append(.decl(name, initial))
+            if !acceptPunct(",") { break }
+        }
+        return stmts
+    }
+
+    mutating func parseFunctionTail() throws -> ([String], [TBJSStmt]) {
+        try expectPunct("(")
+        var params: [String] = []
+        if peekPunct() != ")" {
+            while true {
+                params.append(try expectIdent())
+                if !acceptPunct(",") { break }
+            }
+        }
+        try expectPunct(")")
+        let body = try parseBlock()
+        return (params, body)
+    }
+
+    mutating func parseStatement() throws -> TBJSStmt {
+        skipSemicolons()
+        if peekPunct() == "{" {
+            return .block(try parseBlock())
+        }
+        if let word = peekIdent() {
+            switch word {
+            case "var", "let", "const":
+                let decls = try parseDeclList()
+                skipSemicolons()
+                return decls.count == 1 ? decls[0] : .block(decls)
+            case "function":
+                advance()
+                let name = try expectIdent()
+                let (params, body) = try parseFunctionTail()
+                return .funcDecl(name, params, body)
+            case "if":
+                advance()
+                try expectPunct("(")
+                let cond = try parseExpr()
+                try expectPunct(")")
+                let thenBranch = try parseStatement()
+                var elseBranch: TBJSStmt? = nil
+                if acceptIdent("else") {
+                    elseBranch = try parseStatement()
+                }
+                return .ifElse(cond, thenBranch, elseBranch)
+            case "while":
+                advance()
+                try expectPunct("(")
+                let cond = try parseExpr()
+                try expectPunct(")")
+                return .whileLoop(cond, try parseStatement())
+            case "do":
+                advance()
+                let body = try parseStatement()
+                if !acceptIdent("while") {
+                    throw TBJSFlow.error("expected 'while' after do")
+                }
+                try expectPunct("(")
+                let cond = try parseExpr()
+                try expectPunct(")")
+                skipSemicolons()
+                return .doWhile(body, cond)
+            case "for":
+                advance()
+                try expectPunct("(")
+                var initial: TBJSStmt? = nil
+                if peekPunct() != ";" {
+                    if let w = peekIdent(),
+                       w == "var" || w == "let" || w == "const" {
+                        let decls = try parseDeclList()
+                        initial = decls.count == 1 ? decls[0]
+                            : .block(decls)
+                    } else {
+                        initial = .expr(try parseExpr())
+                    }
+                }
+                try expectPunct(";")
+                var cond: TBJSExpr? = nil
+                if peekPunct() != ";" { cond = try parseExpr() }
+                try expectPunct(";")
+                var step: TBJSExpr? = nil
+                if peekPunct() != ")" { step = try parseExpr() }
+                try expectPunct(")")
+                return .forLoop(initial, cond, step,
+                                try parseStatement())
+            case "return":
+                advance()
+                var value: TBJSExpr? = nil
+                if peekPunct() != ";" && peekPunct() != "}"
+                    && peekPunct() != nil {
+                    if case .eof = peek() {
+                        // No value; the return ends the script.
+                    } else {
+                        value = try parseExpr()
+                    }
+                }
+                skipSemicolons()
+                return .returnStmt(value)
+            case "break":
+                advance()
+                skipSemicolons()
+                return .breakStmt
+            case "continue":
+                advance()
+                skipSemicolons()
+                return .continueStmt
+            default:
+                break
+            }
+        }
+        let expr = try parseExpr()
+        skipSemicolons()
+        return .expr(expr)
+    }
+
+    mutating func parseExpr() throws -> TBJSExpr {
+        return try parseAssign()
+    }
+
+    mutating func parseAssign() throws -> TBJSExpr {
+        let lhs = try parseTernary()
+        if acceptPunct("=") {
+            return .assign(lhs, try parseAssign())
+        }
+        for op in ["+=", "-=", "*=", "/=", "%="] {
+            if peekPunct() == op {
+                advance()
+                return .opAssign(String(op.dropLast()),
+                                 lhs, try parseAssign())
+            }
+        }
+        return lhs
+    }
+
+    mutating func parseTernary() throws -> TBJSExpr {
+        let cond = try parseOr()
+        if acceptPunct("?") {
+            let yes = try parseAssign()
+            try expectPunct(":")
+            let no = try parseAssign()
+            return .ternary(cond, yes, no)
+        }
+        return cond
+    }
+
+    mutating func parseBinaryLevel(_ ops: [String],
+                                   _ next: (inout TBJSParser) throws
+                                       -> TBJSExpr) throws -> TBJSExpr {
+        var lhs = try next(&self)
+        while let p = peekPunct(), ops.contains(p) {
+            advance()
+            let rhs = try next(&self)
+            lhs = .binary(p, lhs, rhs)
+        }
+        return lhs
+    }
+
+    mutating func parseOr() throws -> TBJSExpr {
+        return try parseBinaryLevel(["||"]) { try $0.parseAnd() }
+    }
+    mutating func parseAnd() throws -> TBJSExpr {
+        return try parseBinaryLevel(["&&"]) { try $0.parseEquality() }
+    }
+    mutating func parseEquality() throws -> TBJSExpr {
+        return try parseBinaryLevel(["==", "!=", "===", "!=="]) {
+            try $0.parseRelational()
+        }
+    }
+    mutating func parseRelational() throws -> TBJSExpr {
+        return try parseBinaryLevel(["<", "<=", ">", ">="]) {
+            try $0.parseAdditive()
+        }
+    }
+    mutating func parseAdditive() throws -> TBJSExpr {
+        return try parseBinaryLevel(["+", "-"]) {
+            try $0.parseMultiplicative()
+        }
+    }
+    mutating func parseMultiplicative() throws -> TBJSExpr {
+        return try parseBinaryLevel(["*", "/", "%"]) {
+            try $0.parseUnary()
+        }
+    }
+
+    mutating func parseUnary() throws -> TBJSExpr {
+        if let p = peekPunct(), p == "!" || p == "-" || p == "+" {
+            advance()
+            return .unary(p, try parseUnary())
+        }
+        if peekIdent() == "typeof" {
+            advance()
+            return .unary("typeof", try parseUnary())
+        }
+        if let p = peekPunct(), p == "++" || p == "--" {
+            advance()
+            return .prefix(p, try parseUnary())
+        }
+        return try parsePostfix()
+    }
+
+    mutating func parsePostfix() throws -> TBJSExpr {
+        var expr = try parseCallMember()
+        if let p = peekPunct(), p == "++" || p == "--" {
+            advance()
+            expr = .postfix(p, expr)
+        }
+        return expr
+    }
+
+    mutating func parseCallMember() throws -> TBJSExpr {
+        var expr = try parsePrimary()
+        while true {
+            if acceptPunct(".") {
+                let name = try expectIdent()
+                expr = .member(expr, name)
+            } else if acceptPunct("[") {
+                let index = try parseExpr()
+                try expectPunct("]")
+                expr = .index(expr, index)
+            } else if peekPunct() == "(" {
+                advance()
+                var args: [TBJSExpr] = []
+                if peekPunct() != ")" {
+                    while true {
+                        args.append(try parseAssign())
+                        if !acceptPunct(",") { break }
+                    }
+                }
+                try expectPunct(")")
+                expr = .call(expr, args)
+            } else {
+                break
+            }
+        }
+        return expr
+    }
+
+    mutating func parsePrimary() throws -> TBJSExpr {
+        switch peek() {
+        case .number(let d):
+            advance()
+            return .literal(.number(d))
+        case .string(let s):
+            advance()
+            return .literal(.string(s))
+        case .ident(let name):
+            switch name {
+            case "true":
+                advance()
+                return .literal(.boolean(true))
+            case "false":
+                advance()
+                return .literal(.boolean(false))
+            case "null":
+                advance()
+                return .literal(.null)
+            case "undefined":
+                advance()
+                return .literal(.undefined)
+            case "function":
+                advance()
+                if peekIdent() != nil { advance() }  // a name, unused
+                let (params, body) = try parseFunctionTail()
+                return .funcExpr(params, body)
+            default:
+                advance()
+                return .ident(name)
+            }
+        case .punct("("):
+            advance()
+            let expr = try parseExpr()
+            try expectPunct(")")
+            return expr
+        case .punct("["):
+            advance()
+            var elements: [TBJSExpr] = []
+            if peekPunct() != "]" {
+                while true {
+                    if peekPunct() == "," {
+                        elements.append(.literal(.undefined))
+                    } else {
+                        elements.append(try parseAssign())
+                    }
+                    if !acceptPunct(",") { break }
+                    if peekPunct() == "]" { break }
+                }
+            }
+            try expectPunct("]")
+            return .arrayLit(elements)
+        case .punct("{"):
+            advance()
+            var pairs: [(String, TBJSExpr)] = []
+            if peekPunct() != "}" {
+                while true {
+                    let key: String
+                    switch peek() {
+                    case .ident(let name):
+                        key = name
+                        advance()
+                    case .string(let s):
+                        key = s
+                        advance()
+                    case .number(let d):
+                        key = tbJSNumberString(d)
+                        advance()
+                    default:
+                        throw TBJSFlow.error("bad object key")
+                    }
+                    try expectPunct(":")
+                    pairs.append((key, try parseAssign()))
+                    if !acceptPunct(",") { break }
+                    if peekPunct() == "}" { break }
+                }
+            }
+            try expectPunct("}")
+            return .objectLit(pairs)
+        default:
+            throw TBJSFlow.error("unexpected token")
+        }
+    }
+}
+
+// MARK: - JavaScript evaluator (0.33)
+
+func tbJSExec(_ stmts: [TBJSStmt], _ env: TBJSEnv,
+              _ ctx: TBJSContext) throws {
+    // Function declarations are hoisted: they
+    // exist before the first statement runs.
+    for stmt in stmts {
+        if case .funcDecl(let name, let params, let body) = stmt {
+            env.vars[name] = .function(TBJSFunc(params: params,
+                                                body: body, env: env))
+        }
+    }
+    for stmt in stmts {
+        try tbJSExecStmt(stmt, env, ctx)
+    }
+}
+
+func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
+                  _ ctx: TBJSContext) throws {
+    switch stmt {
+    case .empty:
+        return
+    case .expr(let expr):
+        _ = try tbJSEval(expr, env, ctx)
+    case .decl(let name, let initial):
+        if let initial = initial {
+            env.vars[name] = try tbJSEval(initial, env, ctx)
+        } else if env.vars[name] == nil {
+            env.vars[name] = .undefined
+        }
+    case .block(let stmts):
+        try tbJSExec(stmts, TBJSEnv(parent: env), ctx)
+    case .funcDecl:
+        return  // Hoisted by tbJSExec.
+    case .ifElse(let cond, let thenBranch, let elseBranch):
+        if tbJSTruthy(try tbJSEval(cond, env, ctx)) {
+            try tbJSExecStmt(thenBranch, env, ctx)
+        } else if let elseBranch = elseBranch {
+            try tbJSExecStmt(elseBranch, env, ctx)
+        }
+    case .whileLoop(let cond, let body):
+        while tbJSTruthy(try tbJSEval(cond, env, ctx)) {
+            do {
+                try tbJSExecStmt(body, env, ctx)
+            } catch let flow as TBJSFlow {
+                switch flow {
+                case .breakLoop: return
+                case .continueLoop: continue
+                default: throw flow
+                }
+            }
+        }
+    case .doWhile(let body, let cond):
+        while true {
+            do {
+                try tbJSExecStmt(body, env, ctx)
+            } catch let flow as TBJSFlow {
+                switch flow {
+                case .breakLoop: return
+                case .continueLoop: break
+                default: throw flow
+                }
+            }
+            if !tbJSTruthy(try tbJSEval(cond, env, ctx)) { break }
+        }
+    case .forLoop(let initial, let cond, let step, let body):
+        if let initial = initial {
+            try tbJSExecStmt(initial, env, ctx)
+        }
+        while true {
+            if let cond = cond,
+               !tbJSTruthy(try tbJSEval(cond, env, ctx)) {
+                break
+            }
+            do {
+                try tbJSExecStmt(body, env, ctx)
+            } catch let flow as TBJSFlow {
+                switch flow {
+                case .breakLoop: return
+                case .continueLoop: break
+                default: throw flow
+                }
+            }
+            if let step = step {
+                _ = try tbJSEval(step, env, ctx)
+            }
+        }
+    case .returnStmt(let value):
+        if let value = value {
+            throw TBJSFlow.returnValue(try tbJSEval(value, env, ctx))
+        }
+        throw TBJSFlow.returnValue(.undefined)
+    case .breakStmt:
+        throw TBJSFlow.breakLoop
+    case .continueStmt:
+        throw TBJSFlow.continueLoop
+    }
+}
+
+func tbJSAssign(_ target: TBJSExpr, _ value: TBJSValue, _ env: TBJSEnv,
+                _ ctx: TBJSContext) throws {
+    switch target {
+    case .ident(let name):
+        env.set(name, value)
+    case .member(let baseExpr, let name):
+        let base = try tbJSEval(baseExpr, env, ctx)
+        let newBase = tbJSSetMember(base, name, value, ctx)
+        switch baseExpr {
+        case .ident, .member, .index:
+            try tbJSAssign(baseExpr, newBase, env, ctx)
+        default:
+            break  // Element writes already landed in place.
+        }
+    case .index(let baseExpr, let indexExpr):
+        let base = try tbJSEval(baseExpr, env, ctx)
+        let index = try tbJSEval(indexExpr, env, ctx)
+        let newBase = tbJSSetIndex(base, index, value, ctx)
+        switch baseExpr {
+        case .ident, .member, .index:
+            try tbJSAssign(baseExpr, newBase, env, ctx)
+        default:
+            break
+        }
+    default:
+        break  // Not an assignable shape; let the page go on.
+    }
+}
+
+func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
+              _ ctx: TBJSContext) throws -> TBJSValue {
+    switch expr {
+    case .literal(let value):
+        return value
+    case .ident(let name):
+        // A name nobody defined reads as undefined
+        // rather than halting the page — a leniency
+        // real pages lean on (feature tests), taken
+        // knowingly in this slice.
+        return env.get(name) ?? .undefined
+    case .arrayLit(let elements):
+        var values: [TBJSValue] = []
+        for element in elements {
+            values.append(try tbJSEval(element, env, ctx))
+        }
+        return .array(values)
+    case .objectLit(let pairs):
+        var obj: [String: TBJSValue] = [:]
+        for (key, valueExpr) in pairs {
+            obj[key] = try tbJSEval(valueExpr, env, ctx)
+        }
+        return .object(obj)
+    case .member(let baseExpr, let name):
+        let base = try tbJSEval(baseExpr, env, ctx)
+        return tbJSGetMember(base, name, ctx)
+    case .index(let baseExpr, let indexExpr):
+        let base = try tbJSEval(baseExpr, env, ctx)
+        let index = try tbJSEval(indexExpr, env, ctx)
+        return tbJSGetIndex(base, index, ctx)
+    case .call(let callee, let argExprs):
+        var args: [TBJSValue] = []
+        for argExpr in argExprs {
+            args.append(try tbJSEval(argExpr, env, ctx))
+        }
+        switch callee {
+        case .member(let baseExpr, let name):
+            let base = try tbJSEval(baseExpr, env, ctx)
+            let fn = tbJSGetMember(base, name, ctx)
+            ctx.mutatedThis = nil
+            let result = try tbJSCall(fn, args, this: base, ctx)
+            if let mutated = ctx.mutatedThis {
+                ctx.mutatedThis = nil
+                switch baseExpr {
+                case .ident, .member, .index:
+                    try tbJSAssign(baseExpr, mutated, env, ctx)
+                default:
+                    break
+                }
+            }
+            return result
+        case .index(let baseExpr, let indexExpr):
+            let base = try tbJSEval(baseExpr, env, ctx)
+            let index = try tbJSEval(indexExpr, env, ctx)
+            let fn = tbJSGetIndex(base, index, ctx)
+            return try tbJSCall(fn, args, this: base, ctx)
+        default:
+            let fn = try tbJSEval(callee, env, ctx)
+            return try tbJSCall(fn, args, this: .undefined, ctx)
+        }
+    case .unary(let op, let inner):
+        switch op {
+        case "!":
+            return .boolean(!tbJSTruthy(try tbJSEval(inner, env, ctx)))
+        case "-":
+            return .number(-tbJSNumber(try tbJSEval(inner, env, ctx)))
+        case "+":
+            return .number(tbJSNumber(try tbJSEval(inner, env, ctx)))
+        case "typeof":
+            return .string(tbJSTypeName(try tbJSEval(inner, env, ctx)))
+        default:
+            throw TBJSFlow.error("unknown operator \(op)")
+        }
+    case .prefix(let op, let target):
+        let old = try tbJSEval(target, env, ctx)
+        let new = tbJSNumber(old) + (op == "++" ? 1 : -1)
+        try tbJSAssign(target, .number(new), env, ctx)
+        return .number(new)
+    case .postfix(let op, let target):
+        let old = try tbJSEval(target, env, ctx)
+        let oldNumber = tbJSNumber(old)
+        try tbJSAssign(target, .number(oldNumber + (op == "++" ? 1 : -1)),
+                       env, ctx)
+        return .number(oldNumber)
+    case .binary(let op, let lhs, let rhs):
+        if op == "&&" {
+            let left = try tbJSEval(lhs, env, ctx)
+            return tbJSTruthy(left) ? try tbJSEval(rhs, env, ctx) : left
+        }
+        if op == "||" {
+            let left = try tbJSEval(lhs, env, ctx)
+            return tbJSTruthy(left) ? left : try tbJSEval(rhs, env, ctx)
+        }
+        let left = try tbJSEval(lhs, env, ctx)
+        let right = try tbJSEval(rhs, env, ctx)
+        switch op {
+        case "+":
+            if case .string = left { return .string(tbJSString(left) + tbJSString(right)) }
+            if case .string = right { return .string(tbJSString(left) + tbJSString(right)) }
+            return .number(tbJSNumber(left) + tbJSNumber(right))
+        case "-":
+            return .number(tbJSNumber(left) - tbJSNumber(right))
+        case "*":
+            return .number(tbJSNumber(left) * tbJSNumber(right))
+        case "/":
+            return .number(tbJSNumber(left) / tbJSNumber(right))
+        case "%":
+            return .number(tbJSNumber(left)
+                .truncatingRemainder(dividingBy: tbJSNumber(right)))
+        case "==": return .boolean(tbJSLooseEqual(left, right))
+        case "!=": return .boolean(!tbJSLooseEqual(left, right))
+        case "===": return .boolean(tbJSStrictEqual(left, right))
+        case "!==": return .boolean(!tbJSStrictEqual(left, right))
+        case "<", "<=", ">", ">=":
+            if case .string(let a) = left, case .string(let b) = right {
+                switch op {
+                case "<": return .boolean(a < b)
+                case "<=": return .boolean(a <= b)
+                case ">": return .boolean(a > b)
+                default: return .boolean(a >= b)
+                }
+            }
+            let a = tbJSNumber(left)
+            let b = tbJSNumber(right)
+            switch op {
+            case "<": return .boolean(a < b)
+            case "<=": return .boolean(a <= b)
+            case ">": return .boolean(a > b)
+            default: return .boolean(a >= b)
+            }
+        default:
+            throw TBJSFlow.error("unknown operator \(op)")
+        }
+    case .assign(let target, let valueExpr):
+        let value = try tbJSEval(valueExpr, env, ctx)
+        try tbJSAssign(target, value, env, ctx)
+        return value
+    case .opAssign(let op, let target, let valueExpr):
+        let current = try tbJSEval(target, env, ctx)
+        let operand = try tbJSEval(valueExpr, env, ctx)
+        let value: TBJSValue
+        switch op {
+        case "+":
+            if case .string = current {
+                value = .string(tbJSString(current) + tbJSString(operand))
+            } else if case .string = operand {
+                value = .string(tbJSString(current) + tbJSString(operand))
+            } else {
+                value = .number(tbJSNumber(current) + tbJSNumber(operand))
+            }
+        case "-":
+            value = .number(tbJSNumber(current) - tbJSNumber(operand))
+        case "*":
+            value = .number(tbJSNumber(current) * tbJSNumber(operand))
+        case "/":
+            value = .number(tbJSNumber(current) / tbJSNumber(operand))
+        case "%":
+            value = .number(tbJSNumber(current)
+                .truncatingRemainder(dividingBy: tbJSNumber(operand)))
+        default:
+            throw TBJSFlow.error("unknown operator \(op)=")
+        }
+        try tbJSAssign(target, value, env, ctx)
+        return value
+    case .ternary(let cond, let yes, let no):
+        if tbJSTruthy(try tbJSEval(cond, env, ctx)) {
+            return try tbJSEval(yes, env, ctx)
+        }
+        return try tbJSEval(no, env, ctx)
+    case .funcExpr(let params, let body):
+        return .function(TBJSFunc(params: params, body: body, env: env))
+    }
+}
+
+func tbJSCall(_ fn: TBJSValue, _ args: [TBJSValue], this: TBJSValue,
+              _ ctx: TBJSContext) throws -> TBJSValue {
+    switch fn {
+    case .function(let fn):
+        let callEnv = TBJSEnv(parent: fn.env)
+        callEnv.vars["this"] = this
+        for (index, param) in fn.params.enumerated() {
+            callEnv.vars[param] = index < args.count
+                ? args[index] : .undefined
+        }
+        do {
+            try tbJSExec(fn.body, callEnv, ctx)
+        } catch let flow as TBJSFlow {
+            switch flow {
+            case .returnValue(let value):
+                return value
+            case .breakLoop, .continueLoop:
+                throw TBJSFlow.error("break or continue outside a loop")
+            case .error:
+                throw flow
+            }
+        }
+        return .undefined
+    case .native(let name):
+        return try tbJSNative(name, args, this: this, ctx)
+    default:
+        throw TBJSFlow.error("tried to call something that is not a function")
+    }
+}
+
+func tbJSNative(_ name: String, _ args: [TBJSValue], this: TBJSValue,
+                _ ctx: TBJSContext) throws -> TBJSValue {
+    func arg(_ index: Int) -> TBJSValue {
+        index < args.count ? args[index] : .undefined
+    }
+    switch name {
+    case "console.log":
+        ctx.logs.append(args.map { tbJSString($0) }
+            .joined(separator: " "))
+        return .undefined
+    case "window.alert":
+        ctx.logs.append("Alert: " + tbJSString(arg(0)))
+        return .undefined
+    case "document.getElementById":
+        let id = tbJSString(arg(0))
+        if let node = ctx.elementsById[id] {
+            return .element(node)
+        }
+        return .null
+    case "global.parseInt":
+        let text = tbJSString(arg(0))
+            .trimmingCharacters(in: .whitespaces)
+        var digits = ""
+        var i = text.startIndex
+        if i < text.endIndex && (text[i] == "-" || text[i] == "+") {
+            digits.append(text[i])
+            i = text.index(after: i)
+        }
+        while i < text.endIndex && text[i] >= "0" && text[i] <= "9" {
+            digits.append(text[i])
+            i = text.index(after: i)
+        }
+        if let d = Double(digits) { return .number(d) }
+        return .number(Double.nan)
+    case "global.parseFloat":
+        let text = tbJSString(arg(0))
+        var prefix = ""
+        for c in text {
+            if c.isNumber || c == "." || c == "-" || c == "+"
+                || c == "e" || c == "E" {
+                prefix.append(c)
+            } else {
+                break
+            }
+        }
+        if let d = Double(prefix) { return .number(d) }
+        return .number(Double.nan)
+    case "global.isNaN":
+        return .boolean(tbJSNumber(arg(0)).isNaN)
+    case "global.String":
+        return .string(tbJSString(arg(0)))
+    case "global.Number":
+        return .number(tbJSNumber(arg(0)))
+    case "string.charAt":
+        guard case .string(let s) = this else { return .string("") }
+        let chars = Array(s)
+        let i = Int(tbJSNumber(arg(0)))
+        if i >= 0 && i < chars.count { return .string(String(chars[i])) }
+        return .string("")
+    case "string.indexOf":
+        guard case .string(let s) = this else { return .number(-1) }
+        let sub = tbJSString(arg(0))
+        if sub.isEmpty { return .number(0) }
+        let ns = s as NSString
+        let found = ns.range(of: sub)
+        if found.location == NSNotFound { return .number(-1) }
+        return .number(Double(ns.substring(to: found.location).count))
+    case "string.toUpperCase":
+        guard case .string(let s) = this else { return .undefined }
+        return .string(s.uppercased())
+    case "string.toLowerCase":
+        guard case .string(let s) = this else { return .undefined }
+        return .string(s.lowercased())
+    case "string.slice":
+        guard case .string(let s) = this else { return .undefined }
+        let chars = Array(s)
+        var start = Int(tbJSNumber(arg(0)))
+        if start < 0 { start = max(0, chars.count + start) }
+        var end = chars.count
+        if args.count > 1 {
+            end = Int(tbJSNumber(arg(1)))
+            if end < 0 { end = max(0, chars.count + end) }
+        }
+        start = min(start, chars.count)
+        end = min(max(end, start), chars.count)
+        return .string(String(chars[start..<end]))
+    case "string.split":
+        guard case .string(let s) = this else { return .undefined }
+        if args.isEmpty { return .array([.string(s)]) }
+        let sep = tbJSString(arg(0))
+        if sep.isEmpty {
+            return .array(s.map { .string(String($0)) })
+        }
+        return .array(s.components(separatedBy: sep)
+            .map { .string($0) })
+    case "string.trim":
+        guard case .string(let s) = this else { return .undefined }
+        return .string(s.trimmingCharacters(in: .whitespacesAndNewlines))
+    case "string.includes":
+        guard case .string(let s) = this else { return .boolean(false) }
+        return .boolean(s.contains(tbJSString(arg(0))))
+    case "array.push":
+        guard case .array(var items) = this else { return .undefined }
+        items.append(contentsOf: args)
+        ctx.mutatedThis = .array(items)
+        return .number(Double(items.count))
+    case "array.pop":
+        guard case .array(var items) = this else { return .undefined }
+        if items.isEmpty { return .undefined }
+        let last = items.removeLast()
+        ctx.mutatedThis = .array(items)
+        return last
+    case "array.join":
+        guard case .array(let items) = this else { return .undefined }
+        let sep = args.isEmpty ? "," : tbJSString(arg(0))
+        return .string(items.map { item in
+            switch item {
+            case .undefined, .null: return ""
+            default: return tbJSString(item)
+            }
+        }.joined(separator: sep))
+    case "array.indexOf":
+        guard case .array(let items) = this else { return .number(-1) }
+        for (index, item) in items.enumerated() {
+            if tbJSLooseEqual(item, arg(0)) {
+                return .number(Double(index))
+            }
+        }
+        return .number(-1)
+    case "array.slice":
+        guard case .array(let items) = this else { return .undefined }
+        var start = args.isEmpty ? 0 : Int(tbJSNumber(arg(0)))
+        if start < 0 { start = max(0, items.count + start) }
+        var end = items.count
+        if args.count > 1 {
+            end = Int(tbJSNumber(arg(1)))
+            if end < 0 { end = max(0, items.count + end) }
+        }
+        start = min(start, items.count)
+        end = min(max(end, start), items.count)
+        return .array(Array(items[start..<end]))
+    case "array.concat":
+        guard case .array(var items) = this else { return .undefined }
+        for extra in args {
+            if case .array(let more) = extra {
+                items.append(contentsOf: more)
+            } else {
+                items.append(extra)
+            }
+        }
+        return .array(items)
+    default:
+        throw TBJSFlow.error("unknown native \(name)")
+    }
+}
+
+// Collect the page's scripts in document order,
+// and its elements by id (first bearer wins, as
+// in a browser).
+func tbCollectScripts(_ node: TBNode, into list: inout [TBNode]) {
+    if node.tag == "script" {
+        list.append(node)
+        return
+    }
+    for child in node.children {
+        tbCollectScripts(child, into: &list)
+    }
+}
+
+func tbCollectIds(_ node: TBNode, into map: inout [String: TBNode]) {
+    if let id = node.attrs["id"], !id.isEmpty, map[id] == nil {
+        map[id] = node
+    }
+    for child in node.children {
+        tbCollectIds(child, into: &map)
+    }
+}
+
+struct TBJSRun {
+    var titleOverride: String? = nil
+    var consoleLines: [String] = []
+}
+
+// Run the landed page's scripts, in document
+// order, on one shared page scope — inline code,
+// and external files fetched the way style
+// sheets are (the Shield is asked first, then
+// the fetcher, cache and all). Writes land on
+// the parsed tree itself, so what the scripts
+// say is what the walk then paints.
+func tbRunScripts(root: TBNode, base: String,
+                  initialTitle: String) async -> TBJSRun {
+    var scripts: [TBNode] = []
+    tbCollectScripts(root, into: &scripts)
+    if scripts.isEmpty {
+        return TBJSRun()
+    }
+    let ctx = TBJSContext()
+    ctx.title = initialTitle
+    tbCollectIds(root, into: &ctx.elementsById)
+    for script in scripts {
+        var source = script.children
+            .filter { $0.tag == "#text" }.map { $0.text }
+            .joined()
+        if let src = script.attrs["src"],
+           !src.trimmingCharacters(in: .whitespaces).isEmpty {
+            let resolved: String
+            if let url = URL(string: src, relativeTo: URL(string: base)) {
+                resolved = url.absoluteString
+            } else {
+                resolved = src
+            }
+            if tbShieldCategory(urlString: resolved) != nil {
+                let host = URL(string: resolved)?.host ?? resolved
+                ctx.logs.append("Shield: script refused from " + host)
+                continue
+            }
+            if let fetched = await tbFetchText(urlString: resolved,
+                                               pageURLString: base) {
+                source = fetched
+            } else {
+                ctx.logs.append("Script did not load: " + src)
+                continue
+            }
+        }
+        if source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            continue
+        }
+        do {
+            let tokens = try tbJSLex(source)
+            var parser = TBJSParser(tokens: tokens)
+            let program = try parser.parseProgram()
+            try tbJSExec(program, ctx.globals, ctx)
+        } catch let flow as TBJSFlow {
+            switch flow {
+            case .error(let message):
+                ctx.logs.append("Script error: " + message)
+            case .returnValue:
+                break  // A top-level return just ends the script.
+            case .breakLoop, .continueLoop:
+                ctx.logs.append("Script error: break or continue outside a loop")
+            }
+        } catch {
+            ctx.logs.append("Script error: \(error)")
+        }
+    }
+    return TBJSRun(titleOverride: ctx.titleSet ? ctx.title : nil,
+                   consoleLines: ctx.logs)
 }
 
 // MARK: - Parse
@@ -3066,7 +4623,7 @@ final class TBNode {
 let TBVoidTags: Set<String> = ["area", "base", "br", "col", "embed", "hr",
                                "img", "input", "link", "meta", "param",
                                "source", "track", "wbr"]
-let TBSkipTags: Set<String> = ["script", "noscript", "template",
+let TBSkipTags: Set<String> = ["noscript", "template",
                                "svg", "iframe"]
 
 func tbIsSpace(_ c: Character) -> Bool {
@@ -3245,6 +4802,29 @@ func tbParse(html: String) -> TBNode {
                 // renderer decodes the entities once
                 // as it reads the seed.
                 let closeStart = findCloseTag("textarea", from: i)
+                let rawEnd = closeStart >= 0 ? closeStart : n
+                if rawEnd > i {
+                    let textNode = TBNode(tag: "#text",
+                                          text: String(chars[i..<rawEnd]))
+                    textNode.parent = node
+                    node.children.append(textNode)
+                }
+                i = closeStart >= 0 ? afterTag(closeStart) : n
+                continue
+            }
+            if lname == "script" && !selfClosing {
+                // Raw-text element (0.33), read the
+                // way <style> and <textarea> are: the
+                // code up to </script is kept
+                // undecoded as a single text child,
+                // and the node above carries the
+                // attributes (src among them), so
+                // the JavaScript first slice can
+                // find every script in document
+                // order and run it after the parse.
+                // The render walk skips script
+                // nodes, as it always has.
+                let closeStart = findCloseTag("script", from: i)
                 let rawEnd = closeStart >= 0 ? closeStart : n
                 if rawEnd > i {
                     let textNode = TBNode(tag: "#text",
@@ -11793,6 +13373,10 @@ struct TBFirstPaint {
     let landedURL: String
     let layoutEvents: [TBLayoutEvent]
     let arrivalsPending: Bool
+    // JavaScript (0.33): what the page's scripts
+    // said to the console, and their errors — the
+    // window shows them on the status line.
+    let consoleLines: [String]
 }
 
 // Render a page in two stages: onFirstPaint is called
@@ -11817,7 +13401,7 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                                       mediaWidth: CGFloat?,
                                       onFirstPaint: (TBFirstPaint) -> Void)
     async -> TBFirstPaint {
-    let title = tbExtractTitle(html: html)
+    var title = tbExtractTitle(html: html)
     let tree = tbParse(html: html)
     if depth < 3, let target = tbMetaRefreshTarget(root: tree, base: base),
        target != base,
@@ -11828,6 +13412,14 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                                               mediaWidth: mediaWidth,
                                               onFirstPaint: onFirstPaint)
     }
+    // JavaScript, first slice (0.33): the landed
+    // page's scripts run now — after any refresh
+    // has been followed, before the walk — so the
+    // words they write are the words that paint,
+    // and a title they set is the title shown.
+    let js = await tbRunScripts(root: tree, base: base,
+                                initialTitle: title)
+    if let override = js.titleOverride { title = override }
     let renderer = TBRenderer(base: base)
     renderer.visitedURLs = visited
     renderer.mediaWidth = mediaWidth
@@ -11848,7 +13440,7 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                 attributes: [.font: NSFont.boldSystemFont(ofSize: 17),
                              .foregroundColor: NSColor.labelColor]))
             notice.append(NSAttributedString(
-                string: "Chirpy doesn't speak JavaScript yet. The destination written in this page's code is:\n\n",
+                string: "Chirpy's JavaScript is a first slice — it runs a page's own code, but it has no event handlers, timers, or network calls yet, so a page that moves only through those can still strand it. The destination written in this page's code is:\n\n",
                 attributes: [.font: NSFont.systemFont(ofSize: 14),
                              .foregroundColor: NSColor.labelColor]))
             for target in targets {
@@ -11863,7 +13455,7 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                 title: title.isEmpty ? "This page needs JavaScript" : title,
                 body: notice, pageBackground: nil, columnWidth: nil,
                 forms: [], fields: [], landedURL: base, layoutEvents: [],
-                arrivalsPending: false)
+                arrivalsPending: false, consoleLines: js.consoleLines)
             await MainActor.run { onFirstPaint(paint) }
             return paint
         }
@@ -11877,7 +13469,8 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
         fields: renderer.fields,
         landedURL: base,
         layoutEvents: renderer.layoutEvents,
-        arrivalsPending: renderer.hasPendingArrivals)
+        arrivalsPending: renderer.hasPendingArrivals,
+        consoleLines: js.consoleLines)
     // The page goes to the window now, on the main
     // actor; the arrivals fetch on behind it.
     await MainActor.run { onFirstPaint(paint) }
