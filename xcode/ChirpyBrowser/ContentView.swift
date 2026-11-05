@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.31.0 (Swift)
+//  Chirpy Browser — prototype 0.32.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.31.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.32.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -121,6 +121,21 @@ final class BrowserModel: ObservableObject {
     func reload() { if !currentURL.isEmpty { load(currentURL, push: false) } }
     func goHome() { load("chirpy://home") }
 
+    // The cache (0.32): the reader can empty the
+    // disk cache whenever they wish. The word goes
+    // to the engine, and the status line says what
+    // was let go.
+    func clearCache() {
+        let bytes = tbCacheSizeBytes()
+        tbCacheClear()
+        if bytes > 0 {
+            let mb = Double(bytes) / 1_048_576
+            statusLine = "Cache cleared — \(String(format: "%.1f", mb)) MB of fetched pages and pictures let go"
+        } else {
+            statusLine = "Cache cleared — it was already empty"
+        }
+    }
+
     func goBack() {
         guard let target = backStack.popLast() else { return }
         forwardStack.append(currentURL)
@@ -180,7 +195,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.31.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.32.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -5231,6 +5246,10 @@ struct ContentView: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { model.go() }
                 Button("Go") { model.go() }
+                // The cache (0.32): the reader's broom —
+                // one press empties the disk cache.
+                Button("Clear cache") { model.clearCache() }
+                    .help("Empty the disk cache of fetched pages and pictures")
             }
             // Load progress (0.18): a thin bar directly
             // under the address bar while a page is coming

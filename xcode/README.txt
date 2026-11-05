@@ -7,6 +7,82 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.32.0 — THE CACHE
+------------------------------------------------------
+The parked piece, built at last now that the CSS
+program is done: Chirpy keeps what it fetches, on
+your own disk, and serves it again honestly.
+
+* Where it lives. Under the app's caches folder
+  (ChirpyBrowser/HTTPCache), as plain files: one
+  body file and one small card per kept reply, the
+  card carrying the address, the freshness word the
+  server sent, and when the reply came in and was
+  last used. It is the only thing Chirpy keeps
+  between launches, and nothing about it is ever
+  reported anywhere — there is no telemetry to
+  report it with.
+
+* What is kept. Successful GET replies only —
+  pages, style sheets, scripts and pictures, HTML
+  and CSS and images alike — and only those whose
+  own headers allow keeping. no-store is never
+  written down at all. A reply bigger than 25 MB
+  is not kept, and the whole cache is capped at
+  200 MB: past the cap, the least recently used
+  entries are let go until it fits.
+
+* Freshness, the server's own word. Cache-
+  Control's max-age first; then Expires; then,
+  when a page offers nothing else, a tenth of the
+  time it had already lived unchanged when fetched
+  (the browsers' old heuristic, bounded at a week
+  so nothing rides it forever). no-cache is kept
+  but always asked about again. A stale entry with
+  an ETag or a Last-Modified is asked about
+  conditionally — If-None-Match, If-Modified-
+  Since — and a 304 answer renews the entry and
+  serves the kept body. Nothing is stale-forever:
+  an entry with no freshness word and no validator
+  is simply fetched again.
+
+* Every road leads through it. The window's page
+  loads (the progress fetcher included), the plain
+  page path, sheets, and pictures all come through
+  one shared cached GET. A form's POST is never
+  cached, and a dropped local file keeps its plain
+  path off disk, untouched.
+
+* The Shield still stands first. It is asked
+  before every cache lookup: a listed host is
+  never served from the cache — and blocked
+  content was never fetched, so it is never in
+  the cache to serve. The privacy dress is
+  unchanged: cross-site subresources still carry
+  no cookies and an origin-only Referer, and every
+  request still sends Sec-GPC and DNT.
+
+* The broom. The window's bar carries a Clear
+  cache button now, beside Go: one press empties
+  the whole cache, and the status line says how
+  much was let go (or that it was already empty).
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.32.0 (Swift)" and
+name "the cache" among the features. Then:
+(1) open a picture-bearing page of your own site,
+let it settle, press Reload — the page should
+come back visibly faster, served off your disk;
+(2) press Clear cache and read the status line's
+word, then Reload again — the page fetches fresh,
+and the button's next press should report the
+cache was already empty only after you clear it
+twice in a row; (3) shield-test.html end to end —
+the blocked doors must stay blocked exactly as
+before, cache or no cache; (4) regression passes:
+controls-test, flex-test and grid-test end to
+end, then the home page.
+
 WHAT'S NEW IN 0.31.0 — LIVE SELECT & TEXTAREA CONTROLS
 ------------------------------------------------------
 The last of the engine's named gaps: a <select>

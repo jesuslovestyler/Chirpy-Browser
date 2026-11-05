@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.31.0 (Swift)
+//  Chirpy Browser — engine 0.32.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -463,8 +463,35 @@
 //      a painted box they keep the standing
 //      bracket-label stand-in, the select wearing
 //      its resting choice's label there.
-//  Not yet: JavaScript (the mountain), and the
-//  outs named in the README.
+//    * The cache (0.32): what Chirpy fetched is
+//      kept on the reader's own disk, under the
+//      app's caches folder, and served again while
+//      the server's own freshness word allows —
+//      Cache-Control's max-age first, then Expires,
+//      then a tenth of the time since the page last
+//      changed, bounded at a week. A stale entry
+//      carrying an ETag or a Last-Modified is asked
+//      about conditionally; a 304 answer renews the
+//      entry and the kept body serves. no-store is
+//      never written down, no-cache is kept but
+//      always asked about again, and only 200 GET
+//      replies are kept at all — under a 200 MB cap
+//      with least-recently-used eviction, and no
+//      single reply over 25 MB. Pages come through
+//      it (the progress fetcher included), and so do
+//      sheets, scripts and pictures, through one
+//      shared cached GET. The Shield is still asked
+//      before every lookup: a listed host is never
+//      served from the cache, and blocked content is
+//      never stored, having never been fetched. The
+//      window's bar carries a Clear cache button.
+//      The cache is the only thing Chirpy keeps
+//      between launches, and nothing about it is
+//      reported anywhere.
+//  Not yet: JavaScript — called back onto the
+//  plan by Tyler's word (Nov 5, 2026); its first
+//  slice is the next stage (0.33). And the outs
+//  named in the README.
 //
 
 import Foundation
@@ -986,6 +1013,435 @@ func tbShieldPrivacy(_ request: inout URLRequest, pageURLString: String?) {
     }
 }
 
+// MARK: - The Cache (0.32)
+
+// The cache: what Chirpy fetched, kept on the
+// reader's own disk under the app's caches folder,
+// so a page and its pictures need not cross the
+// network twice. Only successful GET replies are
+// kept — pages, sheets, scripts and pictures —
+// each filed under the address it was fetched
+// from. The Shield is asked first at every call
+// site, before any lookup: a listed host is
+// refused before the cache is ever consulted, and
+// because a blocked reply is never fetched at all,
+// nothing blocked is ever stored.
+//
+// Freshness is the server's own word, honored the
+// way RFC 9111 sketches it: Cache-Control's
+// max-age first, then Expires, then — when a page
+// offers nothing else — a tenth of the time it had
+// already lived unchanged when fetched, bounded
+// at a week so nothing rides the heuristic
+// forever. A stale entry with an ETag or a
+// Last-Modified goes back as a conditional
+// request: a 304 answer renews the entry and the
+// kept body serves. Nothing here is stale-forever:
+// an entry with no freshness word and no validator
+// is simply fetched again.
+//
+// The whole cache is capped at 200 MB; when a
+// store takes it past the cap, the least recently
+// used entries are let go until it fits. A single
+// reply larger than 25 MB is never stored. The
+// reader can clear the whole cache from the
+// window's bar. All of it is plain files on the
+// reader's own Mac — the only thing Chirpy keeps
+// between launches — and none of it is ever
+// reported anywhere.
+
+let TBCacheCapBytes = 200 * 1024 * 1024
+let TBCacheEntryCapBytes = 25 * 1024 * 1024
+
+// One kept reply's card: where its body lies, when
+// it came in and was last used, and the freshness
+// word its server sent with it.
+struct TBCacheMeta: Codable {
+    var url: String
+    var bodyFile: String
+    var storedAt: Double
+    var lastUsedAt: Double
+    var etag: String? = nil
+    var lastModified: String? = nil
+    var cacheControl: String? = nil
+    var expires: String? = nil
+    var dateHeader: String? = nil
+    var size: Int = 0
+}
+
+enum TBCacheLookup {
+    case miss
+    case fresh(TBCacheMeta, Data)
+    case stale(TBCacheMeta)
+}
+
+// Every cache file passes through this one queue,
+// so the batch fetcher's parallel asks can never
+// tread on each other's cards.
+private let tbCacheQueue = DispatchQueue(label: "ChirpyBrowser.cache")
+
+func tbCacheDirectory() -> URL? {
+    guard let base = FileManager.default.urls(
+        for: .cachesDirectory, in: .userDomainMask).first
+    else { return nil }
+    let dir = base.appendingPathComponent("ChirpyBrowser/HTTPCache",
+                                          isDirectory: true)
+    let fm = FileManager.default
+    if !fm.fileExists(atPath: dir.path) {
+        try? fm.createDirectory(at: dir,
+                                withIntermediateDirectories: true)
+    }
+    return dir
+}
+
+// The card's name for an address: an FNV-1a hash of
+// its words. A collision is answered by the card
+// itself, which carries the address it belongs to
+// and is only believed when the two agree.
+func tbCacheKey(for urlString: String) -> String {
+    var hash: UInt64 = 0xcbf29ce484222325
+    for byte in urlString.utf8 {
+        hash ^= UInt64(byte)
+        hash = hash &* 0x100000001b3
+    }
+    let hex = String(hash, radix: 16)
+    return String(repeating: "0", count: max(0, 16 - hex.count)) + hex
+}
+
+func tbParseHTTPDate(_ raw: String?) -> Date? {
+    guard let raw = raw else { return nil }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "GMT")
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+    if let parsed = formatter.date(from: raw) { return parsed }
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+    return formatter.date(from: raw)
+}
+
+func tbHeaderValue(_ response: HTTPURLResponse, _ name: String) -> String? {
+    for (key, value) in response.allHeaderFields {
+        if let key = key as? String,
+           key.caseInsensitiveCompare(name) == .orderedSame {
+            return value as? String
+        }
+    }
+    return nil
+}
+
+func tbCacheControlTokens(_ header: String?) -> [String] {
+    guard let header = header else { return [] }
+    return header.lowercased().split(separator: ",")
+        .map { String($0).trimmingCharacters(in: .whitespaces) }
+}
+
+func tbCacheMaxAge(_ header: String?) -> Int? {
+    for token in tbCacheControlTokens(header) {
+        if token.hasPrefix("max-age=") {
+            let raw = String(token.dropFirst("max-age=".count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            return Int(raw)
+        }
+    }
+    return nil
+}
+
+// Is the kept entry fresh at `now`, by its server's
+// own declared word?
+func tbCacheIsFresh(_ meta: TBCacheMeta, now: Date) -> Bool {
+    let tokens = tbCacheControlTokens(meta.cacheControl)
+    if tokens.contains("no-cache") || tokens.contains("no-store") {
+        return false
+    }
+    let stored = Date(timeIntervalSince1970: meta.storedAt)
+    let dateHeader = tbParseHTTPDate(meta.dateHeader)
+    // The entry's age when it arrived, by the
+    // server's own clock where it declared one.
+    var apparentAge: TimeInterval = 0
+    if let dateHeader = dateHeader {
+        apparentAge = max(0, stored.timeIntervalSince(dateHeader))
+    }
+    let resident = now.timeIntervalSince(stored)
+    let currentAge = apparentAge + resident
+    if let maxAge = tbCacheMaxAge(meta.cacheControl) {
+        return currentAge < TimeInterval(maxAge)
+    }
+    if let expires = tbParseHTTPDate(meta.expires) {
+        if let dateHeader = dateHeader {
+            return currentAge < expires.timeIntervalSince(dateHeader)
+        }
+        return now < expires
+    }
+    if let modified = tbParseHTTPDate(meta.lastModified) {
+        // The heuristic: fresh for a tenth of the
+        // time the page had already lived unchanged
+        // when it was fetched, bounded at a week.
+        let lifetime = min(stored.timeIntervalSince(modified) / 10,
+                           7 * 24 * 3600)
+        return lifetime > 0 && resident < lifetime
+    }
+    return false
+}
+
+// Write one card. Called only inside the cache
+// queue, like everything that touches the files.
+private func tbCacheWriteMeta(_ meta: TBCacheMeta, in dir: URL, key: String) {
+    if let raw = try? JSONEncoder().encode(meta) {
+        try? raw.write(to: dir.appendingPathComponent(key + ".meta"),
+                       options: .atomic)
+    }
+}
+
+func tbCacheLookup(urlString: String) -> TBCacheLookup {
+    return tbCacheQueue.sync {
+        guard let dir = tbCacheDirectory() else { return .miss }
+        let key = tbCacheKey(for: urlString)
+        let metaURL = dir.appendingPathComponent(key + ".meta")
+        guard let raw = try? Data(contentsOf: metaURL),
+              let meta = try? JSONDecoder().decode(TBCacheMeta.self,
+                                                   from: raw),
+              meta.url == urlString else { return .miss }
+        if tbCacheIsFresh(meta, now: Date()) {
+            let bodyURL = dir.appendingPathComponent(meta.bodyFile)
+            guard let body = try? Data(contentsOf: bodyURL) else {
+                return .miss
+            }
+            var touched = meta
+            touched.lastUsedAt = Date().timeIntervalSince1970
+            tbCacheWriteMeta(touched, in: dir, key: key)
+            return .fresh(touched, body)
+        }
+        return .stale(meta)
+    }
+}
+
+func tbCacheBody(of meta: TBCacheMeta) -> Data? {
+    return tbCacheQueue.sync {
+        guard let dir = tbCacheDirectory() else { return nil }
+        return try? Data(contentsOf: dir.appendingPathComponent(meta.bodyFile))
+    }
+}
+
+// Keep a fetched reply, if its own headers allow
+// keeping. The reply is filed under the address it
+// was asked from; where the server sent the reader
+// elsewhere, a second card is filed under the
+// address landed on, pointing at the same body, so
+// either address finds it.
+func tbCacheStore(requestURL: String, response: HTTPURLResponse,
+                  data: Data) {
+    guard let landed = response.url,
+          let scheme = landed.scheme?.lowercased(),
+          scheme == "http" || scheme == "https" else { return }
+    guard response.statusCode == 200 else { return }
+    guard data.count <= TBCacheEntryCapBytes else { return }
+    let cacheControl = tbHeaderValue(response, "Cache-Control")
+    if tbCacheControlTokens(cacheControl).contains("no-store") { return }
+    let etag = tbHeaderValue(response, "ETag")
+    let lastModified = tbHeaderValue(response, "Last-Modified")
+    let expires = tbHeaderValue(response, "Expires")
+    let dateHeader = tbHeaderValue(response, "Date")
+    tbCacheQueue.sync {
+        guard let dir = tbCacheDirectory() else { return }
+        let now = Date().timeIntervalSince1970
+        let key = tbCacheKey(for: requestURL)
+        let bodyName = key + ".body"
+        do {
+            try data.write(to: dir.appendingPathComponent(bodyName),
+                           options: .atomic)
+        } catch { return }
+        var meta = TBCacheMeta(url: requestURL, bodyFile: bodyName,
+                               storedAt: now, lastUsedAt: now)
+        meta.etag = etag
+        meta.lastModified = lastModified
+        meta.cacheControl = cacheControl
+        meta.expires = expires
+        meta.dateHeader = dateHeader
+        meta.size = data.count
+        tbCacheWriteMeta(meta, in: dir, key: key)
+        let final = landed.absoluteString
+        if final != requestURL {
+            var alias = meta
+            alias.url = final
+            tbCacheWriteMeta(alias, in: dir,
+                             key: tbCacheKey(for: final))
+        }
+        tbCacheEvict(in: dir)
+    }
+}
+
+// A 304 answer: the kept body stands; the entry
+// takes the answer's freshness word as its own and
+// starts its clock again.
+func tbCacheRevalidate(urlString: String, response: HTTPURLResponse) {
+    let etag = tbHeaderValue(response, "ETag")
+    let lastModified = tbHeaderValue(response, "Last-Modified")
+    let cacheControl = tbHeaderValue(response, "Cache-Control")
+    let expires = tbHeaderValue(response, "Expires")
+    let dateHeader = tbHeaderValue(response, "Date")
+    tbCacheQueue.sync {
+        guard let dir = tbCacheDirectory() else { return }
+        let key = tbCacheKey(for: urlString)
+        let metaURL = dir.appendingPathComponent(key + ".meta")
+        guard let raw = try? Data(contentsOf: metaURL),
+              var meta = try? JSONDecoder().decode(TBCacheMeta.self,
+                                                   from: raw),
+              meta.url == urlString else { return }
+        let now = Date().timeIntervalSince1970
+        meta.storedAt = now
+        meta.lastUsedAt = now
+        if let etag = etag { meta.etag = etag }
+        if let lastModified = lastModified {
+            meta.lastModified = lastModified
+        }
+        if let cacheControl = cacheControl {
+            meta.cacheControl = cacheControl
+        }
+        if let expires = expires { meta.expires = expires }
+        if let dateHeader = dateHeader { meta.dateHeader = dateHeader }
+        tbCacheWriteMeta(meta, in: dir, key: key)
+    }
+}
+
+// Let the least recently used entries go until the
+// cache fits its cap. A body shared by two cards is
+// counted once and removed only when its last card
+// goes. Called inside the cache queue.
+private func tbCacheEvict(in dir: URL) {
+    let fm = FileManager.default
+    guard let names = try? fm.contentsOfDirectory(atPath: dir.path)
+    else { return }
+    var metas: [(key: String, meta: TBCacheMeta)] = []
+    var bodies: [String: Int] = [:]
+    for name in names where name.hasSuffix(".meta") {
+        let key = String(name.dropLast(".meta".count))
+        guard let raw = try? Data(contentsOf: dir.appendingPathComponent(name)),
+              let meta = try? JSONDecoder().decode(TBCacheMeta.self,
+                                                   from: raw)
+        else { continue }
+        metas.append((key, meta))
+        if bodies[meta.bodyFile] == nil { bodies[meta.bodyFile] = meta.size }
+    }
+    var total = bodies.values.reduce(0, +)
+    if total <= TBCacheCapBytes { return }
+    let oldestFirst = metas.sorted {
+        $0.meta.lastUsedAt < $1.meta.lastUsedAt
+    }
+    var remaining = metas
+    for victim in oldestFirst {
+        if total <= TBCacheCapBytes { break }
+        try? fm.removeItem(at: dir.appendingPathComponent(victim.key + ".meta"))
+        remaining.removeAll { $0.key == victim.key }
+        let bodyStillUsed = remaining.contains {
+            $0.meta.bodyFile == victim.meta.bodyFile
+        }
+        if !bodyStillUsed {
+            try? fm.removeItem(
+                at: dir.appendingPathComponent(victim.meta.bodyFile))
+            total -= bodies[victim.meta.bodyFile] ?? 0
+        }
+    }
+}
+
+// The reader's broom, on the window's bar: every
+// kept page and picture goes, at once.
+func tbCacheClear() {
+    tbCacheQueue.sync {
+        guard let dir = tbCacheDirectory() else { return }
+        let fm = FileManager.default
+        if let names = try? fm.contentsOfDirectory(atPath: dir.path) {
+            for name in names {
+                try? fm.removeItem(at: dir.appendingPathComponent(name))
+            }
+        }
+    }
+}
+
+func tbCacheSizeBytes() -> Int {
+    return tbCacheQueue.sync {
+        guard let dir = tbCacheDirectory(),
+              let names = try? FileManager.default
+                .contentsOfDirectory(atPath: dir.path)
+        else { return 0 }
+        var total = 0
+        var seen: Set<String> = []
+        for name in names where name.hasSuffix(".meta") {
+            guard let raw = try? Data(
+                    contentsOf: dir.appendingPathComponent(name)),
+                  let meta = try? JSONDecoder().decode(TBCacheMeta.self,
+                                                       from: raw)
+            else { continue }
+            if seen.insert(meta.bodyFile).inserted { total += meta.size }
+        }
+        return total
+    }
+}
+
+struct TBGETResult {
+    let data: Data
+    let statusCode: Int
+    let finalURL: String
+}
+
+// One GET through the cache, shared by the helper
+// fetchers below — the plain page path, sheets,
+// scripts and pictures. The Shield has already been
+// asked by the caller; a listed host never gets
+// this far. Returns nil only when the fetch itself
+// fails: an HTTP error status is a result like any
+// other, for the caller to judge as it always has.
+func tbGETWithCache(urlString: String, accept: String,
+                    pageURLString: String?,
+                    timeout: TimeInterval = 60) async -> TBGETResult? {
+    guard let url = URL(string: urlString),
+          let scheme = url.scheme?.lowercased(),
+          scheme == "http" || scheme == "https" else { return nil }
+    var stale: TBCacheMeta? = nil
+    switch tbCacheLookup(urlString: urlString) {
+    case .fresh(_, let body):
+        return TBGETResult(data: body, statusCode: 200,
+                           finalURL: urlString)
+    case .stale(let meta):
+        stale = meta
+    case .miss:
+        break
+    }
+    var request = URLRequest(url: url)
+    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
+                     forHTTPHeaderField: "User-Agent")
+    request.setValue(accept, forHTTPHeaderField: "Accept")
+    request.setValue("1", forHTTPHeaderField: "Sec-GPC")
+    request.setValue("1", forHTTPHeaderField: "DNT")
+    tbShieldPrivacy(&request, pageURLString: pageURLString)
+    if let stale = stale {
+        if let etag = stale.etag {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        } else if let modified = stale.lastModified {
+            request.setValue(modified,
+                             forHTTPHeaderField: "If-Modified-Since")
+        }
+    }
+    request.timeoutInterval = timeout
+    guard let (data, response) = try? await URLSession.shared
+        .data(for: request) else { return nil }
+    guard let http = response as? HTTPURLResponse else {
+        return TBGETResult(data: data, statusCode: 200,
+                           finalURL: response.url?.absoluteString
+                            ?? urlString)
+    }
+    if http.statusCode == 304, let stale = stale,
+       let body = tbCacheBody(of: stale) {
+        tbCacheRevalidate(urlString: urlString, response: http)
+        return TBGETResult(data: body, statusCode: 200,
+                           finalURL: urlString)
+    }
+    if http.statusCode == 200 {
+        tbCacheStore(requestURL: urlString, response: http, data: data)
+    }
+    return TBGETResult(data: data, statusCode: http.statusCode,
+                       finalURL: response.url?.absoluteString ?? urlString)
+}
+
 // MARK: - Fetch
 
 func tbFetch(urlString: String) async throws -> (finalURL: String, html: String) {
@@ -1003,8 +1459,27 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (urlString, tbBlockedPageHTML(urlString: urlString,
                                              category: category))
     }
+    // The cache (0.32): an http(s) page comes through
+    // the shared cached GET, which serves what it
+    // honestly may and keeps what it fetches. Other
+    // addresses (a dropped file, above all) keep the
+    // plain path below, exactly as before.
+    if let scheme = url.scheme?.lowercased(),
+       scheme == "http" || scheme == "https" {
+        guard let got = await tbGETWithCache(
+            urlString: urlString,
+            accept: "text/html,application/xhtml+xml",
+            pageURLString: nil) else {
+            throw NSError(domain: "ChirpyBrowser", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey:
+                                        "That page could not be fetched."])
+        }
+        let html = String(data: got.data, encoding: .utf8)
+            ?? String(decoding: got.data, as: UTF8.self)
+        return (got.finalURL, html)
+    }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1030,7 +1505,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1070,6 +1545,16 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
     // was refused; the completion then answers with
     // the block page instead of the redirect's reply.
     private var redirectBlock: (url: String, html: String)? = nil
+    // The cache (0.32): the stale entry this load is
+    // revalidating, if any; the address it was asked
+    // for; whether this load is a form's POST (never
+    // cached); and the last response's status, which
+    // the completion reads to answer a 304 from the
+    // cache or to keep a 200.
+    private var cacheStale: TBCacheMeta? = nil
+    private var cacheRequestURL = ""
+    private var cacheIsPost = false
+    private var cacheLastStatus = 0
 
     // Stop an in-flight fetch (a newer load supersedes it).
     func cancel() {
@@ -1093,6 +1578,30 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                     html: tbBlockedPageHTML(urlString: urlString,
                                             category: category))
         }
+        // The cache (0.32): asked only now that the
+        // Shield has passed — a listed host is never
+        // served from the cache. A fresh entry answers
+        // the load whole, off the reader's own disk; a
+        // stale one lends its validators to the
+        // request below, and the completion decides.
+        // A form's POST is never cached.
+        cacheStale = nil
+        cacheRequestURL = urlString
+        cacheIsPost = postBody != nil
+        cacheLastStatus = 0
+        if postBody == nil {
+            switch tbCacheLookup(urlString: urlString) {
+            case .fresh(_, let body):
+                onProgress(1)
+                let html = String(data: body, encoding: .utf8)
+                    ?? String(decoding: body, as: UTF8.self)
+                return (finalURL: urlString, html: html)
+            case .stale(let meta):
+                cacheStale = meta
+            case .miss:
+                break
+            }
+        }
         var request = URLRequest(url: url)
         if let postBody = postBody {
             request.httpMethod = "POST"
@@ -1100,11 +1609,20 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
         request.setValue("1", forHTTPHeaderField: "DNT")
+        if let stale = cacheStale {
+            if let etag = stale.etag {
+                request.setValue(etag,
+                                 forHTTPHeaderField: "If-None-Match")
+            } else if let modified = stale.lastModified {
+                request.setValue(modified,
+                                 forHTTPHeaderField: "If-Modified-Since")
+            }
+        }
         redirectBlock = nil
         landedURL = urlString
         progressHandler = onProgress
@@ -1126,6 +1644,13 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         received = Data()
         expected = response.expectedContentLength
+        // The cache (0.32): remember the status of
+        // the response now beginning — after any
+        // redirects, the last one is the page's own,
+        // and the completion reads it.
+        if let http = response as? HTTPURLResponse {
+            cacheLastStatus = http.statusCode
+        }
         lastReported = -1
         reportProgress()
         completionHandler(.allow)
@@ -1150,7 +1675,28 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
         } else if let redirectBlock = redirectBlock {
             done?.resume(returning: (finalURL: redirectBlock.url,
                                      html: redirectBlock.html))
+        } else if cacheLastStatus == 304, let stale = cacheStale,
+                  let body = tbCacheBody(of: stale) {
+            // The cache (0.32): the server answered
+            // "not modified" — the kept body is the
+            // page. Renew the entry with the answer's
+            // freshness word and serve what we hold.
+            if let http = task.response as? HTTPURLResponse {
+                tbCacheRevalidate(urlString: cacheRequestURL,
+                                  response: http)
+            }
+            let html = String(data: body, encoding: .utf8)
+                ?? String(decoding: body, as: UTF8.self)
+            done?.resume(returning: (finalURL: cacheRequestURL,
+                                     html: html))
         } else {
+            // The cache (0.32): a whole, ordinary page
+            // is kept as it lands, for the next visit.
+            if cacheLastStatus == 200 && !cacheIsPost,
+               let http = task.response as? HTTPURLResponse {
+                tbCacheStore(requestURL: cacheRequestURL,
+                              response: http, data: received)
+            }
             let html = String(data: received, encoding: .utf8)
                 ?? String(decoding: received, as: UTF8.self)
             done?.resume(returning: (finalURL: landedURL, html: html))
@@ -1209,8 +1755,22 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
     // before any network I/O — the picture falls back
     // to its label, exactly as a failed fetch does.
     if tbShieldCategory(host: url.host) != nil { return nil }
+    // The cache (0.32): pictures come through the
+    // shared cached GET, like everything fetched — a
+    // kept picture is served off the disk, a stale
+    // one asked about before it is fetched again.
+    // Other addresses (a dropped page's own pictures)
+    // keep the plain path below.
+    if let scheme = url.scheme?.lowercased(),
+       scheme == "http" || scheme == "https" {
+        guard let got = await tbGETWithCache(
+            urlString: urlString, accept: "image/*,*/*",
+            pageURLString: pageURLString, timeout: 20) else { return nil }
+        if got.statusCode >= 400 { return nil }
+        return got.data
+    }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2458,8 +3018,19 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
     // before any network I/O — the page renders
     // without that sheet, as it does when one fails.
     if tbShieldCategory(host: url.host) != nil { return nil }
+    // The cache (0.32): sheets come through the
+    // shared cached GET, like everything fetched.
+    // Other addresses keep the plain path below.
+    if let scheme = url.scheme?.lowercased(),
+       scheme == "http" || scheme == "https" {
+        guard let got = await tbGETWithCache(
+            urlString: urlString, accept: "text/css,*/*",
+            pageURLString: pageURLString) else { return nil }
+        return String(data: got.data, encoding: .utf8)
+            ?? String(decoding: got.data, as: UTF8.self)
+    }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.32.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
