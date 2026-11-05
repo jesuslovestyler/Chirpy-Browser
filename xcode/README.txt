@@ -7,6 +7,83 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.37.3.1 — ERRATUM: THE BUILD
+REPAIR
+------------------------------------------------------
+0.37.3 as first pushed FAILED Tyler's
+Xcode build, and this release is the
+repair and nothing else. Two errors,
+both in ContentView.swift: "Value of
+type 'any TBBoxPaintSource' has no
+member 'containerLink'". The story is
+the 0.36 lesson in a new shape: the
+container link field was added to all
+five spec classes in the engine, and
+the seat hit test's box fallback reads
+it through the box paint-source
+protocol — but the protocol itself
+never gained the requirement, so the
+two reads through that type had no
+member to read. The Linux check is a
+parse, not a typecheck, and a parse
+cannot see a missing member; Tyler's
+build could, and did.
+
+The repair is one requirement —
+var containerLink: String? { get } —
+added to TBBoxPaintSource. Both
+conforming specs (TBFloatSpec,
+TBPositionedSpec) already carry the
+field, so their conformances witness
+it as they stand. No cast, no optional
+chain that could drop the link, no
+behavior change: the fallback now
+compiles as it was designed, and the
+container's destination is delivered
+exactly as 0.37.3 intended. Every
+other read of the field — in the
+engine and in the seat hit test — was
+audited and sits on a concrete spec
+type that declares it.
+
+Verification, beyond the parse this
+time: a full typecheck of both files
+together is impossible in the Linux
+harness (it stops at the first line
+of real code — "no such module
+'AppKit'" — because Linux Swift has
+no AppKit or SwiftUI to check
+against), so the repair was proven
+three other ways. The exact shape of
+the fix — protocol, two spec classes
+carrying the stored field, empty
+conformance extensions, reads through
+the existential — was rebuilt as a
+standalone file and passed a real
+swiftc typecheck and run, the
+existential reads delivering the
+concrete links. A mechanical audit
+then listed every member read through
+the app's only protocol type in both
+files and matched each against the
+protocol's requirements: after the
+repair, all fifteen reads resolve.
+And the 0.36 harness suite was re-run
+on the repaired tree: js-test 11/11,
+cascade equivalence 0 mismatches of
+2,818 elements on all three checks —
+the extracted engine code TYPECHECKS
+as it builds there, and it is
+unchanged by this repair. The 0.37
+suite's broken extraction (named in
+0.37.3) is untouched and still owed,
+exactly as stated there.
+
+The drill is 0.37.3's drill, word for
+word; the status line now reads
+0.37.3.1 so the repaired build can be
+told from the broken one at a glance.
+
 WHAT'S NEW IN 0.37.3 — THE THIRD SPEED
 STAGE AND THE LINK REPAIR
 ------------------------------------------------------

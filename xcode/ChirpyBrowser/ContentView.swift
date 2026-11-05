@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.37.3 (Swift)
+//  Chirpy Browser — prototype 0.37.3.1 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.37.3 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
+    @Published var statusLine = "Chirpy Engine 0.37.3.1 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -424,7 +424,7 @@ final class BrowserModel: ObservableObject {
                 canGoForward = !forwardStack.isEmpty
                 pendingFragment = String(target[target.index(after: hash)...])
                 fragmentScrollTick += 1
-                statusLine = "\(target)  ·  Chirpy Engine 0.37.3 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading, seat links, fragments"
+                statusLine = "\(target)  ·  Chirpy Engine 0.37.3.1 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading, seat links, fragments"
                 return
             }
         }
@@ -499,7 +499,7 @@ final class BrowserModel: ObservableObject {
                 // load is the doorway. Until the first
                 // paint reports, the fetched URL stands.
                 var settledLanded = finalURL
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.3 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.3.1 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -584,7 +584,7 @@ final class BrowserModel: ObservableObject {
                     if let e = first.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(first.landedURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.37.3 (Swift)"
+                            + "  ·  Chirpy Engine 0.37.3.1 (Swift)"
                     }
                     self.statusLine = first.arrivalsPending
                         ? status + consoleNote
@@ -612,7 +612,7 @@ final class BrowserModel: ObservableObject {
                     if let e = paint.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(settledLanded)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.37.3 (Swift)"
+                            + "  ·  Chirpy Engine 0.37.3.1 (Swift)"
                     }
                     self.statusLine = status
                         + (paint.consoleLines.isEmpty ? ""
@@ -3527,6 +3527,18 @@ protocol TBBoxPaintSource: AnyObject {
     var imageFailed: Bool { get }
     var alt: String { get }
     var content: NSAttributedString? { get }
+    // The container link (0.37.3): when the box
+    // itself is an anchor, its destination — the
+    // seat hit test's standing answer where the
+    // box's own contents bear no link. Both
+    // conforming specs carry the field in the
+    // engine. (0.37.3.1: the requirement itself
+    // was missing from this protocol as first
+    // shipped, so the hit test's reads through
+    // this type failed Tyler's build; the field
+    // was always on the specs — only the door
+    // was missing.)
+    var containerLink: String? { get }
     // The paint & motion set (0.27): the box's shadows,
     // paint transform and opacity.
     var boxShadows: TBBoxShadowSet? { get }

@@ -165,6 +165,14 @@ Honest limits, for now:
   grid, flex or column container (a directory card)
   now carries its destination into its painted seat,
   so the card hovers and clicks as the link it is.
+- Build repair (0.37.3.1): 0.37.3 as first pushed
+  failed the Xcode build — the box paint-source
+  protocol never gained the `containerLink`
+  requirement its hit-test fallback reads, though
+  every spec class carried the field. One protocol
+  requirement is the whole repair; the erratum in
+  the project README tells it plainly. No behavior
+  change.
 - The onward doors (0.37): scripts can send the reader
   onward — `window.location` (the same object at
   `document.location` and the bare name) carries `href`
