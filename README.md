@@ -78,14 +78,36 @@ What works today:
 
 Honest limits, for now:
 
-- No JavaScript. (This is the mountain every engine climbs last;
-  JavaScript-heavy sites will look bare.)
-- No true box positioning yet — no columns or floats; those
-  want a richer paint surface than a text view. Images, tabs,
-  and forms are further down the road. Pseudo-classes
-  (`:hover`), other `@media` queries, and `color-mix()` are
-  not read yet.
-- One window, one page at a time.
+- The CSS program is complete: flexbox and grid, positioned
+  layout (absolute, fixed, sticky), floats and multicolumn,
+  the interaction states (`:hover`, `:focus`, `:active`,
+  `:visited`), and paint & motion — shadows, transforms,
+  transitions and keyframe animations. Forms are real:
+  fields, live select popups and textarea editors, and GET
+  and POST submission.
+- The Shield stands in the fetcher: the big ad and tracker
+  networks, and the big adult and gambling sites, are
+  refused before they load; cross-site requests carry no
+  cookies; every request sends the Sec-GPC and DNT privacy
+  signals. No telemetry, ever.
+- What Chirpy fetches is kept in a disk cache on your own
+  machine and served again while the server's own freshness
+  word allows — `Cache-Control`, `Expires`, or a bounded
+  heuristic — with conditional revalidation after that.
+  A Clear cache button sits on the window's bar.
+- No JavaScript yet: its first slice is the next stage
+  (0.33), already called for. JavaScript-heavy sites will
+  look bare until it lands, and the heaviest will stay
+  bare for a while after it.
+- One window, one page at a time — no tabs yet.
+- A known blemish, admitted rather than guessed at: on
+  lists with alternating row backgrounds, the odd rows'
+  backgrounds can paint as thin strips instead of full
+  bands. Its cause is not yet proven, so it stands
+  unfixed and disclosed.
+- Picking several options in a `multiple` select is not
+  built; it shows its first chosen option as a plain
+  popup.
 
 ## The two engines
 
