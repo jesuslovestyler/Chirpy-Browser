@@ -103,11 +103,12 @@ Honest limits, for now:
   conditions), `document.getElementById` with `textContent`
   and `innerHTML` read and written — a write lands as
   text, as script-written markup is not parsed yet — and
-  console output in the console drawer (0.35). Not in the slice,
-  named plainly: event handlers, timers, `fetch` and
-  XMLHttpRequest, script-driven navigation, and the wider
-  DOM beyond `getElementById`. JavaScript-heavy sites
-  will still look bare where they lean on those.
+  console output in the console drawer (0.35). Script-driven
+  navigation joined in 0.37 — see "The onward doors" below.
+  Not in the slice, named plainly: event handlers, timers,
+  `fetch` and XMLHttpRequest, and the wider DOM beyond
+  `getElementById`. JavaScript-heavy sites will still look
+  bare where they lean on those.
 - Developer tools (0.35): a console drawer holds each
   page's console lines, script errors and alerts as
   readable entries, and an alert also raises a banner
@@ -143,6 +144,22 @@ Honest limits, for now:
   painted seat with the layout that painted it. A
   container nested inside a box's own contents is
   not followed yet.
+- The onward doors (0.37): scripts can send the reader
+  onward — `window.location` (the same object at
+  `document.location` and the bare name) carries `href`
+  to read and write, `replace` and `assign`;
+  `window.parent` and `window.top` are the window
+  itself, this being a single-frame world. A script's
+  destination is followed through the ordinary road —
+  the Shield asked first, the address bar ending at
+  the destination — and a refresh folded inside
+  `<noscript>` is read and followed once the page's
+  scripts have had their say. DuckDuckGo's results,
+  which travel through exactly such a doorway, land on
+  the real site now. (0.37 also repairs the 0.36 Xcode
+  build failure: two painted-box link handlers called
+  the model's main-actor `load` synchronously from
+  stored closures; they hop to the main actor now.)
 - A form control that lands inside a grid, flex, float
   or multicolumn seat stands there as its labelled
   placeholder rather than a live field — the seats are

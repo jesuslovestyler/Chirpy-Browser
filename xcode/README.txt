@@ -7,6 +7,99 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.37.0 — THE ONWARD DOORS
+------------------------------------------------------
+First: this build repairs the 0.36 build
+failure. Xcode refused 0.36 with two errors
+— "Call to main actor-isolated instance
+method 'load' in a synchronous nonisolated
+context" — both in the painted-box link
+wiring (the seat-link handler and the fixed-
+box link handler), which called the model's
+load synchronously from inside stored
+closures. Both now hop to the main actor
+the way this file's own frame observer
+already did, and a sweep of the whole file
+found no other call like them. Build once:
+the repair and everything below arrive
+together. (The Linux checker that guards
+these builds only parses — it cannot see
+actor isolation — which is how the fault
+shipped; the diagnosis here was proven by
+reproducing your exact error from the 0.36
+code's shape, and the fix mirrors the call
+site in this same file that has compiled
+since before 0.35.)
+
+Then the doors. DuckDuckGo told on us next:
+search for anything, click a result, and
+you landed on a page that merely showed
+the destination's address as a link to tap
+by hand. The mechanism, measured: the
+result's address is a redirector, and the
+redirector answers not with a redirect but
+with a scrap of a page carrying two
+send-ons — a line of JavaScript,
+window.parent.location.replace(url), and a
+meta refresh folded inside <noscript>.
+Chirpy opened neither: its window object
+was a shell with no location, no parent,
+no top, so the script's road walked into
+undefined and died; and the parser sets
+noscript subtrees aside whole, so the
+refresh hunt, which walks the parsed tree,
+never saw the folded tag.
+
+* Scripts can send the reader onward now.
+  window carries a location — the same
+  object at window.location,
+  document.location, and the bare name —
+  with href to read and to write, and
+  replace and assign. window.parent,
+  window.top and window.self are the window
+  itself: a single-frame world. A script's
+  chosen destination is resolved against
+  the page's own address (http, https and
+  file travel; nothing else does), ends
+  the script stage, and is followed the
+  way a meta refresh is followed — the
+  same three-hop limit, the same
+  Shield-checked fetch — so the address
+  bar and the history name the
+  destination, never the doorway, and a
+  send-on to a listed host lands on the
+  Shield's block page, exactly as typing
+  that address would. The JavaScript
+  console honors a typed location the
+  same way, through the window's own load.
+
+* The folded refresh is read too. When a
+  page's scripts have had their say and
+  the reader is still standing there, the
+  raw text inside <noscript> is parsed
+  and asked for a refresh of its own, and
+  a send-on found there is followed down
+  the same road — the fallback door, in
+  its proper order: scripts first, as
+  noscript has always meant.
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.37.0 (Swift)"
+and name "script navigation" among the
+features. First, the errand that named the
+need: type a word in the address bar, open
+the DuckDuckGo results, and click any
+result — you should land on the real site,
+not on a page of addresses. Then the local
+witness, interstitial-test.html (its four
+small companions beside it): step through
+the script door and you should land on a
+page that begins "You came through the
+SCRIPT door"; go back, step through the
+noscript door, and its page begins "You
+came through the NOSCRIPT door". And
+js-test still keeps its eleven promises.
+
 WHAT'S NEW IN 0.36.0 — THE SPEED STAGE, AND LINKS THAT ANSWER
 ------------------------------------------------------
 Wikipedia told on us: a real article took so

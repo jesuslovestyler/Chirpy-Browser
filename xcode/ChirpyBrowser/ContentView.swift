@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.36.0 (Swift)
+//  Chirpy Browser — prototype 0.37.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.36.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, progress bar, parallel loading"
+    @Published var statusLine = "Chirpy Engine 0.37.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -237,7 +237,14 @@ final class BrowserModel: ObservableObject {
             consoleEntries.append(TBConsoleEntry(kind: .result, text: value))
         }
         trimConsole()
-        if outcome.pageChanged, let session = pageSession {
+        // Script navigation (0.37): typed words
+        // can send the reader onward too — through
+        // this same load, with its Shield, its
+        // history and its address bar, and no
+        // repaint of the page being left behind.
+        if let target = outcome.navigationTarget {
+            load(target)
+        } else if outcome.pageChanged, let session = pageSession {
             repaintFromConsole(session: session)
         }
         if consoleFace == .inspector { refreshInspector() }
@@ -441,7 +448,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.36.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, progress bar, parallel loading"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -508,7 +515,7 @@ final class BrowserModel: ObservableObject {
                     if let e = first.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.36.0 (Swift)"
+                            + "  ·  Chirpy Engine 0.37.0 (Swift)"
                     }
                     self.statusLine = first.arrivalsPending
                         ? status + consoleNote
@@ -532,7 +539,7 @@ final class BrowserModel: ObservableObject {
                     if let e = paint.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.36.0 (Swift)"
+                            + "  ·  Chirpy Engine 0.37.0 (Swift)"
                     }
                     self.statusLine = status
                         + (paint.consoleLines.isEmpty ? ""
@@ -704,9 +711,15 @@ struct PageTextView: NSViewRepresentable {
             self.clipView = scrollView.contentView
             // Painted-box links (0.36): a link followed
             // inside a painted box loads like any link
-            // the text itself carries.
+            // the text itself carries. The hop (0.37):
+            // load lives on the main actor and this
+            // stored closure does not, so the call hops
+            // there — the frame observer's own bargain
+            // below. Written plainly in 0.36 it called
+            // load synchronously, and Xcode refused the
+            // build; this is that refusal repaired.
             (textView as? TBPageTextView)?.onSeatLink = { [weak self] href in
-                self?.model.load(href)
+                Task { @MainActor in self?.model.load(href) }
             }
             scrollView.contentView.postsFrameChangedNotifications = true
             frameObserver = NotificationCenter.default.addObserver(
@@ -1061,9 +1074,11 @@ struct PageTextView: NSViewRepresentable {
                 view.spec = spec
                 view.frame = frame
                 // Painted-box links (0.36): a fixed
-                // box's own links load the same way.
+                // box's own links load the same way —
+                // on the main actor, by the same hop
+                // the seat links take (0.37).
                 view.onLink = { [weak self] href in
-                    self?.model.load(href)
+                    Task { @MainActor in self?.model.load(href) }
                 }
                 textView.addSubview(view)
                 fixedViews.append((view: view, spec: spec))

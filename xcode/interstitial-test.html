@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.37 — The Onward Doors Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.37 — the onward doors, test</h1>
+<p>Some pages are not destinations but doorways. DuckDuckGo's
+search results are the famous case: click a result and the
+address you land on first is a redirector — a scrap of a page
+that carries no words of its own, only a send-on. It offers
+two doors: a line of JavaScript
+(<i>window.parent.location.replace(…)</i>) for readers with
+scripts, and a meta refresh folded inside
+&lt;noscript&gt; for readers without. Until 0.37 Chirpy
+opened neither, and the click ended on a page that could only
+show the destination's address as a link to tap by hand.</p>
+
+<h2>Door one — the script door</h2>
+<p>The page behind this link is shaped exactly like
+DuckDuckGo's redirector: the script names one destination,
+and the noscript folded beneath it names another, so the
+page you land on tells you which door carried you.</p>
+<p><a href="interstitial-script.html">Step through the script door</a></p>
+<p><b>Promise:</b> you land on a page that begins
+"You came through the SCRIPT door." If instead it says
+"noscript", the script door failed and the fallback caught
+you — a softer failure, but a failure to report.</p>
+
+<h2>Door two — the noscript door</h2>
+<p>The page behind this link carries no script at all —
+only a meta refresh folded inside &lt;noscript&gt;, the
+send-on meant for readers whose browsers run no scripts.
+Chirpy's parser sets noscript content aside, so this door
+was invisible until 0.37 taught the refresh hunt to read
+the folded text after a page's own scripts have had
+their say.</p>
+<p><a href="interstitial-noscript.html">Step through the noscript door</a></p>
+<p><b>Promise:</b> you land on a page that begins
+"You came through the NOSCRIPT door."</p>
+
+<h2>What neither door may do</h2>
+<p>Both doors travel the ordinary road: the destination is
+fetched the way any address is fetched, with the Shield
+asked first — a send-on to a listed host lands on the
+Shield's block page, exactly as typing that address would.
+And the address bar names the destination you reached,
+never the doorway you passed through.</p>
+</body>
+</html>

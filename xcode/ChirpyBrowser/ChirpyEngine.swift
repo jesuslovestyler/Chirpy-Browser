@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.36.0 (Swift)
+//  Chirpy Browser — engine 0.37.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -658,6 +658,50 @@
 //  same layout that painted it. A container
 //  nested inside a box's own contents is not
 //  followed yet (named in the README).
+//  0.37 teaches scripts to send the reader
+//  onward — the doors DuckDuckGo's results
+//  stand behind. Its redirector answers a
+//  click with neither a 302 nor a page, but a
+//  scrap carrying two send-ons: a script's
+//  window.parent.location.replace(url), and a
+//  <meta http-equiv="refresh"> folded inside
+//  <noscript>. Until now Chirpy opened
+//  neither: window existed as a shell holding
+//  document, console and alert, but location,
+//  parent and top were absent, so the script's
+//  road walked into undefined and died; and
+//  the parser sets noscript subtrees aside
+//  whole, so the refresh scan (which walks
+//  the tree) never saw the folded tag. Now
+//  window carries a location — href read and
+//  written, replace and assign, the same
+//  object at document.location and at the
+//  bare global name; window.parent, window.top
+//  and window.self are the window itself, this
+//  being a single-frame world. A script's
+//  chosen destination is resolved against the
+//  page's own address (http, https and file
+//  travel; nothing else does), ends the
+//  script stage — the room is being vacated —
+//  and is followed in the render the way a
+//  meta refresh is: the same three-hop limit,
+//  the same Shield-checked fetch, the fetch
+//  time joining the load's account, so the
+//  address bar and the history name the
+//  destination, never the doorway, and a
+//  listed host is refused exactly as a typed
+//  address is refused. And if the scripts
+//  leave the reader standing here, the
+//  refresh folded inside <noscript> is read
+//  at last — its raw text parsed and asked
+//  for a refresh of its own — and followed
+//  down the same road: the fallback door,
+//  asked after the page's own code, as
+//  noscript has always meant. The JavaScript
+//  console honors a typed location the same
+//  way — through the window's own load. In
+//  history's terms every script send-on
+//  replaces, as a refresh hop does.
 //  Not yet: JavaScript beyond the first slice
 //  above — event handlers, timers, fetch and
 //  XMLHttpRequest, and the wider DOM. The
@@ -1654,7 +1698,7 @@ func tbGETWithCache(urlString: String, accept: String,
         break
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue(accept, forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1726,7 +1770,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (got.finalURL, html)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1752,7 +1796,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1856,7 +1900,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2017,7 +2061,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
         return got.data
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3277,7 +3321,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
             ?? String(decoding: got.data, as: UTF8.self)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3312,6 +3356,7 @@ enum TBJSValue {
     case document
     case console
     case window
+    case location
 }
 
 struct TBJSFunc {
@@ -3375,6 +3420,27 @@ final class TBJSContext {
     var budgetDeadline: Date? = nil
     var budgetSteps = 0
     var budgetExceeded = false
+    // Script navigation (0.37): the landed
+    // page's own address — location.href reads
+    // it, and a script's chosen destination is
+    // resolved against it — and the destination
+    // itself, once a script names one. The
+    // render (for a page's scripts) or the
+    // console (for the reader's typed words)
+    // takes it from here and travels; nothing
+    // in the interpreter fetches or paints.
+    var pageURL: String = ""
+    var navigationTarget: String? = nil
+    // A script sends the reader onward: the
+    // destination is resolved against the
+    // page's address, and only an http, https
+    // or file address travels — a script can
+    // name no other kind of journey.
+    func requestNavigation(_ value: TBJSValue) {
+        if let target = tbJSResolveNavigation(value, base: pageURL) {
+            navigationTarget = target
+        }
+    }
     // Mutating array natives (push, pop) set this
     // to the array's new shape; the call site,
     // which knows the expression the array came
@@ -3383,6 +3449,7 @@ final class TBJSContext {
     init() {
         globals.vars["document"] = .document
         globals.vars["window"] = .window
+        globals.vars["location"] = .location
         globals.vars["console"] = .console
         globals.vars["this"] = .window
         globals.vars["undefined"] = .undefined
@@ -3444,6 +3511,7 @@ func tbJSString(_ value: TBJSValue) -> String {
     case .document: return "[object HTMLDocument]"
     case .console: return "[object Object]"
     case .window: return "[object Window]"
+    case .location: return "[object Location]"
     }
 }
 
@@ -3463,7 +3531,8 @@ func tbJSNumber(_ value: TBJSValue) -> Double {
         }
         return Double.nan
     case .array(let items): return tbJSNumber(.string(tbJSString(.array(items))))
-    case .object, .function, .native, .element, .document, .console, .window:
+    case .object, .function, .native, .element, .document, .console, .window,
+         .location:
         return Double.nan
     }
 }
@@ -3497,6 +3566,7 @@ func tbJSStrictEqual(_ a: TBJSValue, _ b: TBJSValue) -> Bool {
     case (.number(let x), .number(let y)): return x == y
     case (.string(let x), .string(let y)): return x == y
     case (.element(let x), .element(let y)): return x === y
+    case (.location, .location): return true
     default: return false
     }
 }
@@ -3530,6 +3600,21 @@ let TBJSArrayMethods: [String: String] = [
     "slice": "array.slice", "concat": "array.concat",
 ]
 
+// Script navigation (0.37): resolve a script's
+// chosen destination against the page's own
+// address, as a link's address is resolved.
+// Only an http, https or file address travels.
+func tbJSResolveNavigation(_ value: TBJSValue, base: String) -> String? {
+    let raw = tbJSString(value)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !raw.isEmpty,
+          let url = URL(string: raw, relativeTo: URL(string: base)),
+          let scheme = url.scheme?.lowercased(),
+          scheme == "http" || scheme == "https" || scheme == "file"
+    else { return nil }
+    return url.absoluteString
+}
+
 func tbJSGetMember(_ base: TBJSValue, _ name: String,
                    _ ctx: TBJSContext) -> TBJSValue {
     switch base {
@@ -3555,6 +3640,7 @@ func tbJSGetMember(_ base: TBJSValue, _ name: String,
         switch name {
         case "title": return .string(ctx.title)
         case "getElementById": return .native("document.getElementById")
+        case "location": return .location
         default: return .undefined
         }
     case .console:
@@ -3569,7 +3655,23 @@ func tbJSGetMember(_ base: TBJSValue, _ name: String,
         case "console": return .console
         case "window": return .window
         case "alert": return .native("window.alert")
+        // Script navigation (0.37): the window's
+        // address, and the window itself under
+        // the frame names — a single-frame
+        // world, where parent and top are this
+        // very window.
+        case "location": return .location
+        case "parent", "top", "self": return .window
         default: return ctx.globals.get(name) ?? .undefined
+        }
+    case .location:
+        switch name {
+        case "href":
+            return .string(ctx.navigationTarget ?? ctx.pageURL)
+        case "replace": return .native("location.replace")
+        case "assign": return .native("location.assign")
+        case "toString": return .native("location.toString")
+        default: return .undefined
         }
     default:
         return .undefined
@@ -3616,6 +3718,25 @@ func tbJSSetMember(_ base: TBJSValue, _ name: String, _ value: TBJSValue,
             ctx.titleSet = true
             ctx.domChanged = true
         }
+        if name == "location" {
+            ctx.requestNavigation(value)
+        }
+        return base
+    case .window:
+        // Script navigation (0.37): writing the
+        // window's location is a journey. Any
+        // other name written on the window is a
+        // global, as the read side already holds.
+        if name == "location" {
+            ctx.requestNavigation(value)
+        } else {
+            ctx.globals.vars[name] = value
+        }
+        return base
+    case .location:
+        if name == "href" {
+            ctx.requestNavigation(value)
+        }
         return base
     default:
         return base
@@ -3644,7 +3765,7 @@ func tbJSGetIndex(_ base: TBJSValue, _ index: TBJSValue,
             return .undefined
         }
         return tbJSGetMember(base, tbJSString(index), ctx)
-    case .object, .element, .document, .console, .window:
+    case .object, .element, .document, .console, .window, .location:
         return tbJSGetMember(base, tbJSString(index), ctx)
     default:
         return .undefined
@@ -4386,6 +4507,17 @@ func tbJSAssign(_ target: TBJSExpr, _ value: TBJSValue, _ env: TBJSEnv,
                 _ ctx: TBJSContext) throws {
     switch target {
     case .ident(let name):
+        // Script navigation (0.37): while the name
+        // still holds the page's own location,
+        // assigning it is a journey, not a
+        // variable — every browser reads
+        // location = "…" as travel.
+        if name == "location", let held = env.get(name),
+           case .location = held,
+           tbJSResolveNavigation(value, base: ctx.pageURL) != nil {
+            ctx.requestNavigation(value)
+            return
+        }
         env.set(name, value)
     case .member(let baseExpr, let name):
         let base = try tbJSEval(baseExpr, env, ctx)
@@ -4628,6 +4760,17 @@ func tbJSNative(_ name: String, _ args: [TBJSValue], this: TBJSValue,
     case "window.alert":
         ctx.logs.append("Alert: " + tbJSString(arg(0)))
         return .undefined
+    case "location.replace", "location.assign":
+        // Script navigation (0.37): the journey is
+        // recorded, not taken — the render follows
+        // it through the Shield-checked fetch, the
+        // way a meta refresh is followed, so a
+        // script can send the reader nowhere the
+        // address bar could not.
+        ctx.requestNavigation(arg(0))
+        return .undefined
+    case "location.toString":
+        return .string(ctx.navigationTarget ?? ctx.pageURL)
     case "document.getElementById":
         let id = tbJSString(arg(0))
         if let node = ctx.elementsById[id] {
@@ -4796,6 +4939,10 @@ func tbCollectIds(_ node: TBNode, into map: inout [String: TBNode]) {
 struct TBJSRun {
     var titleOverride: String? = nil
     var consoleLines: [String] = []
+    // Script navigation (0.37): the destination
+    // a script named, if it named one — the
+    // render follows it like a meta refresh.
+    var navigationTarget: String? = nil
 }
 
 // Developer tools (0.35): a landed page, kept
@@ -4838,6 +4985,7 @@ func tbMakeSession(root: TBNode, base: String,
                    initialTitle: String) -> TBPageSession {
     let ctx = TBJSContext()
     ctx.title = initialTitle
+    ctx.pageURL = base
     tbCollectIds(root, into: &ctx.elementsById)
     return TBPageSession(root: root, base: base,
                          ctx: ctx, landedTitle: initialTitle)
@@ -4939,9 +5087,19 @@ func tbRunScripts(session: TBPageSession) async -> TBJSRun {
             }
             ctx.logs.append("Script error: \(error)")
         }
+        // Script navigation (0.37): a script that
+        // sends the reader onward ends the stage.
+        // The page is leaving; its remaining
+        // scripts belong to a room being vacated.
+        if ctx.navigationTarget != nil {
+            break
+        }
     }
+    let navigation = ctx.navigationTarget
+    ctx.navigationTarget = nil
     return TBJSRun(titleOverride: ctx.titleSet ? ctx.title : nil,
-                   consoleLines: ctx.logs)
+                   consoleLines: ctx.logs,
+                   navigationTarget: navigation)
 }
 
 // What one trip through the JavaScript
@@ -4956,6 +5114,10 @@ struct TBConsoleEvalOutcome {
     var valueText: String? = nil
     var errorText: String? = nil
     var pageChanged = false
+    // Script navigation (0.37): a destination
+    // the typed words named — the window takes
+    // it through its own load, like any journey.
+    var navigationTarget: String? = nil
 }
 
 // The JavaScript console (0.35): run what the
@@ -5012,6 +5174,8 @@ func tbConsoleEval(session: TBPageSession?,
     outcome.newLogs = Array(ctx.logs.dropFirst(logCountBefore))
     outcome.pageChanged = ctx.domChanged
     ctx.domChanged = false
+    outcome.navigationTarget = ctx.navigationTarget
+    ctx.navigationTarget = nil
     return outcome
 }
 
@@ -13960,6 +14124,37 @@ func tbMetaRefreshTarget(root: TBNode, base: String) -> String? {
     return nil
 }
 
+// The noscript door (0.37): a page that sends
+// scriptless readers onward folds its refresh
+// inside <noscript> — DuckDuckGo's redirector
+// is exactly that shape. The parser sets
+// noscript subtrees aside whole, so the folded
+// tag never enters the tree the scan above
+// walks. Here each noscript span's raw text is
+// parsed on its own and asked the same
+// question. The render asks only after the
+// page's own scripts have had their say:
+// noscript is the fallback for a reader
+// without scripts, not a rival to them.
+func tbNoscriptRefreshTarget(html: String, base: String) -> String? {
+    var searchFrom = html.startIndex
+    while let open = html.range(of: "<noscript",
+                                options: .caseInsensitive,
+                                range: searchFrom..<html.endIndex) {
+        guard let close = html.range(of: "</noscript",
+                                     options: .caseInsensitive,
+                                     range: open.upperBound..<html.endIndex)
+        else { return nil }
+        let span = String(html[open.upperBound..<close.lowerBound])
+        if let found = tbMetaRefreshTarget(root: tbParse(html: span),
+                                           base: base) {
+            return found
+        }
+        searchFrom = close.upperBound
+    }
+    return nil
+}
+
 func tbScriptBounceTargets(html: String, base: String) -> [String] {
     var found: [String] = []
     func offer(_ raw: String) {
@@ -14146,6 +14341,50 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
     let scriptStart = Date()
     let js = await tbRunScripts(session: session)
     let scriptSeconds = Date().timeIntervalSince(scriptStart)
+    // Script navigation (0.37): a script that
+    // sends the reader onward — DuckDuckGo's
+    // window.parent.location.replace is the
+    // shape that named the need — is followed
+    // the way the refresh above is followed:
+    // the same hop limit, the same Shield-
+    // checked fetch, the hop's fetch time
+    // joining the load's account, and the
+    // deeper render speaking for the page that
+    // finally lands, so the address bar and
+    // the history name the destination, never
+    // the doorway.
+    if depth < 3, let target = js.navigationTarget, target != base {
+        let hopStart = Date()
+        if let (newBase, newHTML) = try? await tbFetch(urlString: target) {
+            return await tbRenderFollowingRefresh(
+                html: newHTML, base: newBase,
+                depth: depth + 1,
+                visited: visited,
+                mediaWidth: mediaWidth,
+                fetchSeconds: fetchSeconds
+                    + Date().timeIntervalSince(hopStart),
+                onFirstPaint: onFirstPaint)
+        }
+    }
+    // The noscript door (0.37): the scripts had
+    // their say and the reader is still here —
+    // now the folded refresh inside <noscript>
+    // is asked, and followed down the same road.
+    if depth < 3,
+       let target = tbNoscriptRefreshTarget(html: html, base: base),
+       target != base {
+        let hopStart = Date()
+        if let (newBase, newHTML) = try? await tbFetch(urlString: target) {
+            return await tbRenderFollowingRefresh(
+                html: newHTML, base: newBase,
+                depth: depth + 1,
+                visited: visited,
+                mediaWidth: mediaWidth,
+                fetchSeconds: fetchSeconds
+                    + Date().timeIntervalSince(hopStart),
+                onFirstPaint: onFirstPaint)
+        }
+    }
     if let override = js.titleOverride { title = override }
     func timingLine(repaintSeconds: Double?) -> String {
         var parts = [
