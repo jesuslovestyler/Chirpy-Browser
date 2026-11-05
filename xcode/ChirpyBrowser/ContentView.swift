@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.28.0 (Swift)
+//  Chirpy Browser — prototype 0.29.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.28.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.29.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -180,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.28.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.29.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -3047,21 +3047,154 @@ final class TBBandLayoutManager: NSLayoutManager {
             let glyphs = glyphRange(forCharacterRange: range,
                                     actualCharacterRange: nil)
             guard glyphs.length > 0 else { continue }
+            if entry.widen {
+                // The banding repair (0.29): a block stamp's
+                // layers paint ONCE, into the union of its
+                // fragment rects — the block's whole extent,
+                // margins bridged as the surface painter
+                // bridges them — never once per line. A
+                // photo or gradient anchored to a single
+                // line's rect re-anchors at every line of
+                // the block, slicing a multi-line block's
+                // hover background into bands exactly as
+                // the surface painter's range-sliced paints
+                // once did (see paintContinuousSurfaces).
+                var union = NSRect.null
+                enumerateLineFragments(forGlyphRange: glyphs) {
+                    _, usedRect, _, _, _ in
+                    union = union.union(NSRect(
+                        x: origin.x, y: origin.y + usedRect.minY,
+                        width: container.size.width,
+                        height: usedRect.height))
+                }
+                if !union.isNull {
+                    TBBandLayoutManager.paintBackgroundLayers(entry.box,
+                                                              in: union)
+                }
+                continue
+            }
             enumerateLineFragments(forGlyphRange: glyphs) {
                 _, usedRect, _, _, _ in
-                var rect = NSRect(x: origin.x + usedRect.minX,
+                let rect = NSRect(x: origin.x + usedRect.minX,
                                   y: origin.y + usedRect.minY,
                                   width: usedRect.width,
                                   height: usedRect.height)
-                if entry.widen {
-                    rect = NSRect(x: origin.x, y: rect.minY,
-                                  width: container.size.width,
-                                  height: rect.height)
-                }
                 TBBandLayoutManager.paintBackgroundLayers(entry.box,
                                                           in: rect)
             }
         }
+    }
+
+    // One paragraph's surface band, as the surface
+    // painter below reckons bands: its fill color, layer
+    // box and shadow set (each read at the paragraph's
+    // last character, where its closing separator
+    // carries the stamps), the band's span — its line
+    // fragments widened by the surface-edge extensions
+    // stamped on it — its relative offset, and the
+    // effects table's opacity and transform for it.
+    private typealias TBSurfaceBand = (color: NSColor?,
+                                       box: TBBackgroundBox?,
+                                       boxID: ObjectIdentifier?,
+                                       top: CGFloat, bottom: CGFloat,
+                                       dx: CGFloat, dy: CGFloat,
+                                       shadowSet: TBBoxShadowSet?,
+                                       shadowID: ObjectIdentifier?,
+                                       transform: TBTransformSpec?,
+                                       transformID: ObjectIdentifier?,
+                                       opacity: CGFloat)
+
+    // A paragraph's line-fragment span, band or not —
+    // the growth walk in paintContinuousSurfaces
+    // measures unstamped paragraphs by it.
+    private func paragraphSpan(paragraph: NSRange)
+        -> (top: CGFloat, bottom: CGFloat)? {
+        var top: CGFloat? = nil
+        var bottom: CGFloat = 0
+        let pGlyphs = glyphRange(forCharacterRange: paragraph,
+                                 actualCharacterRange: nil)
+        enumerateLineFragments(forGlyphRange: pGlyphs) {
+            rect, _, _, _, _ in
+            if top == nil { top = rect.minY }
+            bottom = rect.maxY
+        }
+        guard let top = top else { return nil }
+        return (top, bottom)
+    }
+
+    private func surfaceBand(storage: NSTextStorage, paragraph: NSRange,
+                             canvas: NSColor) -> TBSurfaceBand? {
+        let lastIndex = paragraph.location + paragraph.length - 1
+        let box = storage.attribute(TBBackgroundKey, at: lastIndex,
+                                    effectiveRange: nil) as? TBBackgroundBox
+        let surface = surfaceColor(storage: storage, paragraph: paragraph)
+        let fill = (surface != nil && !surface!.isEqual(canvas)) ? surface : nil
+        // The paint & motion set (0.27): a paragraph can
+        // carry a surface for its shadow's sake alone —
+        // the stamps ride at its last character, where
+        // the layer box rides.
+        let shadowSet = storage.attribute(TBBoxShadowKey,
+                                          at: lastIndex,
+                                          effectiveRange: nil)
+            as? TBBoxShadowSet
+        guard fill != nil || box != nil || shadowSet != nil,
+              let span = paragraphSpan(paragraph: paragraph) else {
+            return nil
+        }
+        // Surface edges (0.15): the surface's first
+        // paragraph carries the inside space above it,
+        // its last the space below — extend the band
+        // through both, so a padded container's color
+        // and photo reach their true edges.
+        let extTop = (storage.attribute(TBExtTopKey, at: paragraph.location,
+                                        effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0
+        let extBottom = (storage.attribute(TBExtBottomKey, at: paragraph.location,
+                                           effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0
+        let boxID = box.map { ObjectIdentifier($0) }
+        // The effects table (worn states, transitions,
+        // keyframe runs) overrides the paragraph's own
+        // stamps — an animated surface fades and moves
+        // as one piece, band and glyphs together.
+        let bandFX = fxTraits(at: lastIndex)
+        let transform = bandFX.transform
+            ?? storage.attribute(TBTransformKey,
+                                 at: lastIndex,
+                                 effectiveRange: nil)
+            as? TBTransformSpec
+        let opacity = bandFX.opacity
+            ?? (storage.attribute(TBOpacityKey,
+                                  at: lastIndex,
+                                  effectiveRange: nil)
+            as? TBOpacitySpec)?.value ?? 1
+        // Positioned layout (0.17): a relatively offset
+        // surface paints shifted, as one band of its own.
+        let offset = paintOffset(at: paragraph.location, in: storage)
+        return (color: fill, box: box, boxID: boxID,
+                top: span.top - CGFloat(extTop),
+                bottom: span.bottom + CGFloat(extBottom),
+                dx: offset.x, dy: offset.y,
+                shadowSet: shadowSet,
+                shadowID: shadowSet.map { ObjectIdentifier($0) },
+                transform: transform,
+                transformID: transform.map { ObjectIdentifier($0) },
+                opacity: opacity)
+    }
+
+    // Whether two bands carry the same surface — the
+    // coalescing rule in paintContinuousSurfaces, word
+    // for word, so the growth walk there extends a run
+    // exactly where a whole-range pass would merge the
+    // band and stops exactly where it would not. (The
+    // 64-point reach itself is tested by the caller,
+    // whose two bands stand in a known order.)
+    private func surfaceCompatible(_ a: TBSurfaceBand,
+                                   _ b: TBSurfaceBand) -> Bool {
+        a.boxID == b.boxID && a.shadowID == b.shadowID
+            && a.transformID == b.transformID
+            && a.opacity == b.opacity && a.dx == b.dx && a.dy == b.dy
+            && ((a.color == nil && b.color == nil)
+                || (a.color != nil && b.color != nil
+                    && a.color!.isEqual(b.color!)))
     }
 
     private func paintContinuousSurfaces(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -3075,86 +3208,92 @@ final class TBBandLayoutManager: NSLayoutManager {
         // A surface: a run of consecutive paragraphs sharing
         // a background — its fill color and/or its layer box
         // (photos and gradients, 0.10).
-        var bands: [(color: NSColor?, box: TBBackgroundBox?,
-                     boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat,
-                     dx: CGFloat, dy: CGFloat,
-                     shadowSet: TBBoxShadowSet?,
-                     shadowID: ObjectIdentifier?,
-                     transform: TBTransformSpec?,
-                     transformID: ObjectIdentifier?,
-                     opacity: CGFloat)] = []
+        var bands: [TBSurfaceBand] = []
+        var firstPara: NSRange? = nil
+        var lastPara: NSRange? = nil
         var index = charRange.location
         let end = min(NSMaxRange(charRange), string.length)
         while index < end {
             let paragraph = string.paragraphRange(for: NSRange(location: index, length: 0))
             if paragraph.length == 0 { break }
-            let lastIndex = paragraph.location + paragraph.length - 1
-            let box = storage.attribute(TBBackgroundKey, at: lastIndex,
-                                        effectiveRange: nil) as? TBBackgroundBox
-            let surface = surfaceColor(storage: storage, paragraph: paragraph)
-            let fill = (surface != nil && !surface!.isEqual(canvas)) ? surface : nil
-            // The paint & motion set (0.27): a paragraph
-            // can carry a surface for its shadow's sake
-            // alone — the stamps ride at its last
-            // character, where the layer box rides.
-            let shadowSet = storage.attribute(TBBoxShadowKey,
-                                              at: lastIndex,
-                                              effectiveRange: nil)
-                as? TBBoxShadowSet
-            if fill != nil || box != nil || shadowSet != nil {
-                var top: CGFloat? = nil
-                var bottom: CGFloat = 0
-                let pGlyphs = glyphRange(forCharacterRange: paragraph, actualCharacterRange: nil)
-                enumerateLineFragments(forGlyphRange: pGlyphs) { rect, _, _, _, _ in
-                    if top == nil { top = rect.minY }
-                    bottom = rect.maxY
-                }
-                if let top = top {
-                    // Surface edges (0.15): the surface's
-                    // first paragraph carries the inside
-                    // space above it, its last the space
-                    // below — extend the band through both,
-                    // so a padded container's color and
-                    // photo reach their true edges.
-                    let extTop = (storage.attribute(TBExtTopKey, at: paragraph.location,
-                                                    effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0
-                    let extBottom = (storage.attribute(TBExtBottomKey, at: paragraph.location,
-                                                       effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0
-                    let boxID = box.map { ObjectIdentifier($0) }
-                    // The effects table (worn states,
-                    // transitions, keyframe runs) overrides
-                    // the paragraph's own stamps — an
-                    // animated surface fades and moves as
-                    // one piece, band and glyphs together.
-                    let bandFX = fxTraits(at: lastIndex)
-                    let transform = bandFX.transform
-                        ?? storage.attribute(TBTransformKey,
-                                             at: lastIndex,
-                                             effectiveRange: nil)
-                        as? TBTransformSpec
-                    let opacity = bandFX.opacity
-                        ?? (storage.attribute(TBOpacityKey,
-                                              at: lastIndex,
-                                              effectiveRange: nil)
-                        as? TBOpacitySpec)?.value ?? 1
-                    // Positioned layout (0.17): a relatively
-                    // offset surface paints shifted, as one
-                    // band of its own.
-                    let offset = paintOffset(at: paragraph.location, in: storage)
-                    bands.append((color: fill, box: box, boxID: boxID,
-                                  top: top - CGFloat(extTop),
-                                  bottom: bottom + CGFloat(extBottom),
-                                  dx: offset.x, dy: offset.y,
-                                  shadowSet: shadowSet,
-                                  shadowID: shadowSet.map {
-                                      ObjectIdentifier($0) },
-                                  transform: transform,
-                                  transformID: transform.map {
-                                      ObjectIdentifier($0) },
-                                  opacity: opacity))
-                }
+            if firstPara == nil { firstPara = paragraph }
+            lastPara = paragraph
+            if let band = surfaceBand(storage: storage, paragraph: paragraph,
+                                      canvas: canvas) {
+                bands.append(band)
             }
             index = NSMaxRange(paragraph)
+        }
+        // The banding repair (0.29): grow the band list
+        // outward to the whole surface run this draw
+        // touches, before coalescing. A surface's
+        // decomposition — which of its paragraphs merge,
+        // and the one rect its photo and gradient layers
+        // anchor to — must never depend on which
+        // paragraphs this draw was asked for: AppKit
+        // repaints in slices (a scroll exposes a strip
+        // at a time; the state and motion machinery
+        // invalidates one element's range at a time),
+        // and a run computed from a slice anchors its
+        // layers to the slice. The slices then disagree,
+        // and the disagreement is what showed: a hero
+        // photo restarting at every repaint boundary,
+        // and a color fill bridged across an
+        // unbackgrounded paragraph in one draw but
+        // clipped to half of it in the next, its other
+        // half left erased. Grown whole, every draw
+        // computes the same surfaces and the same
+        // anchors, and lays down exactly the pixels a
+        // full pass lays down — the graphics context
+        // still clips the paint to the region asked
+        // for. The walk tests each neighbouring band
+        // with the coalescing rule itself, so it
+        // extends a run precisely where a whole-range
+        // pass would merge and stops precisely where
+        // it would not; a paragraph carrying no surface
+        // spends only distance, measured on its own
+        // fragment span, and the walk stops once no
+        // band beyond it could still reach the run.
+        if !bands.isEmpty, let firstPara = firstPara,
+           let lastPara = lastPara {
+            var edge = bands.first!
+            var cursor = firstPara
+            while cursor.location > 0 {
+                let prev = string.paragraphRange(
+                    for: NSRange(location: cursor.location - 1, length: 0))
+                if prev.length == 0 { break }
+                if let cand = surfaceBand(storage: storage,
+                                          paragraph: prev,
+                                          canvas: canvas) {
+                    guard surfaceCompatible(cand, edge),
+                          edge.top - cand.bottom <= 64 else { break }
+                    bands.insert(cand, at: 0)
+                    edge = cand
+                } else {
+                    guard let span = paragraphSpan(paragraph: prev),
+                          edge.top - span.top <= 64 else { break }
+                }
+                cursor = prev
+            }
+            var edgeF = bands.last!
+            var cursorF = lastPara
+            while NSMaxRange(cursorF) < string.length {
+                let next = string.paragraphRange(
+                    for: NSRange(location: NSMaxRange(cursorF), length: 0))
+                if next.length == 0 { break }
+                if let cand = surfaceBand(storage: storage,
+                                          paragraph: next,
+                                          canvas: canvas) {
+                    guard surfaceCompatible(edgeF, cand),
+                          cand.top - edgeF.bottom <= 64 else { break }
+                    bands.append(cand)
+                    edgeF = cand
+                } else {
+                    guard let span = paragraphSpan(paragraph: next),
+                          span.bottom - edgeF.bottom <= 64 else { break }
+                }
+                cursorF = next
+            }
         }
 
         if bands.isEmpty { return }
@@ -3162,14 +3301,7 @@ final class TBBandLayoutManager: NSLayoutManager {
         // (same color, same layer box) across the ordinary
         // spacing between paragraphs, so one element's
         // background reads as one continuous surface.
-        var surfaces: [(color: NSColor?, box: TBBackgroundBox?,
-                        boxID: ObjectIdentifier?, top: CGFloat, bottom: CGFloat,
-                        dx: CGFloat, dy: CGFloat,
-                        shadowSet: TBBoxShadowSet?,
-                        shadowID: ObjectIdentifier?,
-                        transform: TBTransformSpec?,
-                        transformID: ObjectIdentifier?,
-                        opacity: CGFloat)] = []
+        var surfaces: [TBSurfaceBand] = []
         for band in bands {
             if let last = surfaces.last, last.boxID == band.boxID,
                last.shadowID == band.shadowID,

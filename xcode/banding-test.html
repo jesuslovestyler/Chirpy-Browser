@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.29 — The Banding Repair Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+  .note { background-color: #eef3e0; padding: 10px; }
+
+  .hero {
+    background-color: #31402a;
+    background-image: url("data:image/png;base64,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");
+    background-size: cover;
+    background-position: center 40%;
+    background-repeat: no-repeat;
+    color: #fffaf0;
+    padding: 54px 18px 48px 18px;
+  }
+  .hero h2 { margin: 0; font-size: 34px; }
+  .hero .lede { margin-top: 20px; font-size: 18px; }
+  .hero .meta { margin-top: 20px; font-size: 14px; }
+  .hero .cta { margin-top: 22px; font-size: 17px; }
+
+  ul.zebra { margin: 12px 0; }
+  ul.zebra li { padding: 4px 6px; }
+  ul.zebra li:nth-child(2n) { background-color: #eef3e0; }
+
+  .calm { background-color: #e8eef7; padding: 12px; }
+  .calm p { margin: 10px 0; }
+
+  .hovbox { padding: 12px; background-color: #f4f4f4; }
+  .hovbox:hover {
+    background-image: linear-gradient(180deg, #ffe9a8, #ffb26b);
+  }
+</style>
+</head>
+<body>
+
+<h1>Chirpy 0.29 — The Banding Repair</h1>
+
+<p>This page makes five promises about one thing: a background
+must paint as ONE surface, anchored once to its element's whole
+extent — no matter how the window happened to repaint it. Two of
+the promises you judge where you stand. Two ask you to scroll,
+because the fault they test only ever showed itself across
+repaints: a scroll exposes a strip at a time, and every strip
+used to re-anchor the picture to itself.</p>
+
+<p class="note">The little picture below is drawn for this page
+and travels inside it: a sunrise over two hill bands, the sun at
+40% of the height, a cross standing on the nearer hill. Its
+landmarks sit at known heights on purpose — if the picture is
+ever sliced and restarted, the sun and the cross repeat, and
+you can see it at a glance.</p>
+
+<h2>1 — A hero photo, whole</h2>
+
+<div class="hero">
+  <h2>Everything, in one place.</h2>
+  <p class="lede">Read the whole Bible free, and find devotionals,
+  everyday tools, and games — everything in one place, all given
+  freely.</p>
+  <p class="meta">97 destinations &middot; Refreshed for this test</p>
+  <p class="cta">Read the Bible [a link stands here in spirit]</p>
+  <p>One more paragraph deep in the hero, so the surface spans
+  several paragraphs and the spaces between them, the way a real
+  banner does. The photograph behind all of it is a single
+  picture: cover-sized once, against the whole hero.</p>
+</div>
+
+<p>What you should see: ONE continuous sunrise. The sun is a
+single whole disc, the cross stands once on its hill, and no
+horizontal seam anywhere in the hero restarts the picture.</p>
+
+<h2>2 — The same hero, after scrolling</h2>
+
+<p>Now scroll down until the hero has left the window, and come
+back up SLOWLY — a strip at a time, the way a trackpad drifts.
+Then look at the hero again.</p>
+
+<p>What you should see: the same single continuous sunrise as
+promise 1. Before this repair, each re-exposed strip repainted
+the surface for its own slice of paragraphs and re-anchored the
+photograph to that slice, so the hero came back as a stack of
+restarted bands — several suns, several crosses. The repair
+makes every repaint compute the whole surface, so a strip can
+only ever lay down the same pixels the full pass laid down.</p>
+
+<h2>3 — A zebra list, honestly shaded</h2>
+
+<ul class="zebra">
+  <li>First item — no shading is declared for odd items.</li>
+  <li>Second item — shaded pale green, the whole item.</li>
+  <li>Third item — odd again: nothing behind these words,
+  on any part of the line.</li>
+  <li>Fourth item — shaded, and long enough to wrap onto a
+  second line, so its band must stand behind both lines and
+  the space the item's own padding makes, one unbroken
+  band from its top edge to its bottom edge.</li>
+  <li>Fifth item — odd, plain, unshaded.</li>
+  <li>Sixth item — shaded, plain and whole.</li>
+  <li>Seventh item — odd, and long enough to wrap as well:
+  however many lines it takes, not one of them may carry a
+  pale strip in its upper half, its lower half, or anywhere
+  else. The shading belongs to its neighbours; none of it
+  may leak.</li>
+  <li>Eighth item — shaded, to close the list.</li>
+</ul>
+
+<h2>4 — The same list, after scrolling</h2>
+
+<p>Scroll so the list crosses the window's edge a strip at a
+time — down a little, up a little, letting it repaint in
+slices — then read the list again.</p>
+
+<p>What you should see: exactly promise 3 again. Before this
+repair, a repaint whose strip began halfway down an unshaded
+item could bridge its shaded neighbours' fill across only the
+strip's half of it, leaving a pale strip clipped to the lower
+half of the line and the upper half erased bare. That is the
+stray paint the 0.23 drill recorded and no one could prove;
+it should not be able to happen now, at any scroll position.</p>
+
+<h2>5 — A hover gradient, one flow</h2>
+
+<div class="hovbox">
+  <p>Rest the pointer on this box. Its hover dress is a single
+  gradient, warm at the top and deep at the bottom, declared
+  over several lines of text so the flow has room to show.</p>
+  <p>What you should see: ONE gradient flowing over the whole
+  box, top to bottom. Before this repair, a block's state
+  layers painted once per line, each line re-anchoring the
+  gradient to itself — the box would have worn the gradient
+  in bands, bright at every line's top. Now a block stamp's
+  layers paint once, into the union of its lines.</p>
+</div>
+
+</body>
+</html>

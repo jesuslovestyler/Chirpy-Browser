@@ -7,6 +7,137 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.29.0 — THE BANDING REPAIR
+------------------------------------------------------
+A defect repair, proven before it was patched. Two
+sightings stood open: the hub's hero photograph
+painting in horizontal strips (Tyler's screenshot,
+Nov 4, Chirpy 0.27), each strip restarting the
+picture; and the finishing test's promise 7 — thin
+pale strips behind the odd list items, clipped to
+the lower half of the line (the Oct 23 drill) —
+which 0.23.1 honestly left unfixed for want of a
+provable mechanism. They are one defect, and the
+mechanism is now proven, not suspected:
+
+A surface's paint depended on which paragraphs the
+current draw was asked for. The surface painter
+(paintContinuousSurfaces) reckoned an element's
+background — which of its paragraphs merge into
+one surface, and the one rect its photo and
+gradient layers anchor to — from only the
+paragraphs inside the draw's glyph range. But
+AppKit repaints in slices: a scroll exposes a
+strip at a time, and the state and motion
+machinery invalidates single elements' ranges.
+A draw covering part of a surface computed the
+run from that part and anchored the layers to the
+part's rect — cover sizing, position and tiling
+all resolved against the slice. Slice by slice,
+the same photograph was laid down at different
+scales and anchors; where slices met, the
+picture restarted. The screenshot proves it
+numerically: measured against the hub banner's
+own photograph (1920x823, cover, center 40%),
+successive horizontal stretches of Tyler's
+screenshot each follow ONE consistent mapping of
+photo rows to screen rows, but the stretches'
+mappings disagree with one another — and none of
+them is the whole-surface mapping. There was no
+one paint to blame; the patchwork was the paint.
+
+The zebra strips are the same dependence in the
+color fill: a draw whose range spans two shaded
+items bridges their fill across the unshaded item
+between them, as a full pass does — but clipped
+to the draw's slice, so when a scroll's strip
+began halfway down the unshaded item, only its
+lower half received the bridged fill, and its
+upper half, erased by that same repaint and
+covered by no band in the draw's reckoning,
+stayed bare. Which half wore the strip depended
+on where the strip fell — which is why the
+artifact was real, repeatable, and unprovable
+from any single pass's code path.
+
+The repair, at the cause, in the shared path:
+
+* paintContinuousSurfaces now grows its band list
+  outward to the WHOLE surface run before
+  coalescing. The walk tests each neighbouring
+  paragraph's band with the coalescing rule itself
+  (surfaceCompatible and the same 64-point reach),
+  so it extends a run exactly where a whole-range
+  pass would merge and stops exactly where it
+  would not; a paragraph carrying no surface
+  spends only distance, measured on its own
+  fragment span. Every draw that touches a run —
+  full pass, scroll strip, single-element
+  invalidation — now computes the same surfaces
+  and the same anchor rects, and lays down exactly
+  the pixels a full pass lays down; the graphics
+  context still clips the paint to the region
+  actually asked for. The per-paragraph band
+  reckoning itself is unchanged, only lifted into
+  a helper (surfaceBand) the walk and the loop
+  share, so a band means the same thing in both.
+  Shadows, transforms and opacity ride on bands
+  and inherit the consistency.
+
+* A block stamp's state layers (hover / focus /
+  active, paintStateLayers) paint ONCE, into the
+  union of the stamp's fragment rects, instead of
+  re-anchoring at every line: a multi-line block's
+  hover photo or gradient is one flow over the
+  block's whole extent, margins bridged. An inline
+  element's own state layers still paint per
+  fragment — per-line anchoring is what CSS asks
+  of an inline box's fragments, and those fragments
+  are intrinsic to the element, not to the draw.
+
+What provably does not change: a full-range draw
+computes the same band list it always did (the
+growth walk only adds what the range cut off),
+so pages whose backgrounds painted correctly —
+single surfaces, boxes, flex and grid seats,
+columns, fixed overlays, all of which always
+anchored to their own intrinsic rects — paint
+the same pixels. Fill colors had no anchoring to
+lose; the AppKit per-fragment color pass is
+untouched. One honest residue: a repaint whose
+glyph range covers ONLY bridged spacing inside a
+surface, touching none of its paragraphs or
+stamped separators, still paints nothing there —
+glyph ranges are fragment-born, and a stamped
+separator rides inside nearly every such gap, so
+the case is a sliver of a sliver; it is named
+rather than chased.
+
+The drill (banding-test.html, in this folder):
+1. Build and run. The status line reads "Chirpy
+   Engine 0.29.0 (Swift)" and names the banding
+   repair.
+2. Drag banding-test.html onto the window. Five
+   promises: (1) the hero's sunrise is ONE
+   continuous picture — one sun, one cross, no
+   seams; (2) scroll the hero away and back,
+   slowly — the same unbroken picture, where the
+   old paint returned it as restarted bands;
+   (3) the zebra list: shaded items wear full
+   unbroken bands, unshaded items wear nothing,
+   on no part of any line; (4) scroll the list
+   across the window's edge in strips — promise 3
+   again, exactly; (5) rest the pointer on the
+   last box: ONE gradient flowing over the whole
+   box, not one per line.
+3. The live witness: jesuslovestyler.com. Load
+   it, scroll down and back up slowly, and look
+   at the banner — one continuous photograph of
+   the hills, as the page declares it.
+4. Regression: shield-test.html — the Shield's
+   six promises exactly as in 0.28; nothing about
+   the fetcher moved.
+
 WHAT'S NEW IN 0.28.0 — THE SHIELD
 ------------------------------------------------------
 The release Tyler asked for on Nov 4, the evening

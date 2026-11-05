@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.28.0 (Swift)
+//  Chirpy Browser — engine 0.29.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -389,6 +389,33 @@
 //      and DNT signals. The lists are curated
 //      starters, not any public corpus whole — the
 //      README says so plainly.
+//    * The banding repair (0.29): a surface's paint
+//      no longer depends on which paragraphs a draw
+//      was asked for. The surface painter used to
+//      reckon an element's background — which of its
+//      paragraphs merge into one surface, and the
+//      single rect its photo and gradient layers
+//      anchor to — from only the paragraphs inside
+//      the current draw's glyph range, so a repaint
+//      of part of a surface (a scroll exposing a
+//      strip at a time, a state or motion
+//      invalidation) laid its layers down anchored
+//      to the slice, and the slices disagreed: a
+//      hero photo restarted at every repaint
+//      boundary, and a bridged color fill could
+//      cover half of an unbackgrounded paragraph
+//      in one draw and leave the other half erased
+//      in the next. The painter now grows its band
+//      list outward to the whole surface run before
+//      coalescing, measured by the coalescing rule
+//      itself, so every draw computes the same
+//      surfaces and the same anchors — the
+//      graphics context still clips the paint to
+//      the region asked for. A block stamp's state
+//      (hover / focus / active) layers likewise
+//      paint once, into the union of the stamp's
+//      fragment rects, instead of re-anchoring at
+//      every line.
 //  Not yet: JavaScript (the mountain), inset
 //  box-shadows, live select and textarea controls,
 //  and the outs named in the README.
@@ -931,7 +958,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                                              category: category))
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.28.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -957,7 +984,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.28.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1027,7 +1054,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.28.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1137,7 +1164,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
     // to its label, exactly as a failed fetch does.
     if tbShieldCategory(host: url.host) != nil { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.28.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2288,7 +2315,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
     // without that sheet, as it does when one fails.
     if tbShieldCategory(host: url.host) != nil { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.28.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
