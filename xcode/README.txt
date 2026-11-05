@@ -7,6 +7,111 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.36.0 — THE SPEED STAGE, AND LINKS THAT ANSWER
+------------------------------------------------------
+Wikipedia told on us: a real article took so
+long we went and measured before we touched
+anything. The numbers (our own engine's code,
+run headless against the real "Cardinal
+(bird)" article — 220 KB of HTML, 2,818
+elements, 607 stylesheet rules):
+
+* Parsing was never the problem: the whole
+  article parses in about a tenth of a
+  second, its CSS in about the same.
+
+* The style stage was the mountain. One pass
+  resolving every element's style took about
+  49 seconds — and almost all of it was the
+  CSS custom-property environment, which
+  matched all 607 rules against every
+  ancestor of every element (about 87
+  seconds when isolated), though only 4 of
+  the 607 rules define a --property at all.
+  It matches only those now. The resting
+  cascade's own full scan (about 2 seconds a
+  pass, and the walk asked for the same
+  elements again and again) is answered from
+  an index by each selector's simplest key,
+  and each element's resolved style is
+  remembered for the walk's life. The same
+  pass, same article, same output — verified
+  element for element against the old way —
+  now takes about a second and a half (and the
+  walk's repeat questions are answered from
+  memory, not recomputed).
+
+* Scripts no longer stand in front of the
+  painting. A page paints first; its scripts
+  run afterwards against the kept page, and
+  if they change anything the page repaints
+  a beat later (the console's repaint, doing
+  double duty). Wikipedia's own scripts die
+  in our young interpreter in about 0.02
+  seconds — they were never the wall — but
+  on a page whose scripts do run, you now
+  see the page while they work.
+
+* A script budget. The whole script stage —
+  fetches and execution together — gets
+  three seconds. Past it, no more of that
+  page's scripts run, and the console says
+  so in plain words: "Script budget reached
+  — the rest of this page's scripts were
+  skipped". One misbehaving page can no
+  longer hold the browser hostage.
+
+* A Timing entry for every load, standing
+  in the console as a Note: fetch, parse,
+  style+layout, scripts, and the total (and
+  a repaint time, when the scripts changed
+  the page). Your Mac is now the profiler:
+  these are the numbers to watch, cold and
+  warm.
+
+And the links. On real pages, clicking a
+link inside the page's words did nothing
+but select — while Chirpy Home's links
+worked. The mechanism, found: links inside
+painted boxes — floated boxes, grid and
+flex items, columns, positioned boxes —
+had their targets stripped when the box was
+finished, because the box is paint, not the
+text view's text, and the native click path
+only ever sees text. Chirpy Home has no
+such boxes, so its links lived. Now the
+boxes keep their targets, and the view
+hit-tests a click inside a painted box
+against the same layout that painted it:
+a click on a link in a box follows it. (A
+container nested inside a box's own
+contents is not followed yet — that is the
+named remainder, not a silent one.)
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.36.0 (Swift)"
+and name "the speed stage, painted-box
+links" among the features. Open js-test
+(helper beside it): all eleven promises
+still filled, the title still the script's
+own, the console and the alert still in
+the drawer — the promises land a beat
+after the page paints now, which is the
+paint-first bargain made visible. Open a
+Wikipedia article cold, press Console, and
+read the Timing entry (a Note). Open the
+SAME article again — the cache is warm —
+and compare: fetch should fall away and
+the total with it. Then the links: on
+Wikipedia's main page, click a link in the
+"Featured article" area, and on an article
+page click one of the blue links in the
+article's words and one inside the
+infobox — every one should navigate. On
+the hub, click a card. Plain clicks, no
+dragging: a drag still selects, as it
+should.
+
 WHAT'S NEW IN 0.35.0 — DEVELOPER TOOLS AND SETTINGS
 ------------------------------------------------------
 You asked for what every browser has: a

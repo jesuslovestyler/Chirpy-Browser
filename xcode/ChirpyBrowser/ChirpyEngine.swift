@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.35.0 (Swift)
+//  Chirpy Browser — engine 0.36.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -626,6 +626,38 @@
 //      the singing cardinal in stained glass,
 //      stands on the home page and at the head
 //      of the repo's README.
+//  0.36 is the speed stage, and the repair of
+//  the painted-box links. Measured first, on a
+//  real Wikipedia article (2,818 elements, 607
+//  stylesheet rules): the custom-property
+//  environment was the mountain — it matched
+//  every rule against every ancestor of every
+//  element (86.7s for one pass), though only 4
+//  of the 607 rules define a --property at all;
+//  it matches only those now. The resting
+//  cascade's full scan (2.0s a pass, asked for
+//  the same elements again and again) is
+//  answered from an index by each selector's
+//  rightmost-compound key and remembered per
+//  element for the walk's life. A page paints
+//  BEFORE its scripts run; script changes
+//  repaint a beat later, and the whole script
+//  stage — fetches and execution together —
+//  lives under a three-second budget, past
+//  which one plain console line says the rest
+//  were skipped. Every load leaves a Timing
+//  entry in the console: fetch, parse,
+//  style+layout, scripts, and the total, so
+//  the reader's own machine is the profiler.
+//  And links inside painted boxes — floated
+//  boxes, grid and flex items, columns,
+//  positioned boxes, fixed overlays — are
+//  followed now: their targets are no longer
+//  stripped in the finalize passes, and the
+//  view hit-tests the painted seat with the
+//  same layout that painted it. A container
+//  nested inside a box's own contents is not
+//  followed yet (named in the README).
 //  Not yet: JavaScript beyond the first slice
 //  above — event handlers, timers, fetch and
 //  XMLHttpRequest, and the wider DOM. The
@@ -1622,7 +1654,7 @@ func tbGETWithCache(urlString: String, accept: String,
         break
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue(accept, forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1694,7 +1726,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (got.finalURL, html)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1720,7 +1752,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1824,7 +1856,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1985,7 +2017,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
         return got.data
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3245,7 +3277,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
             ?? String(decoding: got.data, as: UTF8.self)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.36.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3328,6 +3360,21 @@ final class TBJSContext {
     // page's own scripts set it too, but a
     // load paints after its scripts anyway.
     var domChanged = false
+    // The speed stage (0.36): the script stage's
+    // wall-clock budget. tbRunScripts sets the
+    // deadline when a page's scripts begin and
+    // clears it when they end, so the console
+    // (which shares this scope) is never held to
+    // it — only a page's own scripts are. The
+    // evaluator counts its checks and compares
+    // against the deadline as it goes; a loop
+    // that never yields still meets the check,
+    // because every loop head and every block
+    // passes it. When the deadline passes, the
+    // run stops and the page keeps its life.
+    var budgetDeadline: Date? = nil
+    var budgetSteps = 0
+    var budgetExceeded = false
     // Mutating array natives (push, pop) set this
     // to the array's new shape; the call site,
     // which knows the expression the array came
@@ -4215,6 +4262,21 @@ struct TBJSParser {
 
 // MARK: - JavaScript evaluator (0.33)
 
+// The script budget's check (0.36): counted, so
+// the clock is read once in a while rather than
+// at every statement; thrown as an ordinary
+// script error whose message the runner
+// recognizes and reports in its own plain words.
+func tbJSCheckBudget(_ ctx: TBJSContext) throws {
+    guard ctx.budgetDeadline != nil else { return }
+    ctx.budgetSteps += 1
+    if ctx.budgetSteps % 256 == 0, let deadline = ctx.budgetDeadline,
+       Date() > deadline {
+        ctx.budgetExceeded = true
+        throw TBJSFlow.error("script budget reached")
+    }
+}
+
 func tbJSExec(_ stmts: [TBJSStmt], _ env: TBJSEnv,
               _ ctx: TBJSContext) throws {
     // Function declarations are hoisted: they
@@ -4226,6 +4288,7 @@ func tbJSExec(_ stmts: [TBJSStmt], _ env: TBJSEnv,
         }
     }
     for stmt in stmts {
+        try tbJSCheckBudget(ctx)
         try tbJSExecStmt(stmt, env, ctx)
     }
 }
@@ -4255,6 +4318,11 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
         }
     case .whileLoop(let cond, let body):
         while tbJSTruthy(try tbJSEval(cond, env, ctx)) {
+            // The budget check rides the loop head
+            // too (0.36): a loop whose body is one
+            // bare statement never passes tbJSExec,
+            // and an empty body still spins here.
+            try tbJSCheckBudget(ctx)
             do {
                 try tbJSExecStmt(body, env, ctx)
             } catch let flow as TBJSFlow {
@@ -4267,6 +4335,7 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
         }
     case .doWhile(let body, let cond):
         while true {
+            try tbJSCheckBudget(ctx)
             do {
                 try tbJSExecStmt(body, env, ctx)
             } catch let flow as TBJSFlow {
@@ -4283,6 +4352,7 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
             try tbJSExecStmt(initial, env, ctx)
         }
         while true {
+            try tbJSCheckBudget(ctx)
             if let cond = cond,
                !tbJSTruthy(try tbJSEval(cond, env, ctx)) {
                 break
@@ -4759,30 +4829,64 @@ final class TBPageSession {
     }
 }
 
-// Run the landed page's scripts, in document
-// order, on one shared page scope — inline code,
-// and external files fetched the way style
-// sheets are (the Shield is asked first, then
-// the fetcher, cache and all). Writes land on
-// the parsed tree itself, so what the scripts
-// say is what the walk then paints. The page's
-// session (0.35) comes back with the run: the
-// scope is kept, not discarded, so the console
-// can go on talking to the landed page.
-func tbRunScripts(root: TBNode, base: String,
-                  initialTitle: String) async
-    -> (run: TBJSRun, session: TBPageSession) {
+// Make the landed page's session (0.36): its
+// scope exists before anything paints, so the
+// walk can go to the window first and the
+// page's scripts can run against the kept tree
+// afterwards — the paint-first order below.
+func tbMakeSession(root: TBNode, base: String,
+                   initialTitle: String) -> TBPageSession {
     let ctx = TBJSContext()
     ctx.title = initialTitle
     tbCollectIds(root, into: &ctx.elementsById)
-    let session = TBPageSession(root: root, base: base,
-                                ctx: ctx, landedTitle: initialTitle)
+    return TBPageSession(root: root, base: base,
+                         ctx: ctx, landedTitle: initialTitle)
+}
+
+// Run the landed page's scripts, in document
+// order, on its kept scope — inline code,
+// and external files fetched the way style
+// sheets are (the Shield is asked first, then
+// the fetcher, cache and all). Writes land on
+// the parsed tree itself. Since 0.36 the walk
+// has already painted once when this runs, so
+// what the scripts change is repainted after.
+// The script budget (0.36): the whole stage —
+// fetches and execution together — gets three
+// seconds of wall clock. Past it, no further
+// script runs, one plain line says so in the
+// console, and the page lives its life.
+func tbRunScripts(session: TBPageSession) async -> TBJSRun {
+    let root = session.root
+    let base = session.base
+    let ctx = session.ctx
     var scripts: [TBNode] = []
     tbCollectScripts(root, into: &scripts)
     if scripts.isEmpty {
-        return (TBJSRun(), session)
+        return TBJSRun()
+    }
+    ctx.budgetDeadline = Date().addingTimeInterval(3.0)
+    // The console shares this scope after the
+    // load; the deadline is the page's alone.
+    defer { ctx.budgetDeadline = nil }
+    var budgetLogged = false
+    func noteBudget() {
+        if !budgetLogged {
+            budgetLogged = true
+            ctx.logs.append("Script budget reached"
+                + " \u{2014} the rest of this page's scripts were skipped")
+        }
     }
     for script in scripts {
+        if ctx.budgetExceeded {
+            noteBudget()
+            break
+        }
+        if let deadline = ctx.budgetDeadline, Date() > deadline {
+            ctx.budgetExceeded = true
+            noteBudget()
+            break
+        }
         var source = script.children
             .filter { $0.tag == "#text" }.map { $0.text }
             .joined()
@@ -4816,6 +4920,10 @@ func tbRunScripts(root: TBNode, base: String,
             let program = try parser.parseProgram()
             try tbJSExec(program, ctx.globals, ctx)
         } catch let flow as TBJSFlow {
+            if ctx.budgetExceeded {
+                noteBudget()
+                break
+            }
             switch flow {
             case .error(let message):
                 ctx.logs.append("Script error: " + message)
@@ -4825,11 +4933,15 @@ func tbRunScripts(root: TBNode, base: String,
                 ctx.logs.append("Script error: break or continue outside a loop")
             }
         } catch {
+            if ctx.budgetExceeded {
+                noteBudget()
+                break
+            }
             ctx.logs.append("Script error: \(error)")
         }
     }
-    return (TBJSRun(titleOverride: ctx.titleSet ? ctx.title : nil,
-                    consoleLines: ctx.logs), session)
+    return TBJSRun(titleOverride: ctx.titleSet ? ctx.title : nil,
+                   consoleLines: ctx.logs)
 }
 
 // What one trip through the JavaScript
@@ -6412,7 +6524,18 @@ func tbResolveHoverStyle(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
 // The custom-property environment of one element: every --name
 // defined on the element or inherited from its ancestors, with
 // nearer and stronger definitions winning, as in real CSS.
+// The speed stage (0.36): only rules that define a custom
+// property can contribute a name here, so only they are
+// matched — on the measured Wikipedia article, 4 of 607
+// rules define one, and matching the other 603 against
+// every ancestor of every element was the single largest
+// cost in the whole style stage (a full environment pass
+// over the article: 86.7s by the harness's clock, against
+// 2.0s for the entire resting cascade).
 func tbVariableEnvironment(node: TBNode, rules: [TBCSSRule]) -> [String: String] {
+    let customRules = rules.filter { rule in
+        rule.declarations.contains { $0.key.hasPrefix("--") }
+    }
     var chain: [TBNode] = []
     var current: TBNode? = node
     while let element = current, element.tag != "document" {
@@ -6422,7 +6545,7 @@ func tbVariableEnvironment(node: TBNode, rules: [TBCSSRule]) -> [String: String]
     var env: [String: String] = [:]
     for element in chain.reversed() {
         var matched: [TBCSSRule] = []
-        for rule in rules where tbSelectorMatches(rule.selector, node: element) {
+        for rule in customRules where tbSelectorMatches(rule.selector, node: element) {
             matched.append(rule)
         }
         matched.sort {
@@ -7284,6 +7407,64 @@ final class TBRenderer {
     let base: String
     var links: [String] = []
     var rules: [TBCSSRule] = []
+    // The speed stage (0.36): resolved styles are
+    // remembered per element for the life of this
+    // walk — the tree and the rules do not change
+    // under a walk, and the walk was asking for the
+    // same element's style again and again (the
+    // block walk, its inline children, its state
+    // paints). And the cascade is offered only the
+    // rules that could match: an index by the
+    // rightmost compound's plainest key (its tag,
+    // its id, or its first class; a compound with
+    // none of those stands in the universal
+    // bucket). The index can only over-include —
+    // tbSelectorMatches still has the last word —
+    // so the styles it yields are the full scan's
+    // styles, reached faster. Measured on the
+    // Wikipedia article: the resting cascade's
+    // per-element full scan was 2.0s of a walk
+    // that repeated it many times over.
+    private var styleCache: [ObjectIdentifier: [String: String]] = [:]
+    private var stateCache: [String: [String: String]] = [:]
+    private var ruleIndex: [String: [TBCSSRule]] = [:]
+    private var ruleIndexRuleCount = -1
+
+    // The rules that could match this element:
+    // every bucket its rightmost-compound key
+    // could have filed it under.
+    func candidateRules(node: TBNode) -> [TBCSSRule] {
+        if ruleIndexRuleCount != rules.count {
+            ruleIndex = [:]
+            for rule in rules {
+                guard let subject = rule.selector.compounds.last
+                else { continue }
+                let key: String
+                if let id = subject.id {
+                    key = "i:" + id
+                } else if let tag = subject.tag {
+                    key = "t:" + tag
+                } else if let first = subject.classes.first {
+                    key = "c:" + first
+                } else {
+                    key = "u:"
+                }
+                ruleIndex[key, default: []].append(rule)
+            }
+            ruleIndexRuleCount = rules.count
+        }
+        var out = ruleIndex["u:"] ?? []
+        out += ruleIndex["t:" + node.tag] ?? []
+        if let id = node.attrs["id"], !id.isEmpty {
+            out += ruleIndex["i:" + id] ?? []
+        }
+        if let classes = node.attrs["class"] {
+            for name in classes.split(whereSeparator: { $0.isWhitespace }) {
+                out += ruleIndex["c:" + name] ?? []
+            }
+        }
+        return out
+    }
     var pageBackground: NSColor? = nil
     let out = NSMutableAttributedString()
 
@@ -7891,8 +8072,18 @@ final class TBRenderer {
                 .absoluteString ?? href
             node.linkVisited = visitedURLs.contains(absolute)
         }
-        let raw = tbResolveStyle(node: node, rules: rules)
-        if raw.isEmpty { return raw }
+        // The speed stage (0.36): a walk asks for an
+        // element's style many times; the answer
+        // cannot change while the walk stands, so
+        // it is remembered. The visited stamp above
+        // still lands first, every time.
+        let cacheKey = ObjectIdentifier(node)
+        if let remembered = styleCache[cacheKey] { return remembered }
+        let raw = tbResolveStyle(node: node, rules: candidateRules(node: node))
+        if raw.isEmpty {
+            styleCache[cacheKey] = raw
+            return raw
+        }
         let env = tbVariableEnvironment(node: node, rules: rules)
         var out: [String: String] = [:]
         for (name, value) in raw {
@@ -7903,7 +8094,9 @@ final class TBRenderer {
         }
         // A font: that arrived through var() expands now
         // that its value is concrete (0.23).
-        return tbExpandDeferredFont(out)
+        let resolved = tbExpandDeferredFont(out)
+        styleCache[cacheKey] = resolved
+        return resolved
     }
 
     // One state's declarations (0.23; all three states
@@ -7913,8 +8106,17 @@ final class TBRenderer {
     // live form control wears from them is read by
     // controlStyle below.
     func resolvedStateStyle(node: TBNode, flag: TBStateFlag) -> [String: String] {
-        let raw = tbResolveStateStyle(node: node, rules: rules, flag: flag)
-        if raw.isEmpty { return raw }
+        // Remembered like the resting style (0.36),
+        // under the state beside the element.
+        let cacheKey = "\(ObjectIdentifier(node))|\(flag)"
+        if let remembered = stateCache[cacheKey] { return remembered }
+        let raw = tbResolveStateStyle(node: node,
+                                      rules: candidateRules(node: node),
+                                      flag: flag)
+        if raw.isEmpty {
+            stateCache[cacheKey] = raw
+            return raw
+        }
         let env = tbVariableEnvironment(node: node, rules: rules)
         var out: [String: String] = [:]
         for (name, value) in raw {
@@ -7923,6 +8125,7 @@ final class TBRenderer {
                 out[name] = resolved
             }
         }
+        stateCache[cacheKey] = out
         return out
     }
 
@@ -9540,17 +9743,19 @@ final class TBRenderer {
     }
 
     // A block float's contents are finished (its pictures
-    // fetched, its failures labelled): strip what cannot
-    // work inside a painted box — the link targets and
-    // their [n] markers (the markers point into the page's
-    // link list, which this box is not part of), and the
-    // form controls, for which bracketed labels stand in —
-    // then size the box: a declared width wins, else the
-    // box shrinks to its contents' natural width, capped
-    // at the column; a declared height wins, else the
-    // measured height of the contents at the final width.
-    // Links inside a floated box keep their colors in 0.17
-    // but are not clickable — the box is paint, not text.
+    // fetched, its failures labelled): take out what
+    // cannot work inside a painted box — the [n] markers
+    // (they point into the page's link list, which this
+    // box is not part of), and the form controls, for
+    // which bracketed labels stand in — then size the
+    // box: a declared width wins, else the box shrinks
+    // to its contents' natural width, capped at the
+    // column; a declared height wins, else the measured
+    // height of the contents at the final width. Links
+    // inside a floated box kept their colors in 0.17 but
+    // were not clickable — the box was paint, not text;
+    // since 0.36 they keep their targets too, and the
+    // view hit-tests the painted box and follows them.
     private func finalizeBlockFloat(spec: TBFloatSpec, sub: TBRenderer) {
         let cleaned = NSMutableAttributedString(attributedString: sub.out)
         var swaps: [(range: NSRange, text: String)] = []
@@ -9593,8 +9798,12 @@ final class TBRenderer {
                 attributes: [.font: NSFont.systemFont(ofSize: 12),
                              .foregroundColor: NSColor.secondaryLabelColor]))
         }
-        cleaned.removeAttribute(.link,
-                                range: NSRange(location: 0, length: cleaned.length))
+        // The speed stage (0.36): the box's links
+        // KEEP their targets — the view hit-tests
+        // painted boxes now and follows them. The
+        // [n] markers above still come out: they
+        // numbered the page's flow links, not the
+        // box's own.
         spec.content = cleaned
         let padH = spec.paddingLeft + spec.paddingRight
         let padV = spec.paddingTop + spec.paddingBottom
@@ -10120,8 +10329,12 @@ final class TBRenderer {
                 attributes: [.font: NSFont.systemFont(ofSize: 12),
                              .foregroundColor: NSColor.secondaryLabelColor]))
         }
-        cleaned.removeAttribute(.link,
-                                range: NSRange(location: 0, length: cleaned.length))
+        // The speed stage (0.36): the box's links
+        // KEEP their targets — the view hit-tests
+        // painted boxes now and follows them. The
+        // [n] markers above still come out: they
+        // numbered the page's flow links, not the
+        // box's own.
         part.content = cleaned
         // Flexbox (0.24) and grid (0.25): a container
         // inside the part was walked against the page's
@@ -11351,9 +11564,10 @@ final class TBRenderer {
                     attributes: [.font: NSFont.systemFont(ofSize: 12),
                                  .foregroundColor: NSColor.secondaryLabelColor]))
             }
-            cleaned.removeAttribute(.link,
-                                    range: NSRange(location: 0,
-                                                   length: cleaned.length))
+            // Links in the item keep their
+            // targets now (0.36): the view
+            // hit-tests painted items and
+            // follows them.
             item.content = cleaned
         }
         computeFlexLayout(spec: spec)
@@ -13112,9 +13326,10 @@ final class TBRenderer {
                     attributes: [.font: NSFont.systemFont(ofSize: 12),
                                  .foregroundColor: NSColor.secondaryLabelColor]))
             }
-            cleaned.removeAttribute(.link,
-                                    range: NSRange(location: 0,
-                                                   length: cleaned.length))
+            // Links in the item keep their
+            // targets now (0.36): the view
+            // hit-tests painted items and
+            // follows them.
             item.content = cleaned
         }
         computeGridLayout(spec: spec)
@@ -13315,8 +13530,12 @@ final class TBRenderer {
                 attributes: [.font: NSFont.systemFont(ofSize: 12),
                              .foregroundColor: NSColor.secondaryLabelColor]))
         }
-        cleaned.removeAttribute(.link,
-                                range: NSRange(location: 0, length: cleaned.length))
+        // The speed stage (0.36): the box's links
+        // KEEP their targets — the view hit-tests
+        // painted boxes now and follows them. The
+        // [n] markers above still come out: they
+        // numbered the page's flow links, not the
+        // box's own.
         spec.content = cleaned
         let padH = spec.paddingLeft + spec.paddingRight
         let padV = spec.paddingTop + spec.paddingBottom
@@ -13811,13 +14030,18 @@ struct TBFirstPaint {
 // hands the renderer two things only the window knows:
 // the session's visited URLs (for :link / :visited) and
 // the text area's width as the load began (for @media).
+// The speed stage (0.36) adds the window's own fetch
+// time, so the load's timing entry can speak of the
+// whole road.
 func tbRenderPage(html: String, base: String,
                   visited: Set<String> = [],
                   mediaWidth: CGFloat? = nil,
+                  fetchSeconds: Double = 0,
                   onFirstPaint: (TBFirstPaint) -> Void) async -> TBFirstPaint {
     return await tbRenderFollowingRefresh(html: html, base: base, depth: 0,
                                           visited: visited,
                                           mediaWidth: mediaWidth,
+                                          fetchSeconds: fetchSeconds,
                                           onFirstPaint: onFirstPaint)
 }
 
@@ -13860,38 +14084,141 @@ func tbRepaintPage(session: TBPageSession,
 private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                                       visited: Set<String>,
                                       mediaWidth: CGFloat?,
+                                      fetchSeconds: Double,
                                       onFirstPaint: (TBFirstPaint) -> Void)
     async -> TBFirstPaint {
     var title = tbExtractTitle(html: html)
+    let parseStart = Date()
     let tree = tbParse(html: html)
+    let parseSeconds = Date().timeIntervalSince(parseStart)
     if depth < 3, let target = tbMetaRefreshTarget(root: tree, base: base),
-       target != base,
-       let (newBase, newHTML) = try? await tbFetch(urlString: target) {
-        return await tbRenderFollowingRefresh(html: newHTML, base: newBase,
-                                              depth: depth + 1,
-                                              visited: visited,
-                                              mediaWidth: mediaWidth,
-                                              onFirstPaint: onFirstPaint)
+       target != base {
+        let hopStart = Date()
+        if let (newBase, newHTML) = try? await tbFetch(urlString: target) {
+            // The refresh hop's fetch joins the
+            // load's fetch time, and the deeper
+            // render speaks for the page that
+            // finally lands.
+            return await tbRenderFollowingRefresh(
+                html: newHTML, base: newBase,
+                depth: depth + 1,
+                visited: visited,
+                mediaWidth: mediaWidth,
+                fetchSeconds: fetchSeconds
+                    + Date().timeIntervalSince(hopStart),
+                onFirstPaint: onFirstPaint)
+        }
     }
-    // JavaScript, first slice (0.33): the landed
-    // page's scripts run now — after any refresh
-    // has been followed, before the walk — so the
-    // words they write are the words that paint,
-    // and a title they set is the title shown.
-    let (js, session) = await tbRunScripts(root: tree, base: base,
-                                           initialTitle: title)
-    if let override = js.titleOverride { title = override }
+    // Paint first, then scripts (0.36): the session
+    // exists from the start, the walk paints what
+    // the page's HTML and CSS say, and only then do
+    // its scripts run — against the kept tree. If
+    // they change the page, it is walked again and
+    // the new paint replaces the first, the way a
+    // console change repaints (0.35). Until 0.35 the
+    // scripts ran before the walk, so a script-heavy
+    // page showed nothing at all until every script
+    // had had its say; now the reader sees the page
+    // first, and script changes land a beat later —
+    // the honest tradeoff, and the arrivals model
+    // already paints progressively in this shape.
+    let session = tbMakeSession(root: tree, base: base, initialTitle: title)
     let renderer = TBRenderer(base: base)
     renderer.visitedURLs = visited
     renderer.mediaWidth = mediaWidth
+    let layoutStart = Date()
     let body = await renderer.renderFirstPaint(root: tree)
+    let layoutSeconds = Date().timeIntervalSince(layoutStart)
     session.renderer = renderer
+    let landedTitle = title.isEmpty ? base : title
+    let firstPaint = TBFirstPaint(
+        title: landedTitle,
+        body: body,
+        pageBackground: renderer.pageBackground,
+        columnWidth: renderer.columnTextWidth(root: tree),
+        forms: renderer.forms,
+        fields: renderer.fields,
+        landedURL: base,
+        layoutEvents: renderer.layoutEvents,
+        arrivalsPending: renderer.hasPendingArrivals,
+        consoleLines: [], session: session)
+    await MainActor.run { onFirstPaint(firstPaint) }
+    let scriptStart = Date()
+    let js = await tbRunScripts(session: session)
+    let scriptSeconds = Date().timeIntervalSince(scriptStart)
+    if let override = js.titleOverride { title = override }
+    func timingLine(repaintSeconds: Double?) -> String {
+        var parts = [
+            String(format: "fetch %.2fs", fetchSeconds),
+            String(format: "parse %.2fs", parseSeconds),
+            String(format: "style+layout %.2fs", layoutSeconds),
+            String(format: "scripts %.2fs", scriptSeconds),
+        ]
+        var total = fetchSeconds + parseSeconds + layoutSeconds
+            + scriptSeconds
+        if let repaint = repaintSeconds {
+            parts.append(String(format: "repaint %.2fs", repaint))
+            total += repaint
+        }
+        parts.append(String(format: "total %.2fs", total))
+        return "Timing: " + parts.joined(separator: " \u{00B7} ")
+    }
+    // The script stage's words and the load's
+    // timing ride ONE later hand-off, so the
+    // console receives each exactly once: the
+    // first paint above carried no lines at all.
+    // When nothing changed, the same paint is
+    // handed over again carrying them — installing
+    // the same body twice is a no-op beside that
+    // delivery.
+    let finalPaint: TBFirstPaint
+    var finalRenderer = renderer
+    if session.ctx.domChanged {
+        let repaint = TBRenderer(base: base)
+        repaint.visitedURLs = visited
+        repaint.mediaWidth = mediaWidth
+        let repaintStart = Date()
+        let newBody = await repaint.renderFirstPaint(root: tree)
+        let repaintSeconds = Date().timeIntervalSince(repaintStart)
+        session.renderer = repaint
+        finalRenderer = repaint
+        finalPaint = TBFirstPaint(
+            title: title.isEmpty ? base : title,
+            body: newBody,
+            pageBackground: repaint.pageBackground,
+            columnWidth: repaint.columnTextWidth(root: tree),
+            forms: repaint.forms,
+            fields: repaint.fields,
+            landedURL: base,
+            layoutEvents: repaint.layoutEvents,
+            arrivalsPending: repaint.hasPendingArrivals,
+            consoleLines: js.consoleLines
+                + [timingLine(repaintSeconds: repaintSeconds)],
+            session: session)
+    } else {
+        finalPaint = TBFirstPaint(
+            title: landedTitle,
+            body: body,
+            pageBackground: renderer.pageBackground,
+            columnWidth: renderer.columnTextWidth(root: tree),
+            forms: renderer.forms,
+            fields: renderer.fields,
+            landedURL: base,
+            layoutEvents: renderer.layoutEvents,
+            arrivalsPending: renderer.hasPendingArrivals,
+            consoleLines: js.consoleLines
+                + [timingLine(repaintSeconds: nil)],
+            session: session)
+    }
     // A script-only send-on (a search engine's click
-    // bounce, say) renders as a black void. When the walk
-    // found no words at all, offer the destinations the
-    // page's own code names, plainly labelled — an honest
-    // door instead of an empty room.
-    let visible = (body.string as NSString)
+    // bounce, say) renders as a black void. When the
+    // final walk found no words at all, offer the
+    // destinations the page's own code names, plainly
+    // labelled — an honest door instead of an empty
+    // room. The check stands after the scripts, as
+    // it did when they ran before the walk: a page
+    // whose scripts write its words is no bounce.
+    let visible = (finalPaint.body.string as NSString)
         .trimmingCharacters(in: .whitespacesAndNewlines)
     if visible.isEmpty {
         let targets = tbScriptBounceTargets(html: html, base: base)
@@ -13917,26 +14244,14 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                 title: title.isEmpty ? "This page needs JavaScript" : title,
                 body: notice, pageBackground: nil, columnWidth: nil,
                 forms: [], fields: [], landedURL: base, layoutEvents: [],
-                arrivalsPending: false, consoleLines: js.consoleLines,
+                arrivalsPending: false,
+                consoleLines: finalPaint.consoleLines,
                 session: session)
             await MainActor.run { onFirstPaint(paint) }
             return paint
         }
     }
-    let paint = TBFirstPaint(
-        title: title.isEmpty ? base : title,
-        body: body,
-        pageBackground: renderer.pageBackground,
-        columnWidth: renderer.columnTextWidth(root: tree),
-        forms: renderer.forms,
-        fields: renderer.fields,
-        landedURL: base,
-        layoutEvents: renderer.layoutEvents,
-        arrivalsPending: renderer.hasPendingArrivals,
-        consoleLines: js.consoleLines, session: session)
-    // The page goes to the window now, on the main
-    // actor; the arrivals fetch on behind it.
-    await MainActor.run { onFirstPaint(paint) }
-    await renderer.finishArrivals()
-    return paint
+    await MainActor.run { onFirstPaint(finalPaint) }
+    await finalRenderer.finishArrivals()
+    return finalPaint
 }

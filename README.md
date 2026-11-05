@@ -125,6 +125,24 @@ Honest limits, for now:
   honored by the engine. The Shield is displayed in
   Settings as fact (its lists' sizes) and has no off
   switch anywhere, deliberately.
+- Speed (0.36): the style stage was measured on a real
+  Wikipedia article and rebuilt where the numbers
+  pointed — the custom-property environment matches
+  only rules that define a `--property`, the cascade
+  answers from an index by each selector's simplest
+  key, and resolved styles are remembered per element;
+  the same elements resolve to the same styles, proven
+  headlessly against the old way. A page paints before
+  its scripts run, and the whole script stage lives
+  under a three-second budget. Every load leaves a
+  Timing entry in the console — fetch, parse,
+  style+layout, scripts, total. Links inside painted
+  boxes (floats, grid and flex items, columns,
+  positioned boxes, fixed overlays) are followed now:
+  their targets are kept, and the view hit-tests the
+  painted seat with the layout that painted it. A
+  container nested inside a box's own contents is
+  not followed yet.
 - A form control that lands inside a grid, flex, float
   or multicolumn seat stands there as its labelled
   placeholder rather than a live field — the seats are

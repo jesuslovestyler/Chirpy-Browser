@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.35.0 (Swift)
+//  Chirpy Browser — prototype 0.36.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.35.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, progress bar, parallel loading"
+    @Published var statusLine = "Chirpy Engine 0.36.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, progress bar, parallel loading"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -408,6 +408,11 @@ final class BrowserModel: ObservableObject {
         Task {
             guard generation == self.loadGeneration else { return }
             do {
+                // The timing entry (0.36): the fetch
+                // is the window's own leg of the load;
+                // the engine times the rest and the
+                // console entry speaks of the whole.
+                let fetchStart = Date()
                 let fetched: (finalURL: String, html: String)
                 if target.hasPrefix("http://") || target.hasPrefix("https://") {
                     // The document fetch reports its bytes:
@@ -428,6 +433,7 @@ final class BrowserModel: ObservableObject {
                     fetched = try await tbFetch(urlString: target)
                 }
                 let (finalURL, html) = fetched
+                let fetchSeconds = Date().timeIntervalSince(fetchStart)
                 // Fetched; rendering now. The walk has no
                 // single honest fraction, so the bar goes
                 // indeterminate until the first paint
@@ -435,7 +441,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.35.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, progress bar, parallel loading"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.36.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, progress bar, parallel loading"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -446,12 +452,26 @@ final class BrowserModel: ObservableObject {
                 // only while this load is still the latest.
                 let paint = await tbRenderPage(html: html, base: finalURL,
                                                visited: sessionVisited,
-                                               mediaWidth: viewTextWidth) { first in
+                                               mediaWidth: viewTextWidth,
+                                               fetchSeconds: fetchSeconds) { first in
                     guard generation == self.loadGeneration else { return }
                     self.currentURL = first.landedURL
                     self.sessionVisited.insert(first.landedURL)
                     self.addressText = first.landedURL
                     self.pageTitle = first.title
+                    // Paint first, then scripts (0.36):
+                    // the render hands the page over
+                    // twice now — once walked, once
+                    // after its scripts. When the
+                    // scripts changed nothing, the
+                    // second hand carries the SAME
+                    // body: the page must not be
+                    // reinstalled for it (a reinstall
+                    // would snap the reader's scroll
+                    // back to the top), so the install
+                    // mark moves only for a new body.
+                    let bodyChanged = (first.body as AnyObject)
+                        !== (self.pageText as AnyObject)
                     self.pageText = first.body
                     self.pageBackground = first.pageBackground
                     self.columnTextWidth = first.columnWidth
@@ -488,7 +508,7 @@ final class BrowserModel: ObservableObject {
                     if let e = first.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.35.0 (Swift)"
+                            + "  ·  Chirpy Engine 0.36.0 (Swift)"
                     }
                     self.statusLine = first.arrivalsPending
                         ? status + consoleNote
@@ -499,7 +519,7 @@ final class BrowserModel: ObservableObject {
                     self.activeFetch = nil
                     self.canGoBack = !self.backStack.isEmpty
                     self.canGoForward = !self.forwardStack.isEmpty
-                    self.pageID += 1
+                    if bodyChanged { self.pageID += 1 }
                 }
                 // The arrivals have landed (or a newer load
                 // has superseded this one — then nothing
@@ -512,7 +532,7 @@ final class BrowserModel: ObservableObject {
                     if let e = paint.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.35.0 (Swift)"
+                            + "  ·  Chirpy Engine 0.36.0 (Swift)"
                     }
                     self.statusLine = status
                         + (paint.consoleLines.isEmpty ? ""
@@ -682,6 +702,12 @@ struct PageTextView: NSViewRepresentable {
         func attach(to scrollView: NSScrollView, textView: NSTextView) {
             self.textView = textView
             self.clipView = scrollView.contentView
+            // Painted-box links (0.36): a link followed
+            // inside a painted box loads like any link
+            // the text itself carries.
+            (textView as? TBPageTextView)?.onSeatLink = { [weak self] href in
+                self?.model.load(href)
+            }
             scrollView.contentView.postsFrameChangedNotifications = true
             frameObserver = NotificationCenter.default.addObserver(
                 forName: NSView.frameDidChangeNotification,
@@ -1034,6 +1060,11 @@ struct PageTextView: NSViewRepresentable {
                 let view = TBFixedOverlayView()
                 view.spec = spec
                 view.frame = frame
+                // Painted-box links (0.36): a fixed
+                // box's own links load the same way.
+                view.onLink = { [weak self] href in
+                    self?.model.load(href)
+                }
                 textView.addSubview(view)
                 fixedViews.append((view: view, spec: spec))
             }
@@ -2263,6 +2294,13 @@ final class TBPageTextView: NSTextView {
     // is the extent being pressed; mouseUp lifts it.
     private var focusRange: NSRange? = nil
     private var activeRange: NSRange? = nil
+    // Painted-box links (0.36): where the press
+    // began, so a lift can tell a click from a
+    // drag; and where a followed box link goes —
+    // the coordinator wires it to the model's
+    // load, the same road a text link travels.
+    private var pressPoint: NSPoint? = nil
+    var onSeatLink: ((String) -> Void)? = nil
     private var stateSaved: [(key: NSAttributedString.Key,
                               range: NSRange, value: Any?)] = []
     private var stateTextLength = -1
@@ -2383,6 +2421,7 @@ final class TBPageTextView: NSTextView {
     // character. Live controls are subviews and never
     // reach this — their own presses are theirs.
     override func mouseDown(with event: NSEvent) {
+        pressPoint = convert(event.locationInWindow, from: nil)
         if let storage = textStorage, storage.length > 0 {
             let inView = convert(event.locationInWindow, from: nil)
             if inView.x >= textContainerOrigin.x,
@@ -2422,6 +2461,42 @@ final class TBPageTextView: NSTextView {
             repaintStatePaint()
         }
         super.mouseUp(with: event)
+        resolveSeatClick(with: event)
+        pressPoint = nil
+    }
+
+    // Painted-box links (0.36): a press and a lift
+    // close together are a click. Where the text
+    // itself carries a link, the native path has
+    // already had its say in super.mouseUp and the
+    // boxes are not consulted; where it carries
+    // none, the layout manager is asked what the
+    // painted boxes hold under the point — a float,
+    // a grid or flex item, a column, a positioned
+    // box — and a link found there is followed.
+    // A drag selects, as it always has, and goes
+    // nowhere.
+    private func resolveSeatClick(with event: NSEvent) {
+        guard let down = pressPoint, let onSeatLink = onSeatLink,
+              let storage = textStorage, storage.length > 0,
+              let band = layoutManager as? TBBandLayoutManager
+        else { return }
+        let up = convert(event.locationInWindow, from: nil)
+        let dx = up.x - down.x, dy = up.y - down.y
+        guard dx * dx + dy * dy <= 36 else { return }
+        if up.x >= textContainerOrigin.x,
+           up.y >= textContainerOrigin.y {
+            let index = characterIndexForInsertion(at: up)
+            if index < storage.length,
+               storage.attribute(.link, at: index,
+                                 effectiveRange: nil) != nil {
+                return
+            }
+        }
+        if let href = band.seatLink(at: up,
+                                    origin: textContainerOrigin) {
+            onSeatLink(href)
+        }
     }
 
     // A live form control took the keyboard focus: the
@@ -4912,6 +4987,218 @@ final class TBBandLayoutManager: NSLayoutManager {
         paintGridSeats(in: content, manager: manager, at: rect.origin)
     }
 
+    // Painted-box links (0.36): a painted box's words
+    // are not the text view's text, so the native
+    // link path never sees them — until 0.35 their
+    // targets were stripped in the renderer's
+    // finalize passes and a click in a box could
+    // only select. The targets are kept now, and a
+    // click that lands in a box is answered here:
+    // the same seat rects the painters paint from,
+    // the same content laid out the same way in a
+    // private manager, the character under the
+    // point read for its link. Stacking follows the
+    // paint order — positioned boxes above floats,
+    // floats and seats in the flow, positioned-below
+    // last — each list walked last-painted first.
+    // Nested containers inside a box's own contents
+    // are not followed yet: their seat characters
+    // carry no link, so a click there finds nothing
+    // rather than the wrong door.
+    func seatLink(at pointInView: NSPoint, origin: NSPoint) -> String? {
+        let p = NSPoint(x: pointInView.x - origin.x,
+                        y: pointInView.y - origin.y)
+        for paint in positionedPaints.reversed() {
+            if let href = boxLink(source: paint.spec,
+                                  rect: paint.rect, point: p) {
+                return href
+            }
+        }
+        for paint in floatPaints.reversed() {
+            if let href = boxLink(source: paint.spec,
+                                  rect: paint.rect, point: p) {
+                return href
+            }
+        }
+        for paint in gridPaints.reversed() {
+            for item in paint.spec.items {
+                if let href = itemLink(content: item.content,
+                                       rect: item.rect,
+                                       paddingLeft: item.paddingLeft,
+                                       paddingTop: item.paddingTop,
+                                       paddingRight: item.paddingRight,
+                                       paddingBottom: item.paddingBottom,
+                                       point: p) {
+                    return href
+                }
+            }
+        }
+        for paint in flexPaints.reversed() {
+            for item in paint.spec.items {
+                if let href = itemLink(content: item.content,
+                                       rect: item.rect,
+                                       paddingLeft: item.paddingLeft,
+                                       paddingTop: item.paddingTop,
+                                       paddingRight: item.paddingRight,
+                                       paddingBottom: item.paddingBottom,
+                                       point: p) {
+                    return href
+                }
+            }
+        }
+        for paint in columnPaints {
+            if let href = columnLink(spec: paint.spec,
+                                     rect: paint.rect, point: p) {
+                return href
+            }
+        }
+        for paint in positionedPaintsBelow.reversed() {
+            if let href = boxLink(source: paint.spec,
+                                  rect: paint.rect, point: p) {
+                return href
+            }
+        }
+        return nil
+    }
+
+    private func linkValue(_ value: Any?) -> String? {
+        if let s = value as? String { return s }
+        if let u = value as? URL { return u.absoluteString }
+        return nil
+    }
+
+    // Lay one seat's contents out at its painted
+    // size, exactly as its painter does, and read
+    // the link under the seat-local point.
+    private func linkInContent(_ content: NSAttributedString,
+                               size: NSSize,
+                               localPoint: NSPoint) -> String? {
+        guard content.length > 0, size.width > 0, size.height > 0
+        else { return nil }
+        let storage = NSTextStorage(attributedString: content)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: size)
+        storage.addLayoutManager(manager)
+        manager.addTextContainer(container)
+        manager.ensureLayout(for: container)
+        var fraction: CGFloat = 0
+        let index = manager.characterIndex(
+            for: localPoint, in: container,
+            fractionOfDistanceBetweenInsertionPoints: &fraction)
+        guard index < content.length else { return nil }
+        return linkValue(content.attribute(
+            .link, at: index, effectiveRange: nil))
+    }
+
+    // A floated or positioned box: its content rect
+    // is its rect inset by its padding, as paintBox
+    // paints it.
+    private func boxLink(source: TBBoxPaintSource, rect: NSRect,
+                         point: NSPoint) -> String? {
+        guard !source.isImage, let content = source.content,
+              content.length > 0 else { return nil }
+        let contentRect = NSRect(
+            x: rect.minX + source.paddingLeft,
+            y: rect.minY + source.paddingTop,
+            width: max(0, rect.width - source.paddingLeft
+                - source.paddingRight),
+            height: max(0, rect.height - source.paddingTop
+                - source.paddingBottom))
+        guard contentRect.contains(point) else { return nil }
+        return linkInContent(
+            content, size: contentRect.size,
+            localPoint: NSPoint(x: point.x - contentRect.minX,
+                                y: point.y - contentRect.minY))
+    }
+
+    // A grid or flex item: the same inset bargain.
+    private func itemLink(content: NSAttributedString?,
+                          rect: NSRect,
+                          paddingLeft: CGFloat, paddingTop: CGFloat,
+                          paddingRight: CGFloat,
+                          paddingBottom: CGFloat,
+                          point: NSPoint) -> String? {
+        guard let content = content, content.length > 0
+        else { return nil }
+        let contentRect = NSRect(
+            x: rect.minX + paddingLeft, y: rect.minY + paddingTop,
+            width: max(0, rect.width - paddingLeft - paddingRight),
+            height: max(0, rect.height - paddingTop - paddingBottom))
+        guard contentRect.contains(point) else { return nil }
+        return linkInContent(
+            content, size: contentRect.size,
+            localPoint: NSPoint(x: point.x - contentRect.minX,
+                                y: point.y - contentRect.minY))
+    }
+
+    // A multicolumn block: its parts stack down the
+    // seat, as paintColumns paints them — a spanner
+    // in one container of the block's full width, a
+    // column run in chained containers, one per
+    // column.
+    private func columnLink(spec: TBMultiColumnSpec, rect: NSRect,
+                            point: NSPoint) -> String? {
+        guard rect.contains(point) else { return nil }
+        var parts = spec.parts
+        if parts.isEmpty {
+            let legacy = TBColumnPart()
+            legacy.content = spec.content
+            legacy.height = spec.columnHeight
+            parts = [legacy]
+        }
+        var y = rect.minY
+        for part in parts {
+            let partRect = NSRect(x: rect.minX, y: y,
+                                  width: rect.width,
+                                  height: part.height)
+            y += part.height
+            guard partRect.contains(point),
+                  let content = part.content, content.length > 0
+            else { continue }
+            if part.isSpanner {
+                return linkInContent(
+                    content,
+                    size: NSSize(width: spec.totalWidth,
+                                 height: part.height),
+                    localPoint: NSPoint(x: point.x - partRect.minX,
+                                        y: point.y - partRect.minY))
+            }
+            for i in 0..<spec.columnCount {
+                let colX = partRect.minX + CGFloat(i)
+                    * (spec.columnWidth + spec.gap)
+                let colRect = NSRect(x: colX, y: partRect.minY,
+                                     width: spec.columnWidth,
+                                     height: part.height)
+                guard colRect.contains(point) else { continue }
+                let storage = NSTextStorage(
+                    attributedString: content)
+                let manager = NSLayoutManager()
+                storage.addLayoutManager(manager)
+                var containers: [NSTextContainer] = []
+                for _ in 0..<spec.columnCount {
+                    let c = NSTextContainer(
+                        size: NSSize(width: spec.columnWidth,
+                                     height: part.height))
+                    manager.addTextContainer(c)
+                    containers.append(c)
+                }
+                guard let last = containers.last else { return nil }
+                manager.ensureLayout(for: last)
+                var fraction: CGFloat = 0
+                let index = manager.characterIndex(
+                    for: NSPoint(x: point.x - colX,
+                                 y: point.y - partRect.minY),
+                    in: containers[i],
+                    fractionOfDistanceBetweenInsertionPoints: &fraction)
+                guard index < content.length else { return nil }
+                return linkValue(content.attribute(
+                    .link, at: index, effectiveRange: nil))
+            }
+            return nil
+        }
+        return nil
+    }
+
     // Positioned layout (0.17): glyphs under a relative
     // offset paint shifted by it, run by run, while the
     // layout itself — selection, carets, form seats —
@@ -5405,6 +5692,69 @@ final class TBFixedOverlayView: NSView {
     var spec: TBPositionedSpec? = nil {
         didSet { contentLayout = nil }
     }
+    // Painted-box links (0.36): where a followed
+    // link inside this fixed box goes — the
+    // coordinator wires it to the model's load.
+    var onLink: ((String) -> Void)? = nil
+
+    // A fixed box stands over the text and takes
+    // its own presses; a press on one of its links
+    // follows it, hit-tested against the very
+    // layout its draw paints. Any other press is
+    // the box's own, as it was.
+    override func mouseDown(with event: NSEvent) {
+        if let href = linkAt(event: event) {
+            onLink?(href)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    private func linkAt(event: NSEvent) -> String? {
+        guard let spec = spec, !spec.isImage,
+              let content = spec.content, content.length > 0
+        else { return nil }
+        let contentRect = NSRect(
+            x: bounds.minX + spec.paddingLeft,
+            y: bounds.minY + spec.paddingTop,
+            width: max(0, bounds.width - spec.paddingLeft
+                - spec.paddingRight),
+            height: max(0, bounds.height - spec.paddingTop
+                - spec.paddingBottom))
+        let point = convert(event.locationInWindow, from: nil)
+        guard contentRect.contains(point) else { return nil }
+        let manager: NSLayoutManager
+        let container: NSTextContainer
+        if let cached = contentLayout,
+           cached.2.size == contentRect.size {
+            manager = cached.1
+            container = cached.2
+        } else {
+            let storage = NSTextStorage(attributedString: content)
+            manager = NSLayoutManager()
+            container = NSTextContainer(size: contentRect.size)
+            storage.addLayoutManager(manager)
+            manager.addTextContainer(container)
+            contentLayout = (storage, manager, container)
+        }
+        manager.ensureLayout(for: container)
+        var fraction: CGFloat = 0
+        let index = manager.characterIndex(
+            for: NSPoint(x: point.x - contentRect.minX,
+                         y: point.y - contentRect.minY),
+            in: container,
+            fractionOfDistanceBetweenInsertionPoints: &fraction)
+        guard index < content.length else { return nil }
+        if let s = content.attribute(.link, at: index,
+                                     effectiveRange: nil) as? String {
+            return s
+        }
+        if let u = content.attribute(.link, at: index,
+                                     effectiveRange: nil) as? URL {
+            return u.absoluteString
+        }
+        return nil
+    }
     // The storage rides in the cache for the same
     // reason as in the layout manager's painters
     // (0.25.0): the manager holds it only weakly, and
@@ -5675,6 +6025,13 @@ struct TBConsoleEntry: Identifiable {
         }
         if line.hasPrefix("Script did not load: ") {
             return TBConsoleEntry(kind: .error, text: line)
+        }
+        // The timing entry (0.36): each load's own
+        // account of itself, standing as a note.
+        if line.hasPrefix("Timing: ") {
+            return TBConsoleEntry(
+                kind: .note,
+                text: String(line.dropFirst("Timing: ".count)))
         }
         return TBConsoleEntry(kind: .console, text: line)
     }
