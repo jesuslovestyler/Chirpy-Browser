@@ -2600,7 +2600,7 @@ final class TBPageTextView: NSTextView {
                           y: textContainerOrigin.y + union.minY,
                           width: union.width, height: union.height)
             .insetBy(dx: -28, dy: -28)
-        setNeedsDisplayInRect(rect, avoidAdditionalLayout: true)
+        setNeedsDisplay(rect, avoidAdditionalLayout: true)
     }
 }
 
@@ -2782,7 +2782,7 @@ final class TBBandLayoutManager: NSLayoutManager {
             let clip = NSBezierPath(rect: cover)
             clip.append(NSBezierPath(rect: rect))
             clip.windingRule = .evenOdd
-            clip.clip()
+            clip.addClip()
             if shadow.blur > 0 {
                 let ns = NSShadow()
                 ns.shadowColor = shadow.color
@@ -2830,8 +2830,8 @@ final class TBBandLayoutManager: NSLayoutManager {
                     [.foregroundColor: shadow.color],
                     forCharacterRange: range)
                 manager.drawGlyphs(forGlyphRange: glyphs, at: origin)
-                manager.removeTemporaryAttributes(
-                    forCharacterRange: range)
+                manager.removeTemporaryAttribute(
+                    .foregroundColor, forCharacterRange: range)
                 NSGraphicsContext.restoreGraphicsState()
             }
         }
@@ -4232,7 +4232,8 @@ final class TBBandLayoutManager: NSLayoutManager {
                 setTemporaryAttributes([.foregroundColor: shadow.color],
                                        forCharacterRange: range)
                 super.drawGlyphs(forGlyphRange: glyphs, at: origin)
-                removeTemporaryAttributes(forCharacterRange: range)
+                removeTemporaryAttribute(.foregroundColor,
+                                         forCharacterRange: range)
                 NSGraphicsContext.restoreGraphicsState()
             }
         }
