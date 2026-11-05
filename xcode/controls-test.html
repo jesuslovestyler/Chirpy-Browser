@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.31 — Live Select &amp; Textarea Controls Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+
+  form.dress { background-color: #263238; padding: 16px; }
+  form.dress label { color: #eceff1; }
+  form.dress select.drink {
+    font-family: Georgia, serif; font-size: 17px;
+    background-color: #daa520; color: #263238;
+  }
+  form.dress textarea.note {
+    background-color: #37474f; color: #fff8e1;
+    border: 2px solid #daa520; border-radius: 8px;
+    font-family: Georgia, serif; font-size: 15px;
+  }
+  form.dress textarea.note:focus {
+    background-color: #455a64; outline: 3px solid #ff8f00;
+  }
+  form.dress input.go {
+    background-color: #b8860b; color: #ffffff; font-size: 16px;
+  }
+
+  .floatbox {
+    float: left; width: 44%;
+    background-color: #2E8B57; color: #FFFFFF; padding: 10px;
+  }
+  .cleared { clear: both; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.31 — live select &amp; textarea controls test</h1>
+<p>Read down and check each numbered promise — every one of them
+is worked by hand: a popup only proves itself opened, and an
+editor only proves itself typed in. First, the status line at the
+bottom of the window should read "Chirpy Engine 0.31.0 (Swift)".
+Honest notes before the promises: a popup wears the page's font
+and, when one is declared, its background as a tint — its rows'
+text and the popup's own chrome are the system's and take no CSS
+dress, and neither do a CSS border or corner radius on it;
+picking several options at once in a multiple select is not
+built (7 shows what stands instead); a placeholder clears at the
+first focus and does not come back, and it is never the field's
+value; Enter in an editor makes a new line, never a submission;
+choosing in a popup submits nothing on its own; and a control
+inside a floated box keeps the standing bracket-label dress, as
+6 shows, so the live forms stand in ordinary flow.</p>
+
+<form action="controls-test.html" method="get">
+
+<h2>1 — a popup, its groups and its resting choice</h2>
+<p><label for="dish">Choose a dish:</label>
+<select id="dish" name="dish">
+  <optgroup label="Mains">
+    <option value="stew">Beef stew</option>
+    <option value="fish" selected>Fried fish</option>
+    <option value="beans">Beans and rice</option>
+  </optgroup>
+  <optgroup label="Sweets">
+    <option value="pie">Pecan pie</option>
+    <option value="pudding">Bread pudding</option>
+  </optgroup>
+</select></p>
+<p>Promise: the control is a real popup button, resting on
+"Fried fish". Open it: the five dishes stand in order under two
+dimmed group rows, "Mains" and "Sweets", which cannot themselves
+be chosen. Choose any dish — the popup's face takes its label,
+and the choice is yours to change.</p>
+
+<h2>2 — a seeded editor</h2>
+<p><label for="words">Words for the day:</label><br>
+<textarea id="words" name="words" rows="4" cols="44">The page wrote these two lines.
+Add yours beneath them.</textarea></p>
+<p>Promise: a real editor, four rows tall, already holding the
+page's two lines. Click into it and type — your words join the
+page's, the box scrolls as the text outgrows it, and Enter makes
+a new line rather than sending anything.</p>
+
+<h2>3 — the Send press</h2>
+<p><input type="submit" value="Send the form"></p>
+<p>Promise: press Send (after choosing a dish in 1 and adding
+words in 2, if you like) and the window sets off for this page's
+own address with the gathered values riding on it — watch the
+address bar: ?dish=…&amp;words=… — the dish's <i>value</i>
+(fish, not "Fried fish") and your editor's current words,
+percent-encoded as a browser sends them.</p>
+
+</form>
+
+<form class="dress" action="controls-test.html" method="get">
+
+<h2>4 — a popup in the page's dress</h2>
+<p><label for="drink">Choose a drink:</label>
+<select id="drink" name="drink" class="drink">
+  <option value="water">Water</option>
+  <option value="tea" selected>Sweet tea</option>
+  <option value="coffee">Coffee</option>
+</select></p>
+<p>Promise: the popup wears the page's dress as far as a native
+popup honestly can — Georgia at 17 points, its gold background
+standing as the tint — resting on "Sweet tea". Its menu's rows
+keep the system's own dress, as the notes at the top say.</p>
+
+<h2>5 — a styled editor and its placeholder</h2>
+<p><label for="note">A note for the cook:</label><br>
+<textarea id="note" name="note" class="note" rows="3" cols="36"
+  placeholder="Write a note for the cook…"></textarea></p>
+<p>Promise: an editor in the page's dress — dark ground, cream
+words, a gold border — holding its placeholder in gray because
+the page seeded it empty. Click into it: the placeholder clears
+and stays gone, your words land in cream, and while the focus
+lasts the declared outline stands as an amber ring around the
+box.</p>
+<p><input class="go" type="submit" value="Send the dressed form"></p>
+<p>Its own Send carries the dressed values the same way —
+?drink=tea and your note — by the same road as 3.</p>
+
+</form>
+
+<h2>6 — the same select, floated</h2>
+<div class="floatbox">
+<p>Supper in the floated box:
+<select name="floated">
+  <option value="water">Water</option>
+  <option value="tea" selected>Sweet tea</option>
+</select></p>
+<p>Promise: inside a painted box the popup cannot live, so it
+keeps the standing stand-in — a bracketed label wearing its
+resting choice: [Sweet tea].</p>
+</div>
+<p class="cleared">The box floats; its select stands as paint,
+as every control in a painted box has since the floats came.</p>
+
+<h2>7 — a multiple select</h2>
+<p><label for="sides">Sides (a multiple select):</label>
+<select id="sides" name="sides" multiple>
+  <option value="greens" selected>Collard greens</option>
+  <option value="corn">Cornbread</option>
+  <option value="okra" selected>Fried okra</option>
+</select></p>
+<p>Promise: it seats as an ordinary popup, resting on "Collard
+greens", its first chosen option, and opening it chooses one,
+as any popup does. Picking several at once — the listbox a
+multiple select draws in other browsers — is not built, and is
+named here rather than faked.</p>
+
+</body>
+</html>

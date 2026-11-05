@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.30.0 (Swift)
+//  Chirpy Browser — engine 0.31.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -439,9 +439,32 @@
 //      step-end and the jump terms with it — moves
 //      transitions and keyframe runs in discrete
 //      jumps, as written.
-//  Not yet: JavaScript (the mountain), live select
-//  and textarea controls, and the outs named in
-//  the README.
+    * Live select and textarea controls (0.31): a
+      <select> seats a real popup button and a
+      <textarea> a real multi-line editor, through
+      the same attachments, seats and value path
+      as the fields before them. A select's rows
+      gather in document order — the parser nests
+      a following <option> inside the one before
+      it, so the gathering flattens as it walks —
+      an <optgroup>'s label stands among them as
+      a disabled row, and the resting choice is
+      the last option carrying `selected`, else
+      the first (a `multiple` select's is its
+      first chosen one; picking several is not
+      built). A textarea's seed is its own text,
+      read raw by the parser the way <style> is,
+      so markup in a seed cannot bend the tree;
+      one leading newline is dropped, as HTML
+      directs. Both wear their element's resolved
+      style as far as AppKit honestly dresses
+      them, take real keyboard focus, and send
+      their current value with their form; inside
+      a painted box they keep the standing
+      bracket-label stand-in, the select wearing
+      its resting choice's label there.
+//  Not yet: JavaScript (the mountain), and the
+//  outs named in the README.
 //
 
 import Foundation
@@ -981,7 +1004,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                                              category: category))
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1007,7 +1030,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1077,7 +1100,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1187,7 +1210,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
     // to its label, exactly as a failed fetch does.
     if tbShieldCategory(host: url.host) != nil { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2436,7 +2459,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
     // without that sheet, as it does when one fails.
     if tbShieldCategory(host: url.host) != nil { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.31.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2641,6 +2664,26 @@ func tbParse(html: String) -> TBNode {
             node.attrs = attrs
             node.parent = stack[stack.count - 1]
             stack[stack.count - 1].children.append(node)
+            if lname == "textarea" && !selfClosing {
+                // Raw-text element (0.31), the way
+                // <style> is read above: everything
+                // up to </textarea is the control's
+                // seed, kept undecoded as a single
+                // text child — markup inside a seed
+                // cannot bend the tree, and the
+                // renderer decodes the entities once
+                // as it reads the seed.
+                let closeStart = findCloseTag("textarea", from: i)
+                let rawEnd = closeStart >= 0 ? closeStart : n
+                if rawEnd > i {
+                    let textNode = TBNode(tag: "#text",
+                                          text: String(chars[i..<rawEnd]))
+                    textNode.parent = node
+                    node.children.append(textNode)
+                }
+                i = closeStart >= 0 ? afterTag(closeStart) : n
+                continue
+            }
             if !selfClosing && !TBVoidTags.contains(lname) {
                 stack.append(node)
             }
@@ -4632,6 +4675,40 @@ final class TBSubmitAttachment: NSTextAttachment {
     var style: TBControlStyle? = nil
 }
 
+// Live controls (0.31): one row of a <select>'s
+// popup, gathered by the renderer in document
+// order. A group row is an <optgroup>'s label: it
+// stands in the popup as a disabled row and
+// carries no value of its own.
+struct TBSelectOption {
+    let label: String
+    let value: String
+    let isGroup: Bool
+}
+
+// A <select> seats this attachment; the view builds
+// a real popup button over it. The resting choice
+// is an index into options — always a real
+// option's row, never a group's, or -1 when the
+// select holds no option at all.
+final class TBSelectAttachment: NSTextAttachment {
+    var fieldID = -1
+    var options: [TBSelectOption] = []
+    var selectedIndex = -1
+    // The element's resolved style, as with the
+    // field's (0.26).
+    var style: TBControlStyle? = nil
+}
+
+// A <textarea> seats this attachment; the view
+// builds a real multi-line editor over it. The
+// seed itself travels as the field's standing
+// value in TBFormField, as a field's value does.
+final class TBTextAreaAttachment: NSTextAttachment {
+    var fieldID = -1
+    var style: TBControlStyle? = nil
+}
+
 struct TBFormField {
     let id: Int
     let formID: Int        // -1: an input outside any form
@@ -4997,6 +5074,157 @@ final class TBRenderer {
             string: " [\(label)] ",
             attributes: [.font: font,
                          .foregroundColor: NSColor.secondaryLabelColor])
+    }
+
+    // One <option>'s own words (0.31): its text with
+    // any nested option or optgroup left out — the
+    // parser nests a following <option> inside the
+    // one before it, there being no implied close,
+    // so a nested option's words belong to its own
+    // row — folded the way a browser folds a
+    // label's whitespace.
+    private func optionLabel(_ node: TBNode) -> String {
+        func own(_ n: TBNode) -> String {
+            if n.tag == "#text" { return n.text }
+            if n.tag == "option" || n.tag == "optgroup" { return "" }
+            return n.children.map { own($0) }.joined()
+        }
+        return own(node)
+            .split(whereSeparator: { $0 == " " || $0 == "\n"
+                                     || $0 == "\t" || $0 == "\r" })
+            .joined(separator: " ")
+    }
+
+    // A <select>'s rows (0.31), in document order:
+    // options flatten out of whatever nesting the
+    // parser left them in, and an <optgroup> first
+    // lays down its label as a group row, then its
+    // own options. The resting choice is the last
+    // option carrying `selected` — the choice a
+    // browser's parser leaves standing — or, for a
+    // `multiple` select, its first chosen one; with
+    // none chosen, the first real option rests.
+    private func selectRows(_ node: TBNode)
+        -> (rows: [TBSelectOption], selected: Int) {
+        var rows: [TBSelectOption] = []
+        var marked: [Int] = []
+        func collect(_ n: TBNode) {
+            for child in n.children {
+                if child.tag == "optgroup" {
+                    let label = (child.attrs["label"] ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !label.isEmpty {
+                        rows.append(TBSelectOption(label: label, value: "",
+                                                   isGroup: true))
+                    }
+                    collect(child)
+                } else if child.tag == "option" {
+                    let label = optionLabel(child)
+                    rows.append(TBSelectOption(
+                        label: label,
+                        value: child.attrs["value"] ?? label,
+                        isGroup: false))
+                    if child.attrs["selected"] != nil {
+                        marked.append(rows.count - 1)
+                    }
+                    collect(child)
+                } else {
+                    collect(child)
+                }
+            }
+        }
+        collect(node)
+        var selected = node.attrs["multiple"] != nil
+            ? marked.first : marked.last
+        if selected == nil {
+            selected = rows.firstIndex { !$0.isGroup }
+        }
+        return (rows, selected ?? -1)
+    }
+
+    // One <select>, rendered (0.31): it registers
+    // as a form field whose standing value is its
+    // resting choice's, and seats a popup
+    // attachment the view makes live. Its width is
+    // its widest row's measure in the element's
+    // font, with room for the popup's own chrome,
+    // unless a size is declared.
+    private func formSelect(_ node: TBNode, font: NSFont,
+                            own: [String: String]) -> NSAttributedString {
+        let name = node.attrs["name"] ?? ""
+        let (rows, selected) = selectRows(node)
+        let id = nextFieldID
+        nextFieldID += 1
+        fields.append(TBFormField(
+            id: id, formID: currentFormID, name: name,
+            defaultValue: selected >= 0 ? rows[selected].value : "",
+            placeholder: ""))
+        let attachment = TBSelectAttachment()
+        attachment.fieldID = id
+        attachment.options = rows
+        attachment.selectedIndex = selected
+        attachment.style = controlStyle(node: node, own: own,
+                                        font: font)
+        var width = tbLengthValue(own["width"] ?? node.attrs["width"],
+                                  fontSize: font.pointSize)
+        if width == nil {
+            let widest = rows.map { $0.label }
+                .max(by: { $0.count < $1.count }) ?? ""
+            width = CGFloat(widest.count) * (font.pointSize * 0.55) + 44
+        }
+        let height = tbLengthValue(own["height"], fontSize: font.pointSize)
+            ?? 26
+        let box = CGRect(x: 0, y: 0,
+                         width: min(max(width ?? 120, 60), 560),
+                         height: min(max(height, 20), 120))
+        attachment.bounds = box
+        attachment.image = tbClearSeat(width: box.width, height: box.height)
+        return NSAttributedString(attachment: attachment)
+    }
+
+    // One <textarea>, rendered (0.31): a form field
+    // whose standing value is its seed — the
+    // element's own text, decoded once here (the
+    // parser kept it raw), with the one leading
+    // newline HTML drops — seating an editor
+    // attachment the view makes live. rows and
+    // cols size the seat by the element's font
+    // cells, a declared size winning, as a
+    // field's does.
+    private func formTextArea(_ node: TBNode, font: NSFont,
+                              own: [String: String]) -> NSAttributedString {
+        let name = node.attrs["name"] ?? ""
+        var seed = tbDecodeEntities(descendantText(node))
+        if seed.hasPrefix("\r\n") { seed = String(seed.dropFirst(2)) }
+        else if seed.hasPrefix("\n") { seed = String(seed.dropFirst()) }
+        let id = nextFieldID
+        nextFieldID += 1
+        fields.append(TBFormField(
+            id: id, formID: currentFormID, name: name,
+            defaultValue: seed,
+            placeholder: node.attrs["placeholder"] ?? ""))
+        let attachment = TBTextAreaAttachment()
+        attachment.fieldID = id
+        attachment.style = controlStyle(node: node, own: own,
+                                        font: font)
+        let rows = max(Int(node.attrs["rows"] ?? "") ?? 2, 1)
+        let cols = max(Int(node.attrs["cols"] ?? "") ?? 20, 4)
+        var width = tbLengthValue(own["width"] ?? node.attrs["width"],
+                                  fontSize: font.pointSize)
+        if width == nil {
+            width = CGFloat(cols) * (font.pointSize * 0.6) + 28
+        }
+        var height = tbLengthValue(own["height"] ?? node.attrs["height"],
+                                   fontSize: font.pointSize)
+        if height == nil {
+            height = CGFloat(rows) * (font.pointSize * 1.45) + 18
+        }
+        let box = CGRect(x: 0, y: 0,
+                         width: min(max(width ?? 240, 90), 700),
+                         height: min(max(height ?? 60, 34), 480))
+        attachment.bounds = box
+        attachment.image = tbClearSeat(width: box.width, height: box.height)
+        return NSAttributedString(attachment: attachment)
     }
 
     // The background layers this element declares, if any.
@@ -6772,6 +7000,17 @@ final class TBRenderer {
                 let name = sub.fields.first { $0.id == field.fieldID }
                     .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
                 swaps.append((range: range, text: " [\(name)] "))
+            } else if let select = value as? TBSelectAttachment {
+                // Live controls (0.31): the popup stands
+                // in for its resting choice's label.
+                let label = select.selectedIndex >= 0
+                    && select.selectedIndex < select.options.count
+                    ? select.options[select.selectedIndex].label : "select"
+                swaps.append((range: range, text: " [\(label)] "))
+            } else if let area = value as? TBTextAreaAttachment {
+                let name = sub.fields.first { $0.id == area.fieldID }
+                    .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
+                swaps.append((range: range, text: " [\(name)] "))
             }
         }
         cleaned.enumerateAttribute(
@@ -7286,6 +7525,17 @@ final class TBRenderer {
                 swaps.append((range: range, text: " [\(submit.label)] "))
             } else if let field = value as? TBFieldAttachment {
                 let name = sub.fields.first { $0.id == field.fieldID }
+                    .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
+                swaps.append((range: range, text: " [\(name)] "))
+            } else if let select = value as? TBSelectAttachment {
+                // Live controls (0.31): the popup stands
+                // in for its resting choice's label.
+                let label = select.selectedIndex >= 0
+                    && select.selectedIndex < select.options.count
+                    ? select.options[select.selectedIndex].label : "select"
+                swaps.append((range: range, text: " [\(label)] "))
+            } else if let area = value as? TBTextAreaAttachment {
+                let name = sub.fields.first { $0.id == area.fieldID }
                     .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
                 swaps.append((range: range, text: " [\(name)] "))
             }
@@ -8506,6 +8756,18 @@ final class TBRenderer {
                     let name = sub.fields.first { $0.id == field.fieldID }
                         .map { $0.placeholder.isEmpty ? "field" : $0.placeholder }
                         ?? "field"
+                    swaps.append((range: range, text: " [\(name)] "))
+                } else if let select = value as? TBSelectAttachment {
+                    // Live controls (0.31): the popup
+                    // stands in for its resting
+                    // choice's label.
+                    let label = select.selectedIndex >= 0
+                        && select.selectedIndex < select.options.count
+                        ? select.options[select.selectedIndex].label : "select"
+                    swaps.append((range: range, text: " [\(label)] "))
+                } else if let area = value as? TBTextAreaAttachment {
+                    let name = sub.fields.first { $0.id == area.fieldID }
+                        .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
                     swaps.append((range: range, text: " [\(name)] "))
                 }
             }
@@ -10250,6 +10512,18 @@ final class TBRenderer {
                         .map { $0.placeholder.isEmpty ? "field" : $0.placeholder }
                         ?? "field"
                     swaps.append((range: range, text: " [\(name)] "))
+                } else if let select = value as? TBSelectAttachment {
+                    // Live controls (0.31): the popup
+                    // stands in for its resting
+                    // choice's label.
+                    let label = select.selectedIndex >= 0
+                        && select.selectedIndex < select.options.count
+                        ? select.options[select.selectedIndex].label : "select"
+                    swaps.append((range: range, text: " [\(label)] "))
+                } else if let area = value as? TBTextAreaAttachment {
+                    let name = sub.fields.first { $0.id == area.fieldID }
+                        .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
+                    swaps.append((range: range, text: " [\(name)] "))
                 }
             }
             cleaned.enumerateAttribute(
@@ -10440,6 +10714,17 @@ final class TBRenderer {
                 swaps.append((range: range, text: " [\(submit.label)] "))
             } else if let field = value as? TBFieldAttachment {
                 let name = sub.fields.first { $0.id == field.fieldID }
+                    .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
+                swaps.append((range: range, text: " [\(name)] "))
+            } else if let select = value as? TBSelectAttachment {
+                // Live controls (0.31): the popup stands
+                // in for its resting choice's label.
+                let label = select.selectedIndex >= 0
+                    && select.selectedIndex < select.options.count
+                    ? select.options[select.selectedIndex].label : "select"
+                swaps.append((range: range, text: " [\(label)] "))
+            } else if let area = value as? TBTextAreaAttachment {
+                let name = sub.fields.first { $0.id == area.fieldID }
                     .map { $0.placeholder.isEmpty ? "field" : $0.placeholder } ?? "field"
                 swaps.append((range: range, text: " [\(name)] "))
             }
@@ -10691,6 +10976,12 @@ final class TBRenderer {
 
         if node.tag == "input" {
             return formControl(node, font: f, own: own)
+        }
+        if node.tag == "select" {
+            return formSelect(node, font: f, own: own)
+        }
+        if node.tag == "textarea" {
+            return formTextArea(node, font: f, own: own)
         }
         if node.tag == "button" {
             // A button inside a form submits it, labelled by

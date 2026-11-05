@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.30.0 (Swift)
+//  Chirpy Browser — prototype 0.31.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.30.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.31.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -180,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.30.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.31.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -334,6 +334,14 @@ struct PageTextView: NSViewRepresentable {
         // engine's field and button attachments, and where
         // each one is anchored in the text.
         private var fieldViews: [Int: NSTextField] = [:]
+        // Live controls (0.31): the page's popups and
+        // text areas, keyed by field id like the fields
+        // — their values join a submission the same
+        // way, and a reader's choice and words ride
+        // across the arrivals re-install with the
+        // typed field values.
+        private var selectViews: [Int: NSPopUpButton] = [:]
+        private var textAreaViews: [Int: TBStyledTextAreaView] = [:]
         private var formControlViews: [NSView] = []
         private var formAnchors: [(view: NSView, charIndex: Int,
                                    attachment: NSTextAttachment)] = []
@@ -430,6 +438,8 @@ struct PageTextView: NSViewRepresentable {
             formControlViews = []
             formAnchors = []
             fieldViews = [:]
+            selectViews = [:]
+            textAreaViews = [:]
             clearFixedViews()
         }
 
@@ -439,6 +449,8 @@ struct PageTextView: NSViewRepresentable {
             formControlViews = []
             formAnchors = []
             fieldViews = [:]
+            selectViews = [:]
+            textAreaViews = [:]
         }
 
         // Remove every fixed overlay — the mirror of
@@ -462,6 +474,8 @@ struct PageTextView: NSViewRepresentable {
             formControlViews = []
             formAnchors = []
             fieldViews = [:]
+            selectViews = [:]
+            textAreaViews = [:]
             formIDByFieldID = Dictionary(
                 uniqueKeysWithValues: model.pageFields.map { ($0.id, $0.formID) })
             guard storage.length > 0 else { return }
@@ -498,6 +512,94 @@ struct PageTextView: NSViewRepresentable {
                     self.formControlViews.append(field)
                     self.formAnchors.append((view: field, charIndex: range.location,
                                              attachment: fieldAtt))
+                } else if let selectAtt = value as? TBSelectAttachment,
+                          let spec = self.model.pageFields.first(where: { $0.id == selectAtt.fieldID }) {
+                    // Live controls (0.31): a real popup
+                    // button over the select's seat — its
+                    // rows the renderer's, group rows
+                    // disabled, each real row carrying
+                    // its own value — opened at the
+                    // resting choice, dressed as its
+                    // element resolved, and taking focus
+                    // like a field takes it.
+                    let popup = TBStyledPopUpButton(
+                        frame: .zero, pullsDown: false)
+                    for row in selectAtt.options {
+                        popup.addItem(withTitle: row.label)
+                        let item = popup.item(at: popup.numberOfItems - 1)
+                        if row.isGroup {
+                            item?.isEnabled = false
+                        } else {
+                            item?.representedObject = row.value
+                        }
+                    }
+                    if selectAtt.selectedIndex >= 0,
+                       selectAtt.selectedIndex < popup.numberOfItems {
+                        popup.selectItem(at: selectAtt.selectedIndex)
+                    }
+                    popup.tag = spec.id
+                    popup.controlStyle = selectAtt.style
+                    popup.applyControlStyle()
+                    popup.onFocusChange = { [weak self] focused in
+                        if focused {
+                            (self?.textView as? TBPageTextView)?
+                                .noteControlFocus()
+                        }
+                    }
+                    textView.addSubview(popup)
+                    self.selectViews[spec.id] = popup
+                    self.formControlViews.append(popup)
+                    self.formAnchors.append((view: popup, charIndex: range.location,
+                                             attachment: selectAtt))
+                } else if let areaAtt = value as? TBTextAreaAttachment,
+                          let spec = self.model.pageFields.first(where: { $0.id == areaAtt.fieldID }) {
+                    // Live controls (0.31): a real
+                    // multi-line editor over the
+                    // textarea's seat — its own scroll
+                    // view wears the seat's outer dress,
+                    // the editor inside wears the font,
+                    // the color and the words, seeded
+                    // with the element's own text, its
+                    // placeholder standing in while the
+                    // seed is empty.
+                    let scroll = TBStyledTextAreaScrollView()
+                    let editor = TBStyledTextAreaView()
+                    editor.isRichText = false
+                    editor.isAutomaticQuoteSubstitutionEnabled = false
+                    editor.isAutomaticDashSubstitutionEnabled = false
+                    editor.isAutomaticTextReplacementEnabled = false
+                    editor.isVerticallyResizable = true
+                    editor.isHorizontallyResizable = false
+                    editor.autoresizingMask = [.width]
+                    editor.minSize = NSSize(width: 0,
+                                            height: areaAtt.bounds.height)
+                    editor.maxSize = NSSize(
+                        width: CGFloat.greatestFiniteMagnitude,
+                        height: CGFloat.greatestFiniteMagnitude)
+                    editor.textContainer?.widthTracksTextView = true
+                    editor.frame = NSRect(origin: .zero,
+                                          size: areaAtt.bounds.size)
+                    scroll.hasVerticalScroller = true
+                    scroll.hasHorizontalScroller = false
+                    scroll.documentView = editor
+                    scroll.controlStyle = areaAtt.style
+                    scroll.applyControlStyle(editor: editor)
+                    editor.string = spec.defaultValue
+                    if editor.string.isEmpty && !spec.placeholder.isEmpty {
+                        editor.showPlaceholder(spec.placeholder)
+                    }
+                    editor.onFocusChange = { [weak self, weak scroll] focused in
+                        if focused {
+                            (self?.textView as? TBPageTextView)?
+                                .noteControlFocus()
+                        }
+                        scroll?.applyFocusPresentation(focused)
+                    }
+                    textView.addSubview(scroll)
+                    self.textAreaViews[spec.id] = editor
+                    self.formControlViews.append(scroll)
+                    self.formAnchors.append((view: scroll, charIndex: range.location,
+                                             attachment: areaAtt))
                 } else if let submitAtt = value as? TBSubmitAttachment {
                     let button = TBStyledButton(title: submitAtt.label, target: self,
                                                 action: #selector(Coordinator.submitClicked(_:)))
@@ -555,12 +657,45 @@ struct PageTextView: NSViewRepresentable {
                   let storage = textView.textStorage else { return }
             var typed: [Int: String] = [:]
             for (id, field) in fieldViews { typed[id] = field.stringValue }
+            // Live controls (0.31): the reader's popup
+            // choices and editor words are carried
+            // across beside the typed values.
+            var chosen: [Int: String] = [:]
+            for (id, popup) in selectViews { chosen[id] = popupValue(popup) }
+            var written: [Int: String] = [:]
+            for (id, editor) in textAreaViews {
+                written[id] = editor.currentText
+            }
             (textView as? TBPageTextView)?.pageTextReplaced()
             storage.setAttributedString(model.pageText)
             (textView as? TBPageTextView)?.pageTextInstalled()
             rebuildFormViews()
             for (id, value) in typed {
                 fieldViews[id]?.stringValue = value
+            }
+            for (id, value) in chosen {
+                guard let popup = selectViews[id] else { continue }
+                for index in 0..<popup.numberOfItems {
+                    guard let item = popup.item(at: index),
+                          item.isEnabled else { continue }
+                    if (item.representedObject as? String) ?? item.title
+                        == value {
+                        popup.selectItem(at: index)
+                        break
+                    }
+                }
+            }
+            for (id, value) in written {
+                guard let editor = textAreaViews[id] else { continue }
+                editor.dismissPlaceholder()
+                editor.string = value
+                // An untouched editor whose seed was
+                // empty gets its placeholder back.
+                if value.isEmpty,
+                   let spec = model.pageFields.first(where: { $0.id == id }),
+                   spec.defaultValue.isEmpty, !spec.placeholder.isEmpty {
+                    editor.showPlaceholder(spec.placeholder)
+                }
             }
             floatLayoutDirty = true
             settleFloatLayout()
@@ -1328,6 +1463,10 @@ struct PageTextView: NSViewRepresentable {
                 var formID = -2
                 if let fieldAtt = anchor.attachment as? TBFieldAttachment {
                     formID = formIDByFieldID[fieldAtt.fieldID] ?? -1
+                } else if let selectAtt = anchor.attachment as? TBSelectAttachment {
+                    formID = formIDByFieldID[selectAtt.fieldID] ?? -1
+                } else if let areaAtt = anchor.attachment as? TBTextAreaAttachment {
+                    formID = formIDByFieldID[areaAtt.fieldID] ?? -1
                 } else if let submitAtt = anchor.attachment as? TBSubmitAttachment {
                     formID = submitAtt.formID
                     if let prev = lastInForm[formID] {
@@ -1370,7 +1509,30 @@ struct PageTextView: NSViewRepresentable {
                     values[id] = field.stringValue
                 }
             }
+            // Live controls (0.31): a popup sends its
+            // chosen row's value and an editor its
+            // current words, through the same values
+            // the fields fill.
+            for (id, popup) in selectViews {
+                if model.pageFields.first(where: { $0.id == id })?.formID == form.id {
+                    values[id] = popupValue(popup)
+                }
+            }
+            for (id, editor) in textAreaViews {
+                if model.pageFields.first(where: { $0.id == id })?.formID == form.id {
+                    values[id] = editor.currentText
+                }
+            }
             model.submitForm(form, values: values)
+        }
+
+        // A popup's standing value: the chosen row's
+        // own value, or its label where the row
+        // carries none. A group row is never chosen —
+        // it stands disabled in the menu.
+        private func popupValue(_ popup: NSPopUpButton) -> String {
+            guard let item = popup.selectedItem else { return "" }
+            return (item.representedObject as? String) ?? item.title
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
@@ -1565,6 +1727,188 @@ final class TBStyledButton: NSButton {
             onFocusChange?(false)
         }
         return accepted
+    }
+}
+
+// A select's popup (0.31): AppKit's own popup
+// button, dressed as the submit button is — the
+// page's font, and its background as the bezel
+// tint where one is declared. The rows' text and
+// the popup's own chrome are AppKit's and take no
+// CSS dress, as a button's border takes none.
+// While focused it wears its :focus background —
+// or, lacking one, its :focus border color — as
+// the tint, as the button does.
+final class TBStyledPopUpButton: NSPopUpButton {
+    var controlStyle: TBControlStyle? = nil
+    var onFocusChange: ((Bool) -> Void)? = nil
+
+    func applyControlStyle() {
+        guard let style = controlStyle else { return }
+        if let font = style.font { self.font = font }
+        if let bg = style.backgroundColor { bezelColor = bg }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            if let style = controlStyle,
+               let focusBG = style.focusBackgroundColor
+                ?? style.focusBorderColor {
+                bezelColor = focusBG
+            }
+            onFocusChange?(true)
+        }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted {
+            applyControlStyle()
+            onFocusChange?(false)
+        }
+        return accepted
+    }
+}
+
+// A textarea's editor (0.31): a plain multi-line
+// text view standing in its own scroll view — the
+// scroll view below wears the seat's border and
+// background, as a styled field's layer does, and
+// this view wears the font, the color and the
+// words. A placeholder, where the page declares
+// one and the seed is empty, stands in the editor
+// in the placeholder gray until the reader's
+// first focus clears it; it does not come back
+// when the focus leaves, and it is never the
+// field's value.
+final class TBStyledTextAreaView: NSTextView {
+    var onFocusChange: ((Bool) -> Void)? = nil
+    private(set) var placeholderShowing = false
+    private var restingTextColor: NSColor? = nil
+
+    // The words a submission sends: the editor's
+    // own, or none while the placeholder stands.
+    var currentText: String {
+        placeholderShowing ? "" : string
+    }
+
+    func showPlaceholder(_ placeholder: String) {
+        restingTextColor = textColor
+        string = placeholder
+        textColor = .secondaryLabelColor
+        placeholderShowing = true
+    }
+
+    func dismissPlaceholder() {
+        guard placeholderShowing else { return }
+        placeholderShowing = false
+        string = ""
+        // The resting color back exactly as it was —
+        // a nil here is an unstyled editor's own
+        // default, not a color to keep.
+        textColor = restingTextColor
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            dismissPlaceholder()
+            onFocusChange?(true)
+        }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { onFocusChange?(false) }
+        return accepted
+    }
+}
+
+// A textarea's scroll view (0.31): the seat's
+// outer dress. Its border and background come
+// from the element's style, carried on its layer
+// as a styled field carries them; a page that
+// declares none of the three keeps the native
+// bezel border any scroll box wears. The focus's
+// dress answers here as well — the editor inside
+// takes the keyboard, but the ring belongs to the
+// seat: a declared outline rides as the border
+// while the focus lasts, else a :focus border
+// color takes the ring's place, exactly as a
+// field's focus dress does.
+final class TBStyledTextAreaScrollView: NSScrollView {
+    var controlStyle: TBControlStyle? = nil
+
+    func applyControlStyle(editor: NSTextView) {
+        guard let style = controlStyle else {
+            borderType = .bezelBorder
+            return
+        }
+        if let font = style.font { editor.font = font }
+        if let color = style.textColor { editor.textColor = color }
+        if style.backgroundColor != nil || style.borderColor != nil
+            || style.cornerRadius > 0 {
+            borderType = .noBorder
+            if let bg = style.backgroundColor {
+                drawsBackground = true
+                backgroundColor = bg
+            }
+            wantsLayer = true
+            if let layer = layer {
+                if let border = style.borderColor {
+                    layer.borderColor = border.cgColor
+                }
+                layer.borderWidth = style.borderWidth
+                layer.cornerRadius = style.cornerRadius
+            }
+        } else {
+            borderType = .bezelBorder
+        }
+    }
+
+    func applyFocusPresentation(_ focused: Bool) {
+        guard let style = controlStyle else { return }
+        if focused {
+            if let bg = style.focusBackgroundColor {
+                drawsBackground = true
+                backgroundColor = bg
+            }
+            if let focusText = style.focusTextColor {
+                (documentView as? NSTextView)?.textColor = focusText
+            }
+            if style.outlineColor != nil || style.focusBorderColor != nil {
+                borderType = .noBorder
+                wantsLayer = true
+                if let layer = layer {
+                    if let outline = style.outlineColor {
+                        layer.borderColor = outline.cgColor
+                        layer.borderWidth = style.outlineWidth
+                    } else if let focusBorder = style.focusBorderColor {
+                        layer.borderColor = focusBorder.cgColor
+                    }
+                }
+            }
+        } else {
+            if let color = style.textColor {
+                (documentView as? NSTextView)?.textColor = color
+            }
+            // The resting dress, in full — as a
+            // field's resign restores its own.
+            if style.backgroundColor == nil && style.borderColor == nil
+                && style.cornerRadius <= 0 {
+                borderType = .bezelBorder
+                drawsBackground = false
+                if let layer = layer {
+                    layer.borderWidth = 0
+                    layer.cornerRadius = 0
+                }
+            } else if let editor = documentView as? NSTextView {
+                applyControlStyle(editor: editor)
+            }
+        }
     }
 }
 

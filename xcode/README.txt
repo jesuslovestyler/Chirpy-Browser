@@ -7,6 +7,101 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.31.0 — LIVE SELECT & TEXTAREA CONTROLS
+------------------------------------------------------
+The last of the engine's named gaps: a <select>
+is a real popup button now, and a <textarea> a
+real multi-line editor — the two controls that
+rendered as their text since the beginning.
+
+* The select. Its rows gather in document order
+  (the parser nests a following <option> inside
+  the one before it, there being no implied
+  close, so the gathering flattens as it walks);
+  each row's value is its value attribute, or
+  its label where it has none. An <optgroup>'s
+  label stands among the rows as a disabled
+  group row. The resting choice is the last
+  option carrying selected — the choice a
+  browser's parser leaves standing — else the
+  first real option. The seat is the widest
+  label's measure in the element's font, plus
+  room for the popup's own chrome, or the
+  declared CSS size. A multiple select seats
+  the same popup, resting on its first chosen
+  option: picking several at once is NOT built,
+  named plainly. The popup wears the page's
+  font, and its background as a tint when one is
+  declared — the rows' text and the popup's own
+  chrome are AppKit's and take no CSS dress,
+  and neither do a CSS border or corner radius,
+  as with a button's.
+
+* The textarea. Its seed is the element's own
+  text, read raw by the parser the way <style>
+  is — markup written inside a seed can no
+  longer bend the document tree — with the
+  entities decoded once as the seed is read,
+  and the one leading newline dropped, as HTML
+  directs. rows and cols size the seat by the
+  element's own font cells, a declared CSS size
+  winning. The editor is a plain text view in
+  its own scroll view: the scroll view wears
+  the border and background of the element's
+  style on its layer, the editor the font and
+  the text color, and a declared outline rides
+  as the border ring while the focus lasts,
+  exactly as a field's does. A placeholder
+  stands in the editor in the placeholder gray
+  while the seed is empty, clearing at the
+  reader's first focus; it never comes back,
+  and it is never the field's value.
+
+* Both, with the others. The two seat through
+  the same attachments, anchors and reaping as
+  the fields and buttons — a page's controls
+  never outlive the page — take real keyboard
+  focus (taking it also releases the text's
+  focused link, as a field's focus does), and
+  send their current value with their form
+  through the standing GET and POST path: the
+  popup its chosen row's value, the editor its
+  current words. What the reader chose or wrote
+  rides across the arrivals re-install beside
+  the typed field values. Pressing Enter in an
+  editor makes a new line, never a submission,
+  and choosing in a popup submits nothing — no
+  script is listening, there being no
+  JavaScript. A disabled attribute is not read,
+  here or on the controls before them. Inside a
+  painted box both keep the standing
+  bracket-label stand-in — the select wearing
+  its resting choice's label there, the editor
+  its placeholder or "field", as a field does.
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.31.0 (Swift)" and
+name "live selects and text areas" among the
+features. Then controls-test.html, all seven
+promises, every one of them Tyler's hands: the
+popup resting on its chosen dish, its group
+rows dimmed in the opened menu (1); the seeded
+editor taking new words (2); the Send press
+carrying the dish's value and the editor's
+words into the address bar (3); the popup in
+the page's own dress (4); the styled editor,
+its clearing placeholder and its amber focus
+ring (5); the floated select standing as its
+bracketed label (6); the multiple select
+wearing its first chosen option as a plain
+popup (7). Regression passes: flex-test,
+grid-test, interaction-test, finishing-test,
+finishing2-test, banding-test and shield-test
+end to end, then the home page. With this
+stage the form machinery stands complete:
+the engine header's "Not yet" now holds
+JavaScript alone.
+
 WHAT'S NEW IN 0.30.0 — THE SMALL COMPLETIONS
 ------------------------------------------------------
 The named outs of 0.24, 0.25 and 0.27, emptied —
