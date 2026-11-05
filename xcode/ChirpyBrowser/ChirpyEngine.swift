@@ -439,30 +439,30 @@
 //      step-end and the jump terms with it — moves
 //      transitions and keyframe runs in discrete
 //      jumps, as written.
-    * Live select and textarea controls (0.31): a
-      <select> seats a real popup button and a
-      <textarea> a real multi-line editor, through
-      the same attachments, seats and value path
-      as the fields before them. A select's rows
-      gather in document order — the parser nests
-      a following <option> inside the one before
-      it, so the gathering flattens as it walks —
-      an <optgroup>'s label stands among them as
-      a disabled row, and the resting choice is
-      the last option carrying `selected`, else
-      the first (a `multiple` select's is its
-      first chosen one; picking several is not
-      built). A textarea's seed is its own text,
-      read raw by the parser the way <style> is,
-      so markup in a seed cannot bend the tree;
-      one leading newline is dropped, as HTML
-      directs. Both wear their element's resolved
-      style as far as AppKit honestly dresses
-      them, take real keyboard focus, and send
-      their current value with their form; inside
-      a painted box they keep the standing
-      bracket-label stand-in, the select wearing
-      its resting choice's label there.
+//    * Live select and textarea controls (0.31): a
+//      <select> seats a real popup button and a
+//      <textarea> a real multi-line editor, through
+//      the same attachments, seats and value path
+//      as the fields before them. A select's rows
+//      gather in document order — the parser nests
+//      a following <option> inside the one before
+//      it, so the gathering flattens as it walks —
+//      an <optgroup>'s label stands among them as
+//      a disabled row, and the resting choice is
+//      the last option carrying `selected`, else
+//      the first (a `multiple` select's is its
+//      first chosen one; picking several is not
+//      built). A textarea's seed is its own text,
+//      read raw by the parser the way <style> is,
+//      so markup in a seed cannot bend the tree;
+//      one leading newline is dropped, as HTML
+//      directs. Both wear their element's resolved
+//      style as far as AppKit honestly dresses
+//      them, take real keyboard focus, and send
+//      their current value with their form; inside
+//      a painted box they keep the standing
+//      bracket-label stand-in, the select wearing
+//      its resting choice's label there.
 //  Not yet: JavaScript (the mountain), and the
 //  outs named in the README.
 //
