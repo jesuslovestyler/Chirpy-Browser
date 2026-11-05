@@ -38,6 +38,24 @@
 
   .glide { background-color: #d7e5ff; padding: 14px; width: 300px;
            transition: background-color 0.4s ease, transform 0.4s ease; }
+
+  .insetcard { background-color: #fffdf5; padding: 14px;
+               box-shadow: inset 0 2px 8px rgba(60, 40, 0, 0.45); }
+  .mixedcard { background-color: #eef3e0; padding: 14px;
+               box-shadow: 0 6px 14px rgba(0, 0, 0, 0.30),
+                           inset 0 0 0 3px #7a9a4d; }
+
+  .stepper { background-color: #d7e5ff; padding: 14px; width: 300px;
+             transition: background-color 0.8s steps(4); }
+  .stepper:hover { background-color: #ffb26b; }
+
+  @keyframes toggle {
+    from { opacity: 1; }
+    to { opacity: 0.25; }
+  }
+  .toggle { background-color: #0b5394; color: #ffffff; padding: 14px;
+            width: 300px;
+            animation: toggle 1.6s steps(2, end) infinite alternate; }
   .glide:hover { background-color: #ffb26b;
                  transform: translate(26px, 0); }
 
@@ -150,6 +168,28 @@ scaling between its two stops.</div>
 these cards should simply rest, and the glide above should
 change at once instead of sliding — that stillness is the
 promise kept another way.</p>
+
+<h2>9 — inset shadows (new in 0.30)</h2>
+<div class="insetcard">This card's shadow falls INSIDE its
+own edges — a soft dark pressure along the inside of the
+top, as if the card were pressed into the page. Nothing of
+it shows outside the card's border.</div>
+<p></p>
+<div class="mixedcard">This card carries both kinds at
+once: a soft outer shadow under it, like the cards of
+promise 1, and a hard green inset ring inside its edges —
+one list, each kind keeping its own order.</div>
+
+<h2>10 — steps() timing (new in 0.30; needs your eyes)</h2>
+<div class="stepper">Rest your pointer here: the warmth
+arrives in four visible jumps, not a slide — steps(4)
+divides the change into four equal stands. Move away and
+it steps home the same way.</div>
+<p></p>
+<div class="toggle">This card does not fade — it toggles.
+Its keyframes run on steps(2, end): two stands per run,
+full strength, then quarter strength, then back, about a
+second and a half a stand.</div>
 
 </body>
 </html>

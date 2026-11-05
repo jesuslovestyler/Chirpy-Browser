@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Chirpy 0.24 — Flexbox Test Page</title>
+<title>Chirpy 0.30 — Flexbox Test Page</title>
 <style>
   body { font-family: sans-serif; }
   .bar {
@@ -47,20 +47,25 @@
          background-color: #4682B4; }
   .small { font-size: 13px; padding: 8px; color: #FFFFFF;
            background-color: #B22222; }
+  .tallbar { height: 300px; align-content: space-between; }
+  .revbar { height: 300px; flex-wrap: wrap-reverse; }
+  .step { height: 300px; background-color: #EAF6FF;
+          padding: 10px; margin: 8px 0; }
+  .halfbar { height: 50%; margin: 0; }
 </style>
 </head>
 <body>
-<h1>Chirpy Engine 0.24 — flexbox test</h1>
+<h1>Chirpy Engine 0.30 — flexbox test</h1>
 <p>Every arrangement on this page is made with CSS flexbox
 alone. Read down and check each numbered promise. First,
 the status line at the bottom of the window should read
-"Chirpy Engine 0.24.0 (Swift)". Two honest notes before
+"Chirpy Engine 0.30.0 (Swift)". Two honest notes before
 the promises: the items on this page are paint, not live
 text — the floated boxes' bargain since 0.17 — so a link
 inside an item shows its colors but does not click; and
-flex-wrap: wrap-reverse is not read yet (its pages get
-plain wrap), while wrapped lines always pack from the
-top, because align-content is not read yet either.</p>
+since 0.30, wrap-reverse and align-content are read
+too — promises 12 and 13 below are theirs, and promise
+14 is the container's own percentage height.</p>
 
 <h2>1 — space-between</h2>
 <div class="bar between">
@@ -194,7 +199,53 @@ hangs lower — but the words themselves share one
 invisible line: each box is placed so its first line
 of text meets the other's baseline.</p>
 
-<p>End of the test page. If all eleven promises held,
+<h2>12 — align-content spreads the lines</h2>
+<div class="bar wraprow tallbar">
+  <div class="wbox b1">SPREAD 1 — first line.</div>
+  <div class="wbox b2">SPREAD 2 — first line too.</div>
+  <div class="wbox b3">SPREAD 3 — middle line.</div>
+  <div class="wbox b4">SPREAD 4 — middle line too.</div>
+  <div class="wbox b5">SPREAD 5 — last line, alone.</div>
+</div>
+<p>The bar is 300 tall and align-content is
+space-between: the first wrapped line hugs the bar's
+top, the last hugs its bottom, and the middle line
+stands halfway between — the leftover height is
+shared into the gaps between the lines, the way
+justify-content shares width between items.</p>
+
+<h2>13 — wrap-reverse stacks from the bottom</h2>
+<div class="bar wraprow revbar">
+  <div class="wbox b1">FIRST LINE — I lead the first
+  line in file order, and wrap-reverse stands that
+  line at the BOTTOM of the bar.</div>
+  <div class="wbox b2">FIRST LINE TOO</div>
+  <div class="wbox b3">SECOND LINE — I stand above
+  the first line, not below it.</div>
+  <div class="wbox b4">SECOND LINE TOO</div>
+  <div class="wbox b5">THIRD LINE — I stand at the
+  very top of the bar.</div>
+</div>
+<p>The cross axis is flipped: the lines stack upward
+from the bar's bottom edge, so the first line in
+file order is the lowest one on the page.</p>
+
+<h2>14 — a percentage height against a definite one</h2>
+<div class="step">
+  <div class="bar halfbar">
+    <div class="wbox b1">HALF — this yellow bar is
+    height: 50% inside the pale step around it, which
+    declares 300: the bar stands half the step's
+    inside height, and the pale ground shows the
+    other half below it.</div>
+  </div>
+</div>
+<p>And where no ancestor declares a height, a
+percentage height still reads as the content's own
+height — every other bar on this page is the proof,
+standing exactly as tall as what it holds.</p>
+
+<p>End of the test page. If all fourteen promises held,
 flexbox works.</p>
 </body>
 </html>

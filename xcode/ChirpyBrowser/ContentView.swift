@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.29.0 (Swift)
+//  Chirpy Browser — prototype 0.30.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.29.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, progress bar, parallel loading, no JavaScript yet"
+    @Published var statusLine = "Chirpy Engine 0.30.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, progress bar, parallel loading, no JavaScript yet"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -180,7 +180,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.29.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, progress bar, parallel loading, no JavaScript yet"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.30.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, progress bar, parallel loading, no JavaScript yet"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -2771,7 +2771,7 @@ final class TBBandLayoutManager: NSLayoutManager {
     // issued for a rect with no area.
     static func paintBoxShadows(_ set: TBBoxShadowSet, in rect: NSRect) {
         guard rect.width > 0, rect.height > 0 else { return }
-        for shadow in set.shadows.reversed() {
+        for shadow in set.shadows.reversed() where !shadow.inset {
             let shape = rect.insetBy(dx: -shadow.spread,
                                      dy: -shadow.spread)
                 .offsetBy(dx: shadow.dx, dy: shadow.dy)
@@ -2792,6 +2792,48 @@ final class TBBandLayoutManager: NSLayoutManager {
             }
             shadow.color.setFill()
             NSBezierPath(rect: shape).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    // Inset box shadows (0.30): the outer painter's
+    // model turned inside out. The shadow's shape is
+    // the box shrunk by the spread and shifted by
+    // the offset; the shadow itself is the frame
+    // between the box and that shape, filled with
+    // the shadow's color under its own blur, clipped
+    // to the box itself — darkest at the box's own
+    // edges, softening where the frame meets the
+    // middle. Painted after a box's background and
+    // layers and before its contents, as CSS stacks
+    // them; first-listed on top within the inset
+    // kind. A spread that swallows the shape whole
+    // leaves the whole box in shadow.
+    static func paintInsetBoxShadows(_ set: TBBoxShadowSet,
+                                     in rect: NSRect) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        for shadow in set.shadows.reversed() where shadow.inset {
+            let inner = rect.insetBy(dx: shadow.spread,
+                                     dy: shadow.spread)
+                .offsetBy(dx: shadow.dx, dy: shadow.dy)
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: rect).addClip()
+            if shadow.blur > 0 {
+                let ns = NSShadow()
+                ns.shadowColor = shadow.color
+                ns.shadowBlurRadius = shadow.blur
+                ns.shadowOffset = .zero
+                ns.set()
+            }
+            shadow.color.setFill()
+            if inner.width <= 0 || inner.height <= 0 {
+                NSBezierPath(rect: rect).fill()
+            } else {
+                let frame = NSBezierPath(rect: rect)
+                frame.append(NSBezierPath(rect: inner))
+                frame.windingRule = .evenOdd
+                frame.fill()
+            }
             NSGraphicsContext.restoreGraphicsState()
         }
     }
@@ -3366,6 +3408,9 @@ final class TBBandLayoutManager: NSLayoutManager {
             if let box = band.box {
                 TBBandLayoutManager.paintBackgroundLayers(box, in: rect)
             }
+            if let shadows = band.shadowSet {
+                TBBandLayoutManager.paintInsetBoxShadows(shadows, in: rect)
+            }
             if bandFX {
                 NSGraphicsContext.restoreGraphicsState()
             }
@@ -3708,6 +3753,9 @@ final class TBBandLayoutManager: NSLayoutManager {
             if let box = item.backgroundBox {
                 TBBandLayoutManager.paintBackgroundLayers(box, in: rect)
             }
+            if let shadows = item.boxShadows {
+                TBBandLayoutManager.paintInsetBoxShadows(shadows, in: rect)
+            }
             let contentRect = NSRect(
                 x: rect.minX + item.paddingLeft,
                 y: rect.minY + item.paddingTop,
@@ -3903,6 +3951,9 @@ final class TBBandLayoutManager: NSLayoutManager {
             if let box = item.backgroundBox {
                 TBBandLayoutManager.paintBackgroundLayers(box, in: rect)
             }
+            if let shadows = item.boxShadows {
+                TBBandLayoutManager.paintInsetBoxShadows(shadows, in: rect)
+            }
             let contentRect = NSRect(
                 x: rect.minX + item.paddingLeft,
                 y: rect.minY + item.paddingTop,
@@ -4039,6 +4090,9 @@ final class TBBandLayoutManager: NSLayoutManager {
         }
         if let box = source.backgroundBox {
             TBBandLayoutManager.paintBackgroundLayers(box, in: rect)
+        }
+        if let shadows = source.boxShadows {
+            TBBandLayoutManager.paintInsetBoxShadows(shadows, in: rect)
         }
         let contentRect = NSRect(
             x: rect.minX + source.paddingLeft, y: rect.minY + source.paddingTop,
@@ -4750,6 +4804,9 @@ final class TBFixedOverlayView: NSView {
         }
         if let box = spec.backgroundBox {
             TBBandLayoutManager.paintBackgroundLayers(box, in: bounds)
+        }
+        if let shadows = spec.boxShadows {
+            TBBandLayoutManager.paintInsetBoxShadows(shadows, in: bounds)
         }
         let contentRect = NSRect(
             x: bounds.minX + spec.paddingLeft, y: bounds.minY + spec.paddingTop,

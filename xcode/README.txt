@@ -7,6 +7,114 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.30.0 — THE SMALL COMPLETIONS
+------------------------------------------------------
+The named outs of 0.24, 0.25 and 0.27, emptied —
+the last of the CSS program's honest gaps. Four
+pieces:
+
+* Flex completions. align-content joins the flex
+  layout: for a container with two or more lines
+  and a definite cross size, the leftover height
+  (or width, in a column container) is shared
+  among the LINES — flex-end and center shift the
+  whole stack, space-between / space-around /
+  space-evenly widen the gaps between lines, and
+  stretch grows every line alike, its stretch and
+  center items then answering inside the grown
+  line. flex-wrap: wrap-reverse is read truly:
+  the cross axis is flipped, so lines stack from
+  the cross-end, cross margins trade places, and
+  alignment and baselines answer to the flipped
+  axis. Fall-backs, named: when the lines overflow
+  the cross size, the space distributions and
+  stretch fall back to start packing (flex-end and
+  center still shift, as CSS directs); a single
+  line still takes the container's cross size
+  whole, as before.
+
+* Grid completions. Placement now runs in flow
+  coordinates — one algorithm serving both flows,
+  transposed exactly as the spec writes it.
+  grid-auto-flow: column flows items down the
+  rows, opening implicit columns as needed; dense
+  (either flow) restarts the placement cursor at
+  the first cell for every item, so a late small
+  item backfills a hole the sparse cursor passed.
+  Line names are read in both templates —
+  grid-template-columns: [start] 200px [middle]
+  1fr [end] — and placement sides answer to them
+  (grid-column: middle / end), to their counted
+  namesakes (start 2), and to the area-edge names
+  (main-start). grid-template-areas draws its
+  map of quoted rows; grid-area: <name> places an
+  item into the name's rectangle, and the axis
+  longhands still layer over it. Fall-backs,
+  named: names written inside a repeat() are not
+  read, and neither is anything after an
+  auto-fill / auto-fit repeat; span <name> reads
+  as plain auto placement; a name nothing answers
+  — or a grid-area naming no area — falls back to
+  auto placement; and a template-areas map in
+  which any name fills something other than a
+  rectangle, or whose rows disagree in length,
+  voids the WHOLE map (its declarations drop, as
+  CSS drops an invalid declaration).
+
+* Percentage heights for both containers. A flex
+  or grid container's own height, min-height and
+  max-height written in % now resolve against the
+  definite height of the block ancestor the walk
+  has open — a height declared in points, or
+  itself a resolved percentage, chained down —
+  instead of reading as auto. Still auto, named:
+  where no ancestor declares a height, and inside
+  a painted item (a flex / grid item's contents, a
+  float), whose height is born in layout, after
+  the walk has passed.
+
+* Inset shadows and steps(). box-shadow's inset
+  keyword paints: the frame between the box and
+  its spread-shrunk, offset-shifted inner shape,
+  filled with the shadow's color under its blur,
+  clipped to the box — above the background and
+  its layers, below the contents, on every painter
+  that carries the outer kind (block surfaces,
+  painted boxes, flex and grid items, fixed
+  overlays). A list mixing the kinds paints each
+  kind in its own list order, first-listed on
+  top. And the timing evaluator reads steps():
+  steps(n) and steps(n, start / end), the jump
+  terms (jump-start / jump-end / jump-none /
+  jump-both), and step-start / step-end — progress
+  moving in discrete stands, in transitions and
+  keyframe runs alike. (Per-stop keyframe timing
+  functions remain unmodelled, as in 0.27: one
+  timing serves the whole run.)
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.30.0 (Swift)" and
+name "the completions" among the features. Then
+flex-test.html — all fourteen promises, 12–14
+being the new ones (align-content spreading the
+lines in a 300-tall bar; wrap-reverse stacking
+from the bottom; a 50% bar inside a
+300-declaring wrapper). Then grid-test.html —
+all thirteen promises, 9–13 being the new ones
+(column flow reading down then across; the small
+box backfilled into the first row's hole under
+dense; placement by line names; the
+template-areas map; a 50% grid inside a
+300-declaring wrapper). Then finishing2-test.html
+— promise 9 is the inset shadows (a pressed-in
+card, and a card carrying an outer shadow and an
+inset ring from one list) and promise 10 is
+steps() (a hover warming in four jumps; a card
+toggling rather than fading) — 10 needs Tyler's
+eyes, as all motion does. Regression passes:
+banding-test.html and shield-test.html end to
+end, then the home page.
+
 WHAT'S NEW IN 0.29.0 — THE BANDING REPAIR
 ------------------------------------------------------
 A defect repair, proven before it was patched. Two

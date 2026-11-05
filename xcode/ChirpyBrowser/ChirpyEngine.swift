@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.29.0 (Swift)
+//  Chirpy Browser — engine 0.30.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -222,10 +222,7 @@
 //      container inside a floated, positioned or
 //      column box works the same way. An absolutely
 //      positioned child is no item; it registers with
-//      the positioned machinery as usual. Not read:
-//      wrap-reverse (its pages get wrap), align-content
-//      (wrapped lines pack at the cross start), and a
-//      flex container's percentage height. Items are
+//      the positioned machinery as usual. Items are
 //      paint, not live text — the floated box's
 //      bargain, struck again: their links show their
 //      colors but do not click.
@@ -246,9 +243,7 @@
 //      definite minimum — auto-fit's expansion leaves
 //      its empty tracks standing to be collapsed
 //      when no item lands in them, as the spec
-//      directs. Named lines are parsed past and
-//      forgotten; grid-template-areas and placement
-//      by name are not read. Track sizing runs the
+//      directs. Track sizing runs the
 //      spec's shape: bases from the items' measured
 //      contents (an item spanning several tracks
 //      shares its excess across the ones it spans),
@@ -265,9 +260,6 @@
 //      from a shared cursor, items definite in both
 //      axes placed first and row-locked items next,
 //      implicit rows growing as the items demand.
-//      grid-auto-flow: column is not read — its
-//      pages get row flow — and dense packing is not
-//      read either: the cursor never backs up.
 //      justify-items and align-items, with their self
 //      variants (stretch, start, end, center), set an
 //      item inside its area; baseline reads as start.
@@ -333,8 +325,8 @@
 //      never moves for any of them. box-shadow paints
 //      outer shadows under block surfaces and painted
 //      boxes (offset, blur, spread, color; several at
-//      once; inset is read and set aside — there is no
-//      honest inside clip here); text-shadow rides
+//      once — and, since 0.30, inset shadows inside
+//      them as well); text-shadow rides
 //      under the glyphs in every text path. A state's
 //      background layers (a :hover gradient or photo)
 //      paint through the same layer painter as a
@@ -365,7 +357,8 @@
 //      animated ranges, and both stand down entirely
 //      when the system asks for reduced motion. Timing
 //      functions are cubic Béziers (the named easings
-//      and cubic-bezier()); steps() reads as ease.
+//      and cubic-bezier()) — and, since 0.30,
+//      steps(), which moves in discrete jumps.
 //      What animation never does here: move layout —
 //      width, height and font traits in a transition
 //      or a keyframe are not read.
@@ -416,9 +409,39 @@
 //      paint once, into the union of the stamp's
 //      fragment rects, instead of re-anchoring at
 //      every line.
-//  Not yet: JavaScript (the mountain), inset
-//  box-shadows, live select and textarea controls,
-//  and the outs named in the README.
+//    * The small completions (0.30): the named outs
+//      of 0.24, 0.25 and 0.27, emptied. Flex gains
+//      align-content — the six distributions and
+//      stretch, sharing a definite cross size's
+//      leftover among wrapped lines — and a true
+//      wrap-reverse, its cross axis flipped: lines
+//      stack from the cross end, and alignment and
+//      cross margins answer to the flipped axis.
+//      Grid gains grid-auto-flow: column and dense
+//      packing, line names in both templates, and
+//      grid-template-areas placed by grid-area: a
+//      name — an area that fills no rectangle, or a
+//      name nothing answers, falls back to auto
+//      placement, as the README says. A flex or grid
+//      container's percentage height resolves against
+//      the definite height of the block ancestor the
+//      walk has open — declared in points, or itself
+//      a resolved percentage — and reads as auto
+//      where no ancestor declares one, and inside a
+//      painted item, whose height is born in layout
+//      after the walk, still. box-shadow's inset
+//      shadows paint: the frame between the box and
+//      its shrunk, shifted inner shape, clipped to
+//      the box, above its background and below its
+//      contents, on the same painters that carry the
+//      outer kind, lists mixing the two kinds
+//      freely. And steps() timing — step-start,
+//      step-end and the jump terms with it — moves
+//      transitions and keyframe runs in discrete
+//      jumps, as written.
+//  Not yet: JavaScript (the mountain), live select
+//  and textarea controls, and the outs named in
+//  the README.
 //
 
 import Foundation
@@ -958,7 +981,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
                                              category: category))
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -984,7 +1007,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1054,7 +1077,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1164,7 +1187,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
     // to its label, exactly as a failed fetch does.
     if tbShieldCategory(host: url.host) != nil { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1362,16 +1385,19 @@ final class TBHoverStyle {
 
 // The paint & motion set (0.27): one box shadow —
 // offsets in points (y down, as the page reads), a
-// blur radius, a spread, and a color. Inset shadows
-// never reach this struct: the parser sets them
-// aside, because the painters draw a shadow under a
-// box and have no honest way to clip one inside it.
+// blur radius, a spread, and a color. An inset
+// shadow (0.30) rides the same struct with its flag
+// set: the outer kind paints beneath its box, the
+// inset kind as the frame inside it, above the
+// background — the two kinds keeping their own
+// order in a mixed list.
 struct TBBoxShadow {
     var dx: CGFloat
     var dy: CGFloat
     var blur: CGFloat
     var spread: CGFloat
     var color: NSColor
+    var inset: Bool = false
 }
 
 final class TBBoxShadowSet {
@@ -1513,16 +1539,32 @@ final class TBTransformSpec {
     }
 }
 
-// A CSS timing function as a cubic Bézier: the two
-// control points between (0, 0) and (1, 1).
-// evaluate() answers eased progress for linear
-// progress — the x(t) inversion every browser does,
-// solved by Newton-Raphson with a bisection fallback.
+// How a steps() timing climbs (0.30): end holds
+// each step's starting value and jumps at its end
+// (the default); start jumps at each step's start,
+// so progress is already one step up at x = 0;
+// none spreads the jumps so neither endpoint holds
+// a step of its own (jump-none); both holds a step
+// at both ends (jump-both).
+enum TBStepPosition {
+    case end, start, none, both
+}
+
+// A CSS timing function: a cubic Bézier — the two
+// control points between (0, 0) and (1, 1) — or,
+// since 0.30, a steps() count, which is no Bézier
+// at all and answers in discrete jumps. evaluate()
+// answers eased progress for linear progress — for
+// a Bézier, the x(t) inversion every browser does,
+// solved by Newton-Raphson with a bisection
+// fallback.
 struct TBTimingFunction {
     var x1: Double
     var y1: Double
     var x2: Double
     var y2: Double
+    var stepCount: Int? = nil
+    var stepPosition: TBStepPosition = .end
     static let linear = TBTimingFunction(x1: 0, y1: 0, x2: 1, y2: 1)
     static let ease = TBTimingFunction(x1: 0.25, y1: 0.1, x2: 0.25, y2: 1)
     static let easeIn = TBTimingFunction(x1: 0.42, y1: 0, x2: 1, y2: 1)
@@ -1530,6 +1572,28 @@ struct TBTimingFunction {
     static let easeInOut = TBTimingFunction(x1: 0.42, y1: 0, x2: 0.58, y2: 1)
 
     func evaluate(_ x: Double) -> Double {
+        if let count = stepCount {
+            // steps(): the staircase itself. The
+            // count of jumps taken is the whole part
+            // of progress times the count; the jump
+            // terms differ only in where the held
+            // steps sit, as the enum above says.
+            let n = max(count, 1)
+            let clamped = min(max(x, 0), 1)
+            let jumped = (clamped * Double(n)).rounded(.down)
+            switch stepPosition {
+            case .end:
+                return clamped >= 1 ? 1 : jumped / Double(n)
+            case .start:
+                return min(jumped + 1, Double(n)) / Double(n)
+            case .none:
+                if n == 1 { return clamped >= 1 ? 1 : 0 }
+                return min(jumped, Double(n - 1)) / Double(n - 1)
+            case .both:
+                return min(jumped + 1, Double(n + 1))
+                    / Double(n + 1)
+            }
+        }
         if x <= 0 { return 0 }
         if x >= 1 { return 1 }
         if x1 == 0, y1 == 0, x2 == 1, y2 == 1 { return x }
@@ -1564,8 +1628,11 @@ struct TBTimingFunction {
     }
 }
 
-// A timing word or a cubic-bezier() — steps() is not
-// read (it answers ease, as the header says).
+// A timing word, a cubic-bezier(), or a steps() —
+// step-start and step-end are steps(1) under their
+// own names, and steps() itself takes its count
+// with an optional jump term (start, end,
+// jump-none, jump-both; end when none is written).
 func tbTimingFunction(_ token: String) -> TBTimingFunction {
     let t = token.trimmingCharacters(in: .whitespaces).lowercased()
     switch t {
@@ -1574,7 +1641,32 @@ func tbTimingFunction(_ token: String) -> TBTimingFunction {
     case "ease-in": return .easeIn
     case "ease-out": return .easeOut
     case "ease-in-out": return .easeInOut
+    case "step-start", "step-end":
+        var stepped = TBTimingFunction.ease
+        stepped.stepCount = 1
+        stepped.stepPosition = t == "step-start" ? .start : .end
+        return stepped
     default:
+        if t.hasPrefix("steps("), t.hasSuffix(")") {
+            let parts = t.dropFirst(6).dropLast()
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            if let first = parts.first, let n = Int(first), n > 0 {
+                var position: TBStepPosition = .end
+                if parts.count > 1 {
+                    switch parts[1] {
+                    case "start", "jump-start": position = .start
+                    case "jump-none": position = .none
+                    case "jump-both": position = .both
+                    default: position = .end
+                    }
+                }
+                var stepped = TBTimingFunction.ease
+                stepped.stepCount = n
+                stepped.stepPosition = position
+                return stepped
+            }
+        }
         if t.hasPrefix("cubic-bezier("), t.hasSuffix(")") {
             let parts = t.dropFirst(13).dropLast()
                 .split(separator: ",")
@@ -2041,6 +2133,16 @@ final class TBFlexSpec {
     var wraps: Bool = false
     var justify: String = "flex-start"
     var alignItems: String = "stretch"
+    // The small completions (0.30): align-content,
+    // normalized like justify (flex-start, flex-end,
+    // center, space-between, space-around,
+    // space-evenly, stretch), distributing a wrapped
+    // line stack inside a definite cross size; and
+    // wrapReverse — flex-wrap: wrap-reverse read
+    // honestly at last: the cross axis runs flipped,
+    // lines stacking from the cross end.
+    var alignContent: String = "flex-start"
+    var wrapReverse: Bool = false
     // The gaps as declared, resolved by the layout
     // pass: column-gap percentages belong to the
     // container's width, row-gap percentages to its
@@ -2068,10 +2170,9 @@ final class TBFlexSpec {
     // widen it past what the page declared.
     var declaredContentWidth: CGFloat? = nil
     // The container's own min-height / max-height,
-    // resolved to content-box points at spec time
-    // (percentage heights are not read — there is no
-    // definite height above a flow block to resolve
-    // them against).
+    // resolved to content-box points at spec time —
+    // percentages against the walk's definite
+    // ancestor height, like the height itself (0.30).
     var minHeightClamp: CGFloat? = nil
     var maxHeightClamp: CGFloat? = nil
     // The laid-out height of the whole container:
@@ -2209,6 +2310,24 @@ final class TBGridSpec {
     // space-around, space-evenly.
     var justifyContent: String = "start"
     var alignContent: String = "start"
+    // The small completions (0.30): the auto-flow
+    // reading — column flow (items fill down a
+    // column before marching to the next) and dense
+    // packing (the placement cursor restarts at the
+    // first cell for every item, backfilling the
+    // holes the sparse cursor steps over) — and the
+    // names: both templates' bracketed line names by
+    // 1-based line index, and the
+    // grid-template-areas map, each area name to its
+    // rectangle of lines (1-based, end lines one
+    // past the last cell), that grid-area: <name>
+    // and the named sides place by.
+    var autoFlowColumn = false
+    var autoFlowDense = false
+    var columnLineNames: [Int: [String]] = [:]
+    var rowLineNames: [Int: [String]] = [:]
+    var templateAreas: [String: (rowStart: Int, colStart: Int,
+                                 rowEnd: Int, colEnd: Int)] = [:]
     // The gaps as declared, resolved by the layout
     // pass: column-gap percentages belong to the
     // container's width, row-gap percentages to its
@@ -2239,12 +2358,14 @@ final class TBGridSpec {
 
 // One side of a grid placement, as written: a line
 // number (negative until dress resolves it against
-// the explicit grid), a span, or nothing — auto,
-// which is also where a line name lands, names being
-// parsed past and forgotten.
+// the explicit grid), a span, a name (0.30 — the
+// name and the count of the line bearing it, which
+// dress resolves against the container's templates
+// and areas), or nothing — auto.
 enum TBGridSide {
     case line(Int)
     case span(Int)
+    case name(String, Int)
     case auto
 }
 
@@ -2315,7 +2436,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
     // without that sheet, as it does when one fails.
     if tbShieldCategory(host: url.host) != nil { return nil }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.29.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.30.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -4608,6 +4729,18 @@ final class TBRenderer {
     // sits this far inside the column.
     private var ancestorPaddingH: CGFloat = 0
 
+    // Percentage container heights (0.30): the
+    // definite content height of the block ancestor
+    // currently open, when it declared one — a height
+    // in points, or a percentage itself resolved
+    // against the ancestor above it, the chain CSS
+    // keeps. walkBlock pushes each block's own as it
+    // opens and restores the parent's at the close;
+    // a block declaring no height pushes nil, for
+    // its children's percentages have nothing
+    // definite to stand on.
+    private var definiteAncestorHeight: CGFloat? = nil
+
     // Positioned layout (0.21): the positioned boxes the
     // walk met and what they still wait on — pictures to
     // fetch, contents to measure — and the stack of
@@ -5062,10 +5195,9 @@ final class TBRenderer {
     // of lengths (offset-x, offset-y, blur, spread)
     // with a color wherever the page put it, and
     // currentColor — the element's own color, passed
-    // in — when it put none. An inset shadow is
-    // skipped whole: inset is named out for this
-    // engine, whose painters draw a shadow under a
-    // box and cannot clip one inside it.
+    // in — when it put none. The inset keyword
+    // rides along on its own shadow (0.30); the
+    // painters draw that kind inside its box.
     private func boxShadowSet(_ decls: [String: String],
                               color: NSColor?,
                               fontSize: CGFloat) -> TBBoxShadowSet? {
@@ -5092,13 +5224,14 @@ final class TBRenderer {
                 if word == "0" { lengths.append(0); continue }
                 valid = false
             }
-            guard valid, !inset, lengths.count >= 2 else { continue }
+            guard valid, lengths.count >= 2 else { continue }
             let blur = lengths.count > 2 ? lengths[2] : 0
             guard blur >= 0 else { continue }
             set.shadows.append(TBBoxShadow(
                 dx: lengths[0], dy: lengths[1], blur: blur,
                 spread: lengths.count > 3 ? lengths[3] : 0,
-                color: shadowColor ?? color ?? .black))
+                color: shadowColor ?? color ?? .black,
+                inset: inset))
         }
         return set.shadows.isEmpty ? nil : set
     }
@@ -5256,6 +5389,7 @@ final class TBRenderer {
                         || word == "ease-in" || word == "ease-out"
                         || word == "ease-in-out"
                         || word.hasPrefix("cubic-bezier(")
+                        || word.hasPrefix("steps(")
                         || word == "step-start" || word == "step-end" {
                         timing = tbTimingFunction(token)
                         continue
@@ -5343,7 +5477,9 @@ final class TBRenderer {
                     continue
                 }
                 if word == "linear" || word.hasPrefix("ease")
-                    || word.hasPrefix("cubic-bezier(") {
+                    || word.hasPrefix("cubic-bezier(")
+                    || word.hasPrefix("steps(")
+                    || word == "step-start" || word == "step-end" {
                     timing = tbTimingFunction(token)
                     continue
                 }
@@ -5923,6 +6059,7 @@ final class TBRenderer {
         let savedRelDX = relDX
         let savedRelDY = relDY
         let savedAncestorPaddingH = ancestorPaddingH
+        let savedDefiniteAncestorHeight = definiteAncestorHeight
         // The paint & motion set (0.27): this block's
         // paint state — text-shadow inherits, so a
         // declared set replaces the inherited one for
@@ -6033,6 +6170,22 @@ final class TBRenderer {
         // beside the relative offsets.
         let ownPadding = boxLengths(own, "padding", fontSize: effFont.pointSize)
         ancestorPaddingH += ownPadding.left + ownPadding.right
+        // Percentage container heights (0.30): this
+        // block's own definite content height, for
+        // the children the loop below walks — pushed
+        // just before that loop, so this block's own
+        // flex and grid specs still resolve against
+        // the height open above it, never against
+        // itself.
+        var ownDefiniteHeight: CGFloat? = nil
+        if node.tag != "document",
+           let declared = flexLength(own["height"],
+                                     fontSize: effFont.pointSize),
+           let v = resolveFlexLength(declared,
+                                     against: definiteAncestorHeight) {
+            ownDefiniteHeight = max(v - ownPadding.top
+                - ownPadding.bottom, 0)
+        }
         var flushedOwn = false
         let linkStart = out.length   // for block-level anchors, below
         let isForm = node.tag == "form"
@@ -6131,6 +6284,7 @@ final class TBRenderer {
                 ownSurface: declaresSurface)
             flushedOwn = tookColumns
         }
+        definiteAncestorHeight = ownDefiniteHeight
         let segmentFilter = columnChildFilter
         columnChildFilter = nil
         for child in (tookFlex || tookGrid || tookColumns) ? [] : node.children {
@@ -6241,6 +6395,7 @@ final class TBRenderer {
         relDX = savedRelDX
         relDY = savedRelDY
         ancestorPaddingH = savedAncestorPaddingH
+        definiteAncestorHeight = savedDefiniteAncestorHeight
         textShadowSetCurrent = savedTextShadows
         nowrapClips = savedNowrapClips
         ellipsisWidth = savedEllipsisWidth
@@ -7265,9 +7420,10 @@ final class TBRenderer {
     // float widths' own precedent — never the length
     // parser's flat thousand). A declared height is
     // kept as the content height it implies; a
-    // percentage height is not read, there being no
-    // definite height above a flow block to resolve
-    // it against.
+    // percentage height resolves against the
+    // definite height of the block ancestor the walk
+    // has open (0.30), and reads as no height where
+    // none is definite.
     private func flexContainerSpec(_ own: [String: String],
                                    fontSize: CGFloat,
                                    metrics: TBBlockMetrics)
@@ -7278,6 +7434,7 @@ final class TBRenderer {
         else { return nil }
         var direction: TBFlexDirection = .row
         var wraps = false
+        var wrapReverse = false
         func directionWord(_ t: String) {
             switch t {
             case "row": direction = .row
@@ -7289,13 +7446,12 @@ final class TBRenderer {
         }
         func wrapWord(_ t: String) {
             switch t {
-            case "wrap": wraps = true
-            case "nowrap": wraps = false
-            // wrap-reverse is not read: its lines stack
-            // from the cross end, which a seat in a text
-            // flow cannot honestly express; the page
-            // gets wrap, and the header says so.
-            case "wrap-reverse": wraps = true
+            case "wrap": wraps = true; wrapReverse = false
+            case "nowrap": wraps = false; wrapReverse = false
+            // wrap-reverse (0.30): the cross axis runs
+            // flipped — the layout measures every
+            // cross answer from the cross end.
+            case "wrap-reverse": wraps = true; wrapReverse = true
             default: break
             }
         }
@@ -7325,6 +7481,21 @@ final class TBRenderer {
         default: break
         }
         let alignItems = flexAlignWord(own["align-items"]) ?? "stretch"
+        // align-content (0.30): the same distribution
+        // words justify-content reads, with stretch
+        // admitted — a wrapped stack's lines grow
+        // into the leftover alike.
+        var alignContent = "flex-start"
+        switch (own["align-content"] ?? "")
+            .trimmingCharacters(in: .whitespaces).lowercased() {
+        case "flex-end", "end": alignContent = "flex-end"
+        case "center": alignContent = "center"
+        case "space-between": alignContent = "space-between"
+        case "space-around": alignContent = "space-around"
+        case "space-evenly": alignContent = "space-evenly"
+        case "stretch", "normal": alignContent = "stretch"
+        default: break
+        }
         // The gaps: the shorthand first (one value for
         // both axes, or row then column), the longhands
         // over it — the box shorthands' own convention.
@@ -7377,25 +7548,36 @@ final class TBRenderer {
             widthCap = contentW
         }
         contentW = max(contentW, 10)
+        // Heights (0.30): a height in points stands
+        // as the content height it implies; a
+        // percentage resolves against the definite
+        // height the walk has open above this block,
+        // and against nothing reads as no height at
+        // all — the clamps resolve the same way.
         var declaredHeight: CGFloat? = nil
         if let declared = flexLength(own["height"], fontSize: fontSize),
-           case .points(let v) = declared {
+           let v = resolveFlexLength(declared,
+                                     against: definiteAncestorHeight) {
             declaredHeight = max(v - padV, 0)
         }
         var minHeightClamp: CGFloat? = nil
         var maxHeightClamp: CGFloat? = nil
         if let declared = flexLength(own["min-height"], fontSize: fontSize),
-           case .points(let v) = declared {
+           let v = resolveFlexLength(declared,
+                                     against: definiteAncestorHeight) {
             minHeightClamp = max(v - padV, 0)
         }
         if let declared = flexLength(own["max-height"], fontSize: fontSize),
-           case .points(let v) = declared {
+           let v = resolveFlexLength(declared,
+                                     against: definiteAncestorHeight) {
             maxHeightClamp = max(v - padV, 0)
         }
         let spec = TBFlexSpec(direction: direction, totalWidth: contentW)
         spec.wraps = wraps
         spec.justify = justify
         spec.alignItems = alignItems
+        spec.alignContent = alignContent
+        spec.wrapReverse = wrapReverse
         spec.gapRow = gapRow
         spec.gapColumn = gapColumn
         spec.declaredHeight = declaredHeight
@@ -7887,7 +8069,9 @@ final class TBRenderer {
         }
 
         var lineCrosses: [CGFloat] = []
-        var crossCursor: CGFloat = 0
+        var lineBaselines: [[Int: CGFloat]] = []
+        var lineAscents: [CGFloat] = []
+        var lineDescents: [CGFloat] = []
         var mainExtent: CGFloat = containerMain ?? 0
         for line in lines {
             // Resolve the flexible lengths of this line.
@@ -8016,9 +8200,10 @@ final class TBRenderer {
             // one that makes centering in a declared-
             // height bar, or stretching across a column
             // container's width, land where the page
-            // expects. Wrapped lines keep their items'
-            // sizes and pack at the cross start:
-            // align-content is not read.
+            // expects. (A lone line is also why
+            // align-content, below, distributes only
+            // among two lines or more: the spec gives
+            // it nothing to share out in one.)
             if lines.count == 1, let cc = containerCross {
                 lineCross = cc
             }
@@ -8064,39 +8249,10 @@ final class TBRenderer {
                 mainExtent = max(mainExtent, lineUsed)
             }
 
-            // Place the items across the line.
-            for i in line {
-                let item = items[i]
-                let mCrossStart = horizontal ? item.marginTop
-                    : item.marginLeft
-                let mCrossEnd = horizontal ? item.marginBottom
-                    : item.marginRight
-                let align = alignOf(i)
-                var box = cross[i]
-                var pos: CGFloat
-                if let offset = baselines[i], align == "baseline" {
-                    pos = crossCursor + ascent - offset
-                } else if align == "stretch", !crossDeclared[i] {
-                    box = max(lineCross - mCrossStart - mCrossEnd, 0)
-                    pos = crossCursor + mCrossStart
-                } else if align == "flex-end" {
-                    pos = crossCursor + lineCross - mCrossEnd - box
-                } else if align == "center" {
-                    pos = crossCursor
-                        + (lineCross - box - mCrossStart - mCrossEnd) / 2
-                        + mCrossStart
-                } else {
-                    // flex-start — and baseline across a
-                    // column container, whose items stand
-                    // one above another with no shared
-                    // line of text to align to.
-                    pos = crossCursor + mCrossStart
-                }
-                crossAt[i] = pos
-                crossBox[i] = box
-            }
             lineCrosses.append(lineCross)
-            crossCursor += lineCross + crossGap
+            lineBaselines.append(baselines)
+            lineAscents.append(ascent)
+            lineDescents.append(descent)
         }
 
         // The container's own height: across the lines
@@ -8109,6 +8265,134 @@ final class TBRenderer {
         } else {
             crossTotal = lineCrosses.reduce(0, +)
                 + crossGap * CGFloat(max(lineCrosses.count - 1, 0))
+        }
+
+        // align-content (0.30): where each line stands
+        // along the cross axis. Packed from the cross
+        // start, the lines stand at their measured
+        // sizes in file order; a definite cross size's
+        // leftover is shared among two or more lines
+        // as align-content directs — stretch growing
+        // every line alike (its stretch and center
+        // items then answer inside the grown line, in
+        // the placement below), the space
+        // distributions widening the gaps between
+        // lines, flex-end and center shifting the
+        // whole stack. An indefinite cross size has
+        // no leftover to share, and one line stands
+        // under the rule above.
+        var lineStarts: [CGFloat] = []
+        var startCursor: CGFloat = 0
+        for k in lines.indices {
+            lineStarts.append(startCursor)
+            startCursor += lineCrosses[k] + crossGap
+        }
+        if lines.count > 1, containerCross != nil {
+            let packed = lineCrosses.reduce(0, +)
+                + crossGap * CGFloat(lines.count - 1)
+            let leftover = crossTotal - packed
+            switch spec.alignContent {
+            case "flex-end":
+                for k in lines.indices { lineStarts[k] += leftover }
+            case "center":
+                for k in lines.indices {
+                    lineStarts[k] += leftover / 2
+                }
+            case "space-between":
+                if leftover > 0 {
+                    let extra = leftover / CGFloat(lines.count - 1)
+                    for k in lines.indices {
+                        lineStarts[k] += extra * CGFloat(k)
+                    }
+                }
+            case "space-around":
+                if leftover > 0 {
+                    let unit = leftover / CGFloat(lines.count)
+                    for k in lines.indices {
+                        lineStarts[k] += unit / 2 + unit * CGFloat(k)
+                    }
+                }
+            case "space-evenly":
+                if leftover > 0 {
+                    let unit = leftover / CGFloat(lines.count + 1)
+                    for k in lines.indices {
+                        lineStarts[k] += unit + unit * CGFloat(k)
+                    }
+                }
+            case "stretch":
+                if leftover > 0 {
+                    let each = leftover / CGFloat(lines.count)
+                    for k in lines.indices { lineCrosses[k] += each }
+                    var cursor: CGFloat = 0
+                    for k in lines.indices {
+                        lineStarts[k] = cursor
+                        cursor += lineCrosses[k] + crossGap
+                    }
+                }
+            default: break
+            }
+        }
+
+        // Place the items across their lines, each at
+        // its line's settled start, every position
+        // reckoned from the line's cross-start edge.
+        // In wrap-reverse the cross start is the far
+        // edge: the margin standing at it is the
+        // physical end margin, the item's place
+        // mirrors inside its line and the line's
+        // inside the container, and a baseline sits
+        // its descent's distance from the cross start
+        // instead of its ascent's. The words keep
+        // their meanings against the flipped axis.
+        for (k, line) in lines.enumerated() {
+            let lineCross = lineCrosses[k]
+            let lineStart = lineStarts[k]
+            let baselines = lineBaselines[k]
+            let ascent = lineAscents[k]
+            let descent = lineDescents[k]
+            for i in line {
+                let item = items[i]
+                let physicalStart = horizontal ? item.marginTop
+                    : item.marginLeft
+                let physicalEnd = horizontal ? item.marginBottom
+                    : item.marginRight
+                let mCrossStart = spec.wrapReverse ? physicalEnd
+                    : physicalStart
+                let mCrossEnd = spec.wrapReverse ? physicalStart
+                    : physicalEnd
+                let align = items[i].alignSelf ?? spec.alignItems
+                var box = cross[i]
+                var s: CGFloat
+                if let offset = baselines[i], align == "baseline" {
+                    s = spec.wrapReverse
+                        ? descent - (cross[i] - offset)
+                        : ascent - offset
+                } else if align == "stretch", !crossDeclared[i] {
+                    box = max(lineCross - mCrossStart - mCrossEnd, 0)
+                    s = mCrossStart
+                } else if align == "flex-end" {
+                    s = lineCross - mCrossEnd - box
+                } else if align == "center" {
+                    s = (lineCross - box - mCrossStart - mCrossEnd) / 2
+                        + mCrossStart
+                } else {
+                    // flex-start — and baseline across a
+                    // column container, whose items stand
+                    // one above another with no shared
+                    // line of text to align to (their
+                    // baselines are never measured: the
+                    // measurement runs across a row).
+                    s = mCrossStart
+                }
+                if spec.wrapReverse {
+                    let linePhysical = crossTotal - lineStart
+                        - lineCross
+                    crossAt[i] = linePhysical + lineCross - s - box
+                } else {
+                    crossAt[i] = lineStart + s
+                }
+                crossBox[i] = box
+            }
         }
         var total = horizontal ? crossTotal
             : (spec.declaredHeight ?? mainExtent)
@@ -8335,12 +8619,276 @@ final class TBRenderer {
         }
     }
 
+    // The grid-template shorthand's two halves,
+    // split at its top-level slash in the RAW text —
+    // the name and area reading (0.30) needs the
+    // halves before gridStripNames takes the names
+    // away. No slash: the whole text is the rows
+    // half (the areas-only spelling) and there is
+    // no columns half.
+    private func gridTemplateParts(_ raw: String)
+        -> (rows: String, cols: String?) {
+        var depth = 0
+        var bracket = 0
+        var quote: Character? = nil
+        for i in raw.indices {
+            let c = raw[i]
+            if let q = quote {
+                if c == q { quote = nil }
+                continue
+            }
+            if c == "\"" || c == "'" { quote = c; continue }
+            if c == "[" { bracket += 1; continue }
+            if c == "]" { bracket = max(0, bracket - 1); continue }
+            if bracket > 0 { continue }
+            if c == "(" { depth += 1; continue }
+            if c == ")" { depth -= 1; continue }
+            if c == "/", depth == 0 {
+                return (String(raw[..<i]),
+                        String(raw[raw.index(after: i)...]))
+            }
+        }
+        return (raw, nil)
+    }
+
+    // A template's line names by 1-based line index
+    // (0.30): the scan walks the raw template text —
+    // a bracketed group names the line the walk
+    // stands on; each track size steps it one line
+    // on; a fixed repeat() steps by its count times
+    // its body's track count, though names written
+    // inside it are not read (the repeat is a
+    // stencil; this engine names only what was
+    // written once, plainly); an auto-fill or
+    // auto-fit repeat ends the reading where it
+    // stands, its track count known only at layout,
+    // so no name past it can be indexed honestly.
+    // Quoted strings (the shorthand's area rows)
+    // name nothing and size nothing; the size token
+    // beside them steps the line.
+    private func gridTemplateLineNames(_ raw: String?)
+        -> [Int: [String]] {
+        guard let raw = raw else { return [:] }
+        let chars = Array(raw)
+        var names: [Int: [String]] = [:]
+        var line = 1
+        var i = 0
+        func skipSpace() {
+            while i < chars.count,
+                  chars[i] == " " || chars[i] == "\n" || chars[i] == "\t" {
+                i += 1
+            }
+        }
+        // One token from the walk's place: a
+        // bracketed group, a quoted string, or a run
+        // to the next top-level whitespace.
+        func nextToken() -> String {
+            skipSpace()
+            guard i < chars.count else { return "" }
+            if chars[i] == "[" {
+                var token = ""
+                while i < chars.count, chars[i] != "]" {
+                    token.append(chars[i]); i += 1
+                }
+                if i < chars.count {
+                    token.append(chars[i]); i += 1
+                }
+                return token
+            }
+            if chars[i] == "\"" || chars[i] == "'" {
+                let q = chars[i]
+                var token = ""
+                token.append(chars[i]); i += 1
+                while i < chars.count, chars[i] != q {
+                    token.append(chars[i]); i += 1
+                }
+                if i < chars.count {
+                    token.append(chars[i]); i += 1
+                }
+                return token
+            }
+            var token = ""
+            var depth = 0
+            while i < chars.count {
+                let c = chars[i]
+                if c == "(" { depth += 1 }
+                if c == ")" { depth -= 1 }
+                if depth == 0,
+                   c == " " || c == "\n" || c == "\t" { break }
+                token.append(c); i += 1
+            }
+            return token
+        }
+        while true {
+            skipSpace()
+            guard i < chars.count else { break }
+            let token = nextToken()
+            if token.hasPrefix("[") {
+                let inner = token.dropFirst().dropLast()
+                let words = inner.split(separator: " ")
+                    .map { String($0).lowercased() }
+                if !words.isEmpty {
+                    names[line, default: []]
+                        .append(contentsOf: words)
+                }
+                continue
+            }
+            if token.hasPrefix("\"") || token.hasPrefix("'") {
+                continue
+            }
+            let lowered = token.lowercased()
+            if lowered.hasPrefix("repeat("),
+               lowered.hasSuffix(")") {
+                let inner = String(lowered.dropFirst(7).dropLast())
+                let parts = tbSplitLayers(inner)
+                let countWord = parts.first?
+                    .trimmingCharacters(in: .whitespaces) ?? ""
+                if countWord == "auto-fill"
+                    || countWord == "auto-fit" { break }
+                guard let times = Int(countWord) else { break }
+                var bodyTracks = 0
+                for piece in parts.dropFirst() {
+                    bodyTracks += gridCountTrackTokens(piece)
+                }
+                line += times * bodyTracks
+                continue
+            }
+            if !token.isEmpty { line += 1 }
+        }
+        return names
+    }
+
+    // How many tracks a run of template text stands
+    // for, names and strings aside — the counting a
+    // fixed repeat's body needs above.
+    private func gridCountTrackTokens(_ raw: String) -> Int {
+        var count = 0
+        var depth = 0
+        var bracket = 0
+        var quote: Character? = nil
+        var inToken = false
+        for c in raw {
+            if let q = quote {
+                if c == q { quote = nil }
+                continue
+            }
+            if c == "\"" || c == "'" { quote = c; continue }
+            if c == "[" { bracket += 1; continue }
+            if c == "]" { bracket = max(0, bracket - 1); continue }
+            if bracket > 0 { continue }
+            if c == "(" { depth += 1 }
+            if c == ")" { depth -= 1 }
+            if depth == 0, c == " " || c == "\n" || c == "\t" {
+                inToken = false
+            } else if !inToken {
+                inToken = true
+                count += 1
+            }
+        }
+        return count
+    }
+
+    // grid-template-areas, read whole (0.30): each
+    // quoted string is one row, its words the cells
+    // — a run of dots is an unnamed cell, any other
+    // word names the area that cell belongs to.
+    // Every name must fill its rectangle exactly,
+    // and every row must count the same cells, else
+    // the whole map is void — the spec's own
+    // ruling — and placement falls back to the
+    // ordinary roads. The map answers line numbers,
+    // 1-based, end lines one past the last cell.
+    private func gridTemplateAreas(_ raw: String?)
+        -> [String: (rowStart: Int, colStart: Int,
+                     rowEnd: Int, colEnd: Int)] {
+        guard let raw = raw else { return [:] }
+        var rows: [[String]] = []
+        var buffer = ""
+        var quote: Character? = nil
+        for c in raw {
+            if let q = quote {
+                if c == q {
+                    rows.append(buffer.split(separator: " ")
+                        .map { String($0).lowercased() })
+                    buffer = ""
+                    quote = nil
+                } else {
+                    buffer.append(c)
+                }
+            } else if c == "\"" || c == "'" {
+                quote = c
+            }
+        }
+        guard !rows.isEmpty, rows[0].count > 0,
+              rows.allSatisfy({ $0.count == rows[0].count })
+        else { return [:] }
+        var cells: [String: [(Int, Int)]] = [:]
+        for (r, row) in rows.enumerated() {
+            for (c, word) in row.enumerated()
+                where !word.allSatisfy({ $0 == "." }) {
+                cells[word, default: []].append((r, c))
+            }
+        }
+        var areas: [String: (rowStart: Int, colStart: Int,
+                             rowEnd: Int, colEnd: Int)] = [:]
+        for (name, positions) in cells {
+            let rs = positions.map { $0.0 }
+            let cs = positions.map { $0.1 }
+            guard let r0 = rs.min(), let r1 = rs.max(),
+                  let c0 = cs.min(), let c1 = cs.max(),
+                  positions.count == (r1 - r0 + 1) * (c1 - c0 + 1)
+            else { return [:] }
+            areas[name] = (rowStart: r0 + 1, colStart: c0 + 1,
+                           rowEnd: r1 + 2, colEnd: c1 + 2)
+        }
+        return areas
+    }
+
+    // A grid placement side with its name resolved
+    // (0.30): an explicit line name of that axis
+    // first (its nth bearer, when the page counted),
+    // then an area's generated edge name
+    // (<area>-start / <area>-end), then an area's
+    // own name, which on a start side means the
+    // area's first line on that axis and on an end
+    // side its last. A name nothing answers reads
+    // as auto — the fallback a page is left with
+    // when its names do not resolve.
+    private func resolvedGridSide(_ side: TBGridSide,
+                                  rowAxis: Bool, isStart: Bool,
+                                  spec: TBGridSpec) -> TBGridSide {
+        guard case .name(let name, let occurrence) = side
+        else { return side }
+        let lineNames = rowAxis ? spec.rowLineNames
+            : spec.columnLineNames
+        let bearers = lineNames.filter { $0.value.contains(name) }
+            .map { $0.key }.sorted()
+        if occurrence >= 1, occurrence <= bearers.count {
+            return .line(bearers[occurrence - 1])
+        }
+        for (areaName, rect) in spec.templateAreas {
+            if name == areaName {
+                if rowAxis {
+                    return .line(isStart ? rect.rowStart : rect.rowEnd)
+                }
+                return .line(isStart ? rect.colStart : rect.colEnd)
+            }
+            if name == areaName + "-start" {
+                return .line(rowAxis ? rect.rowStart : rect.colStart)
+            }
+            if name == areaName + "-end" {
+                return .line(rowAxis ? rect.rowEnd : rect.colEnd)
+            }
+        }
+        return .auto
+    }
+
     // Drop what a template may carry besides track
     // sizes: the bracketed line names and the quoted
-    // area strings of grid-template. Names are parsed
-    // past and forgotten — placement by name is not
-    // read — but they must not reach the track parser
-    // as sizes.
+    // area strings of grid-template. The names are
+    // read on their own road now (0.30) — this strip
+    // only keeps them from reaching the track
+    // parser as sizes.
     private func gridStripNames(_ raw: String) -> String {
         var out = ""
         var bracket = 0
@@ -8493,19 +9041,30 @@ final class TBRenderer {
     }
 
     // One side of a placement, as written: a line
-    // number, a span, or auto — which is also where a
-    // line name lands, and where a written zero lands,
-    // zero being no line at all in CSS.
+    // number, a span, a name (0.30 — alone, or with
+    // its count, in either order), or auto. A
+    // written zero lands on auto, zero being no
+    // line at all in CSS; a span by name (span
+    // <name>) is not read — it answers auto, as the
+    // README says.
     private func gridSide(_ raw: String) -> TBGridSide {
         let t = raw.trimmingCharacters(in: .whitespaces).lowercased()
         if t.isEmpty || t == "auto" { return .auto }
-        if t.hasPrefix("span") {
-            let rest = String(t.dropFirst(4))
-                .trimmingCharacters(in: .whitespaces)
-            if let n = Int(rest), n > 0 { return .span(n) }
+        let words = t.split(separator: " ").map { String($0) }
+        if words.first == "span" {
+            if words.count == 2, let n = Int(words[1]), n > 0 {
+                return .span(n)
+            }
             return .auto
         }
-        if let n = Int(t), n != 0 { return .line(n) }
+        if words.count == 1 {
+            if let n = Int(words[0]), n != 0 { return .line(n) }
+            return .name(words[0], 1)
+        }
+        if words.count == 2 {
+            if let n = Int(words[1]) { return .name(words[0], n) }
+            if let n = Int(words[0]) { return .name(words[1], n) }
+        }
         return .auto
     }
 
@@ -8523,6 +9082,10 @@ final class TBRenderer {
     private func gridCombine(_ first: TBGridSide, _ second: TBGridSide)
         -> (line: Int?, span: Int) {
         switch (first, second) {
+        // Names resolve at dress time, before this
+        // runs; one arriving unresolved reads as auto.
+        case (.name(_, _), _), (_, .name(_, _)):
+            return (nil, 1)
         case (.line(let a), .line(let b)):
             if b > a { return (a, b - a) }
             if b < a { return (b, a - b) }
@@ -8564,9 +9127,8 @@ final class TBRenderer {
     // flex container's is (the flex spec's own
     // resolution, shared word for word); a declared
     // height is kept as the content height it implies,
-    // and a percentage height is not read, there being
-    // no definite height above a flow block to resolve
-    // it against. The grid-template shorthand (its
+    // a percentage height resolving as a flex
+    // container's does (0.30). The grid-template shorthand (its
     // rows, a slash, its columns) is read first, the
     // template longhands over it — the order this
     // engine reads every shorthand in.
@@ -8632,19 +9194,28 @@ final class TBRenderer {
             widthCap = contentW
         }
         contentW = max(contentW, 10)
+        // Heights (0.30): a height in points stands
+        // as the content height it implies; a
+        // percentage resolves against the definite
+        // height the walk has open above this block,
+        // and against nothing reads as no height at
+        // all — the clamps resolve the same way.
         var declaredHeight: CGFloat? = nil
         if let declared = flexLength(own["height"], fontSize: fontSize),
-           case .points(let v) = declared {
+           let v = resolveFlexLength(declared,
+                                     against: definiteAncestorHeight) {
             declaredHeight = max(v - padV, 0)
         }
         var minHeightClamp: CGFloat? = nil
         var maxHeightClamp: CGFloat? = nil
         if let declared = flexLength(own["min-height"], fontSize: fontSize),
-           case .points(let v) = declared {
+           let v = resolveFlexLength(declared,
+                                     against: definiteAncestorHeight) {
             minHeightClamp = max(v - padV, 0)
         }
         if let declared = flexLength(own["max-height"], fontSize: fontSize),
-           case .points(let v) = declared {
+           let v = resolveFlexLength(declared,
+                                     against: definiteAncestorHeight) {
             maxHeightClamp = max(v - padV, 0)
         }
         let spec = TBGridSpec(totalWidth: contentW)
@@ -8660,6 +9231,17 @@ final class TBRenderer {
         spec.alignItems = gridAlignWord(own["align-items"]) ?? "stretch"
         spec.justifyContent = gridContentWord(own["justify-content"])
         spec.alignContent = gridContentWord(own["align-content"])
+        // grid-auto-flow (0.30): row by default;
+        // column fills down a column before marching
+        // to the next; dense, on either flow,
+        // restarts the placement cursor at the first
+        // cell for every item, backfilling holes.
+        if let flow = own["grid-auto-flow"] {
+            for token in valueTokens(flow.lowercased()) {
+                if token == "column" { spec.autoFlowColumn = true }
+                if token == "dense" { spec.autoFlowDense = true }
+            }
+        }
         // The resolved gaps the repetition count of an
         // auto-fill or auto-fit repeat divides by: a
         // percentage column-gap against the content
@@ -8671,6 +9253,19 @@ final class TBRenderer {
         let gapRowPts = resolveFlexLength(gapRow,
                                           against: declaredHeight) ?? 0
         if let template = own["grid-template"] {
+            // The small completions (0.30): the
+            // shorthand's line names and areas, read
+            // from its raw halves before the strip
+            // below takes the names away — the
+            // longhands further down replace them per
+            // axis, as they replace the tracks.
+            let halves = gridTemplateParts(template)
+            spec.rowLineNames = gridTemplateLineNames(halves.rows)
+            if let colsHalf = halves.cols {
+                spec.columnLineNames
+                    = gridTemplateLineNames(colsHalf)
+            }
+            spec.templateAreas = gridTemplateAreas(template)
             let cleaned = gridStripNames(template)
             var depth = 0
             var slash: String.Index? = nil
@@ -8692,16 +9287,29 @@ final class TBRenderer {
             }
         }
         if own["grid-template-rows"] != nil {
+            spec.rowLineNames
+                = gridTemplateLineNames(own["grid-template-rows"])
             spec.rowTracks = gridTrackList(own["grid-template-rows"],
                                            fontSize: fontSize,
                                            mainSize: declaredHeight,
                                            mainGap: gapRowPts)
         }
         if own["grid-template-columns"] != nil {
+            spec.columnLineNames
+                = gridTemplateLineNames(own["grid-template-columns"])
             spec.columnTracks = gridTrackList(own["grid-template-columns"],
                                               fontSize: fontSize,
                                               mainSize: contentW,
                                               mainGap: gapColumnPts)
+        }
+        if let areasRaw = own["grid-template-areas"] {
+            // A longhand map that reads replaces the
+            // shorthand's; one that voids itself (a
+            // name filling no rectangle) leaves the
+            // shorthand's standing, as a dropped
+            // declaration should.
+            let areas = gridTemplateAreas(areasRaw)
+            if !areas.isEmpty { spec.templateAreas = areas }
         }
         return spec
     }
@@ -8721,7 +9329,8 @@ final class TBRenderer {
     private func dressGridItem(_ item: TBGridItem,
                                own: [String: String],
                                fontSize: CGFloat,
-                               explicitCols: Int, explicitRows: Int) {
+                               explicitCols: Int, explicitRows: Int,
+                               spec: TBGridSpec) {
         var rowStart = TBGridSide.auto
         var rowEnd = TBGridSide.auto
         var colStart = TBGridSide.auto
@@ -8734,13 +9343,30 @@ final class TBRenderer {
             return (a, b)
         }
         if let area = own["grid-area"] {
-            let parts = area.split(separator: "/",
-                                   omittingEmptySubsequences: false)
-                .map { gridSide(String($0)) }
-            if parts.count > 0 { rowStart = parts[0] }
-            if parts.count > 1 { colStart = parts[1] }
-            if parts.count > 2 { rowEnd = parts[2] }
-            if parts.count > 3 { colEnd = parts[3] }
+            // grid-area: <name> (0.30): a lone name
+            // with an area behind it sets the
+            // shorthand's four sides to the area's
+            // four lines — the layers below still
+            // replace the axes they name. A name with
+            // no area falls through to the line
+            // reading, where it resolves to auto.
+            let trimmed = area.trimmingCharacters(in: .whitespaces)
+                .lowercased()
+            if !trimmed.contains("/"),
+               let rect = spec.templateAreas[trimmed] {
+                rowStart = .line(rect.rowStart)
+                colStart = .line(rect.colStart)
+                rowEnd = .line(rect.rowEnd)
+                colEnd = .line(rect.colEnd)
+            } else {
+                let parts = area.split(separator: "/",
+                                       omittingEmptySubsequences: false)
+                    .map { gridSide(String($0)) }
+                if parts.count > 0 { rowStart = parts[0] }
+                if parts.count > 1 { colStart = parts[1] }
+                if parts.count > 2 { rowEnd = parts[2] }
+                if parts.count > 3 { colEnd = parts[3] }
+            }
         }
         if let raw = own["grid-row"] { (rowStart, rowEnd) = sides(of: raw) }
         if let raw = own["grid-column"] { (colStart, colEnd) = sides(of: raw) }
@@ -8748,6 +9374,17 @@ final class TBRenderer {
         if let raw = own["grid-row-end"] { rowEnd = gridSide(raw) }
         if let raw = own["grid-column-start"] { colStart = gridSide(raw) }
         if let raw = own["grid-column-end"] { colEnd = gridSide(raw) }
+        // Named sides (0.30) resolve here, where the
+        // container's names are known — each side
+        // against its own axis, its own end.
+        rowStart = resolvedGridSide(rowStart, rowAxis: true,
+                                    isStart: true, spec: spec)
+        rowEnd = resolvedGridSide(rowEnd, rowAxis: true,
+                                  isStart: false, spec: spec)
+        colStart = resolvedGridSide(colStart, rowAxis: false,
+                                    isStart: true, spec: spec)
+        colEnd = resolvedGridSide(colEnd, rowAxis: false,
+                                  isStart: false, spec: spec)
         let rowAxis = gridCombine(rowStart, rowEnd)
         let colAxis = gridCombine(colStart, colEnd)
         item.rowSpan = min(max(rowAxis.span, 1), 60)
@@ -8827,7 +9464,8 @@ final class TBRenderer {
             let item = TBGridItem()
             dressGridItem(item, own: own, fontSize: fontSize,
                           explicitCols: spec.columnTracks.count,
-                          explicitRows: spec.rowTracks.count)
+                          explicitRows: spec.rowTracks.count,
+                          spec: spec)
             let sub = TBRenderer(base: base)
             sub.rules = rules
             sub.visitedURLs = visitedURLs
@@ -8979,11 +9617,11 @@ final class TBRenderer {
     // border box in the container's content-box
     // coordinates, with the container's own height.
     // Placement first, in the spec's order — items
-    // definite in both axes, then items locked to a
-    // row at the first free run in it, then the rest
-    // from a shared cursor that only moves forward
-    // (dense packing is not read: the cursor never
-    // backs up into a hole it passed). Then the
+    // definite in both axes, then items locked to
+    // their flow line at the first free run along
+    // it, then the rest from the shared cursor —
+    // restarted at the first cell for every item
+    // under dense packing, so holes backfill. Then
     // columns: bases from the items' measured outer
     // sizes, fixed tracks at their lengths, content
     // and flexible tracks raised by what stands in
@@ -9010,13 +9648,44 @@ final class TBRenderer {
         let gapRow = resolveFlexLength(spec.gapRow,
                                        against: spec.declaredHeight) ?? 0
 
-        // Placement.
-        var colCount = max(spec.columnTracks.count, 1)
+        // Placement (0.30): the algorithm runs in
+        // flow coordinates — a along the auto-flow
+        // axis (the rows in row flow, the columns in
+        // column flow), b across it — so one cursor
+        // serves both flows, transposed exactly as
+        // the spec writes its own algorithm. Items
+        // definite in both axes stand first; items
+        // definite along the flow axis scan the
+        // cross axis for their first free run; the
+        // rest follow the shared cursor, stepping
+        // around what stands. Dense packing restarts
+        // the cursor at the first cell for every
+        // item, so a late small item backfills a
+        // hole the sparse cursor has passed.
+        let columnFlow = spec.autoFlowColumn
+        func aLine(_ item: TBGridItem) -> Int? {
+            columnFlow ? item.colLine : item.rowLine
+        }
+        func bLine(_ item: TBGridItem) -> Int? {
+            columnFlow ? item.rowLine : item.colLine
+        }
+        func aSpan(_ item: TBGridItem) -> Int {
+            columnFlow ? item.colSpan : item.rowSpan
+        }
+        func bSpan(_ item: TBGridItem) -> Int {
+            columnFlow ? item.rowSpan : item.colSpan
+        }
+        // The cross-axis tracks the flow may fill:
+        // the template's own count on that axis,
+        // grown by every definite cross placement
+        // and every cross span.
+        var bCount = max(columnFlow ? spec.rowTracks.count
+                                    : spec.columnTracks.count, 1)
         for item in items {
-            if let line = item.colLine {
-                colCount = max(colCount, line - 1 + item.colSpan)
+            if let line = bLine(item) {
+                bCount = max(bCount, line - 1 + bSpan(item))
             }
-            colCount = max(colCount, item.colSpan)
+            bCount = max(bCount, bSpan(item))
         }
         var occupied = Set<Int>()
         func cellKey(_ row: Int, _ col: Int) -> Int { row * 65536 + col }
@@ -9037,64 +9706,86 @@ final class TBRenderer {
                 }
             }
         }
-        var placedRow = [Int](repeating: -1, count: items.count)
-        var placedCol = [Int](repeating: -1, count: items.count)
-        for i in items.indices {
-            guard let rl = items[i].rowLine, let cl = items[i].colLine
-            else { continue }
-            placedRow[i] = rl - 1
-            placedCol[i] = cl - 1
-            markArea(rl - 1, cl - 1, items[i].rowSpan, items[i].colSpan)
-        }
-        for i in items.indices where placedRow[i] < 0 {
-            guard let rl = items[i].rowLine, items[i].colLine == nil
-            else { continue }
-            let r = rl - 1
-            var c = 0
-            while !areaFree(r, c, items[i].rowSpan, items[i].colSpan) {
-                c += 1
+        func freeAB(_ a: Int, _ b: Int, _ item: TBGridItem) -> Bool {
+            if columnFlow {
+                return areaFree(b, a, bSpan(item), aSpan(item))
             }
-            placedRow[i] = r
-            placedCol[i] = c
-            markArea(r, c, items[i].rowSpan, items[i].colSpan)
-            colCount = max(colCount, c + items[i].colSpan)
+            return areaFree(a, b, aSpan(item), bSpan(item))
         }
-        var cursorRow = 0
-        var cursorCol = 0
-        for i in items.indices where placedRow[i] < 0 {
-            let item = items[i]
-            if let cl = item.colLine {
-                let c = cl - 1
-                if c < cursorCol { cursorRow += 1 }
-                var r = cursorRow
-                while !areaFree(r, c, item.rowSpan, item.colSpan) {
-                    r += 1
-                }
-                placedRow[i] = r
-                placedCol[i] = c
-                markArea(r, c, item.rowSpan, item.colSpan)
-                cursorRow = r
-                cursorCol = c
+        func markAB(_ a: Int, _ b: Int, _ item: TBGridItem) {
+            if columnFlow {
+                markArea(b, a, bSpan(item), aSpan(item))
             } else {
-                var r = cursorRow
-                var c = cursorCol
+                markArea(a, b, aSpan(item), bSpan(item))
+            }
+        }
+        var placedA = [Int](repeating: -1, count: items.count)
+        var placedB = [Int](repeating: -1, count: items.count)
+        for i in items.indices {
+            guard let al = aLine(items[i]), let bl = bLine(items[i])
+            else { continue }
+            placedA[i] = al - 1
+            placedB[i] = bl - 1
+            markAB(al - 1, bl - 1, items[i])
+        }
+        for i in items.indices where placedA[i] < 0 {
+            guard let al = aLine(items[i]), bLine(items[i]) == nil
+            else { continue }
+            let a = al - 1
+            var b = 0
+            while !freeAB(a, b, items[i]) { b += 1 }
+            placedA[i] = a
+            placedB[i] = b
+            markAB(a, b, items[i])
+            bCount = max(bCount, b + bSpan(items[i]))
+        }
+        var cursorA = 0
+        var cursorB = 0
+        for i in items.indices where placedA[i] < 0 {
+            let item = items[i]
+            if spec.autoFlowDense { cursorA = 0; cursorB = 0 }
+            if let bl = bLine(item) {
+                let b = bl - 1
+                if b < cursorB { cursorA += 1 }
+                var a = cursorA
+                while !freeAB(a, b, item) { a += 1 }
+                placedA[i] = a
+                placedB[i] = b
+                markAB(a, b, item)
+                cursorA = a
+                cursorB = b
+            } else {
+                var a = cursorA
+                var b = cursorB
                 while true {
-                    if c + item.colSpan > colCount {
-                        r += 1
-                        c = 0
+                    if b + bSpan(item) > bCount {
+                        a += 1
+                        b = 0
                         continue
                     }
-                    if areaFree(r, c, item.rowSpan, item.colSpan) { break }
-                    c += 1
+                    if freeAB(a, b, item) { break }
+                    b += 1
                 }
-                placedRow[i] = r
-                placedCol[i] = c
-                markArea(r, c, item.rowSpan, item.colSpan)
-                cursorRow = r
-                cursorCol = c
+                placedA[i] = a
+                placedB[i] = b
+                markAB(a, b, item)
+                cursorA = a
+                cursorB = b
             }
         }
-
+        var placedRow = [Int](repeating: -1, count: items.count)
+        var placedCol = [Int](repeating: -1, count: items.count)
+        var colCount = max(spec.columnTracks.count, 1)
+        for i in items.indices {
+            if columnFlow {
+                placedRow[i] = placedB[i]
+                placedCol[i] = placedA[i]
+            } else {
+                placedRow[i] = placedA[i]
+                placedCol[i] = placedB[i]
+            }
+            colCount = max(colCount, placedCol[i] + items[i].colSpan)
+        }
         // The working column list: the template padded
         // with implicit content tracks out to the
         // column count the placement reached.

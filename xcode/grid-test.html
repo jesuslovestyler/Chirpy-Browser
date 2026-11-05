@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Chirpy 0.25 — Grid Test Page</title>
+<title>Chirpy 0.30 — Grid Test Page</title>
 <style>
   body { font-family: sans-serif; }
   .grid {
@@ -41,25 +41,45 @@
   .quadrants { width: 900px; height: 300px; padding: 0; gap: 0;
                grid-template-columns: 25% 1fr;
                grid-template-rows: 1fr 2fr; }
+  .colflow { width: 660px; gap: 20px;
+             grid-template-rows: 100px 100px;
+             grid-auto-flow: column; }
+  .dense { width: 660px; gap: 20px;
+           grid-template-columns: 200px 200px 200px;
+           grid-auto-flow: dense; }
+  .wide { grid-column: span 2; }
+  .named { width: 900px; gap: 20px;
+           grid-template-columns: [start] 200px [middle] 1fr [end]; }
+  .namedA { grid-column: middle / end; }
+  .namedB { grid-column: start / middle; }
+  .plan { width: 900px; gap: 16px;
+          grid-template-columns: 200px 1fr;
+          grid-template-rows: 60px 120px 60px;
+          grid-template-areas: "head head" "side main" "foot foot"; }
+  .ahead { grid-area: head; }
+  .aside { grid-area: side; }
+  .amain { grid-area: main; }
+  .afoot { grid-area: foot; }
+  .step { height: 300px; background-color: #EAF6FF;
+          padding: 10px; margin: 8px 0; }
+  .halfgrid { height: 50%; margin: 0; }
 </style>
 </head>
 <body>
-<h1>Chirpy Engine 0.25 — grid test</h1>
+<h1>Chirpy Engine 0.30 — grid test</h1>
 <p>Every arrangement on this page is made with CSS grid
 alone. Read down and check each numbered promise. First,
 the status line at the bottom of the window should read
-"Chirpy Engine 0.25.0 (Swift)". Honest notes before the
+"Chirpy Engine 0.30.0 (Swift)". Honest notes before the
 promises: the items on this page are paint, not live
 text — the floated boxes' bargain since 0.17 — so a link
 inside an item shows its colors but does not click;
-grid-auto-flow: column is not read yet (its pages get
-row flow), and neither is dense packing — the placement
-cursor never backs up into a hole it passed; named
-lines and grid-template-areas are parsed past, not
-placed by; baseline alignment of items reads as start;
-and a grid container's percentage height is not read,
-there being no definite height above a flow block to
-resolve it against.</p>
+and baseline alignment of items still reads as start.
+Since 0.30 the rest of the old outs are read too:
+grid-auto-flow: column and dense packing, named
+lines and grid-template-areas — promises 9 through
+12 below — and a container's percentage height,
+promise 13.</p>
 
 <h2>1 — fr shares: a three-column row</h2>
 <div class="grid fr3">
@@ -188,7 +208,84 @@ resolve it against.</p>
 and 2fr, and with no gaps and no padding the four
 boxes tile it completely.</p>
 
-<p>End of the test page. If all eight promises held,
+<h2>9 — auto-flow: column fills downward</h2>
+<div class="grid colflow">
+  <div class="cell b1">DOWN 1 — first cell of the
+  first column.</div>
+  <div class="cell b2">DOWN 2 — below me: the flow
+  runs down the column, not across the row.</div>
+  <div class="cell b3">DOWN 3 — the two declared
+  rows are full, so I open the second column and
+  stand at its top, beside DOWN 1.</div>
+  <div class="cell b4">DOWN 4 — second column,
+  second row, beside DOWN 2.</div>
+</div>
+<p>Read this grid down, then across: that is
+grid-auto-flow: column, the rows' own flow turned
+on its side.</p>
+
+<h2>10 — dense packing backfills</h2>
+<div class="grid dense">
+  <div class="cell b1 wide">WIDE 1 — I span two of
+  the three columns, leaving one cell at the first
+  row's end.</div>
+  <div class="cell b2 wide">WIDE 2 — I span two as
+  well, so I cannot fit in that one cell: I open
+  the second row.</div>
+  <div class="cell b3">SMALL — I span one. Under
+  plain flow I would stand after WIDE 2 in the
+  second row; under dense packing the cursor goes
+  back and I fill the hole in the FIRST row
+  instead.</div>
+</div>
+<p>If the small green box stands at the first
+row's right end, dense packing works.</p>
+
+<h2>11 — line names</h2>
+<div class="grid named">
+  <div class="cell b1 namedA">BY NAME, WIDE — my
+  grid-column is middle / end: I stand in the wide
+  fr track, because the template named its lines
+  [start], [middle] and [end].</div>
+  <div class="cell b2 namedB">BY NAME, NARROW — my
+  grid-column is start / middle: the fixed 200
+  track. I am written second but stand first,
+  because my named lines put me there.</div>
+</div>
+
+<h2>12 — template areas</h2>
+<div class="grid plan">
+  <div class="cell b1 ahead">HEAD — grid-area: head
+  puts me across the top, both columns wide.</div>
+  <div class="cell b2 aside">SIDE — the narrow
+  column of the middle row.</div>
+  <div class="cell b3 amain">MAIN — the wide column
+  of the middle row, beside SIDE.</div>
+  <div class="cell b4 afoot">FOOT — across the
+  bottom, both columns wide, under SIDE and MAIN
+  alike.</div>
+</div>
+<p>The template drew a map — "head head", "side
+main", "foot foot" — and each box went to the
+rectangle its name fills.</p>
+
+<h2>13 — a percentage height against a definite one</h2>
+<div class="step">
+  <div class="grid halfgrid">
+    <div class="cell b1">HALF — this grid is
+    height: 50% inside the pale step around it,
+    which declares 300: the grid stands half the
+    step's inside height, its row stretched to
+    fill it, and the pale ground shows the other
+    half below.</div>
+  </div>
+</div>
+<p>And where no ancestor declares a height, a grid
+container's percentage height still reads as its
+content's own height — as every grid above this
+one stands.</p>
+
+<p>End of the test page. If all thirteen promises held,
 grid works.</p>
 </body>
 </html>
