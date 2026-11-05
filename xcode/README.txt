@@ -7,6 +7,196 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.37.2 — THE SECOND SPEED STAGE
+------------------------------------------------------
+Tyler's own Console Timing entry named
+this stage. Loading the Wikipedia
+"Jesus" article (2.7 MB, reached through
+a DuckDuckGo chase) read: fetch 0.09s ·
+parse 0.36s · style+layout 66.50s ·
+scripts 0.01s · total 66.95s. The whole
+wait was the style+layout figure, so the
+real renderer was instrumented against
+the real article (46,631 nodes, 1,204
+rules) and the figure was decomposed
+before anything was touched:
+
+* One load walks the tree ONCE. The
+  first paint is a single walkBlock —
+  1,589 block walks, 27,701 inline
+  builds, 3,120 paragraph flushes — and
+  the arrivals after it cost 0.17s of
+  79.13s here (measured in the harness):
+  pictures measure and seat themselves
+  against the walked string; nothing
+  re-walks. The suspects named in the
+  brief were counted and cleared: text
+  measurement runs 159 times over 28,026
+  characters in the first paint (1,201
+  across arrivals), and column balancing
+  three times. The cost was inside the
+  one walk: the resting cascade 33.17s,
+  the inline walk 26.32s, and the state
+  resolutions (:hover, :focus, :active)
+  about 24s.
+
+* The state resolutions were doing the
+  scan the speed stage removed from the
+  resting cascade. Every element, at
+  every block close, asks for its three
+  state styles — 41,313 calls on this
+  article — and each was offered EVERY
+  rule the subject index could file for
+  the element, though the resolution can
+  only match rules carrying its state
+  flag: 4 :hover rules of 1,204 here.
+  The resolution is now offered only its
+  flag's census, gathered through the
+  same index. One subtlety is recorded
+  because it bit once already: the
+  census is rebuilt per element and
+  never cached, because whether a rule
+  "carries the state" is answered about
+  the leaf compound alone when the
+  selector's first compound carries the
+  flag, and about any compound
+  otherwise — a census cached by sheet
+  would have silently dropped rules
+  whose state rides an ancestor
+  compound. The values cannot move: the
+  resolution still filters by its flag
+  itself, the offered set only
+  over-includes, and every var()
+  substitution still runs. After:
+  the state scans fall from 24.35s to
+  0.46s, and the harness's first paint
+  from 79.13s to 55.86s. The 0.37
+  regression suite still passes whole —
+  doors, js-test's eleven promises, the
+  REPL, the Shield chase, the budget at
+  exactly 3.00s, cascade equivalence 0
+  mismatches across 2,818 elements.
+
+* What remains is named, not hidden:
+  the resting cascade (33.17s here) and
+  the walk's own building (26.32s here)
+  are the article's honest size under
+  this engine's per-element Swift work,
+  and the app's Debug build on the Mac
+  pays more per element than the
+  harness's optimized one. Tyler's next
+  Timing entry is the verdict instrument
+  for how much of the 66.50s this stage
+  actually took back.
+
+* Grid and flex seat links follow clicks
+  now. The wiki shape test's verdict on
+  0.37.1: #3 (grid item) and #4 (flex
+  item) kept the I-beam and never
+  navigated, where #1, #2 and #5 were
+  not reported failing. The mechanism,
+  proven against the painters' own
+  arithmetic: a flex or grid paint's
+  rect is the CONTAINER's seat, and its
+  items' rects are offsets inside that
+  seat — paintGridContainer places each
+  item at the container's origin plus
+  the item's rect. The seat hit test
+  read the items' rects as though they
+  were page coordinates, so a click on a
+  grid or flex link was measured
+  against a phantom box up at the
+  page's top-left, found nothing, and
+  the pointer stayed an I-beam. Floats
+  and positioned boxes carry true page
+  rects, which is exactly why only #3
+  and #4 failed. The hit test now
+  rebases each item onto its
+  container's seat, the way the
+  painters place it — hover and click
+  alike, since both ask the same
+  seatLink.
+
+* The status line names the landed
+  page. After the DuckDuckGo chase, the
+  address bar read the article's address
+  while the status line still named the
+  doorway that was merely fetched — it
+  was built from the fetched URL. Both
+  settled status lines (at first paint
+  and at the arrivals) now name the
+  landed URL the render reports, the
+  same string the address bar shows.
+  The plain case is unchanged: where no
+  chase runs, fetched and landed are
+  one address.
+
+* The overprint at the article's top is
+  classified, and deliberately NOT
+  patched here — the evidence, so the
+  next stage starts from it. The two
+  lines that collide in Tyler's
+  screenshots are the hatnote ("Several
+  terms redirect here…") and the lead
+  paragraph ("Jesus Christ, … was a
+  Jewish preacher…"). Two facts are
+  proven. First, the walk lays them as
+  ONE text block: the big MediaWiki
+  sheet carries the adjacency rule
+  `.mw-parser-output div.hatnote + p`
+  (small type, padding-left 2.4em), and
+  it MATCHES the lead paragraph in this
+  engine, because the parser's sibling
+  test reads adjacency by NODE — and
+  between the hatnote div and the lead
+  paragraph stand 286 element nodes
+  (page indicators, the title, the site
+  notice, the table of contents, the
+  first heading) carrying no text at
+  all. One block means one band, one
+  italic face, one small size — exactly
+  what the screenshots show the lead
+  wearing where it collides. Second,
+  the glyph collision itself happens
+  inside AppKit's band layout on the
+  device: the walk's own string carries
+  the two paragraphs back to back,
+  separated as every paragraph is, and
+  the harness — which has no AppKit —
+  cannot reproduce the drawing. The
+  adjacency fault is real and named:
+  sibling adjacency must be judged by
+  ELEMENT among element siblings, not
+  by node among all nodes. It is a
+  parser/cascade-semantics repair, not
+  a layout patch, and it is the next
+  stage's first target; whether it
+  alone explains the drawing, Tyler's
+  next screenshot of the same article
+  will say.
+
+The drill: build and run — the status
+line should read "Chirpy Engine 0.37.2
+(Swift)". Open wiki-shape-test.html:
+hover #3 (the grid link) and #4 (the
+flex link) — the pointing hand should
+show over both now — and click each:
+#3 lands on the NOSCRIPT destination
+page, #4 on the SCRIPT destination
+page; #1, #2 and #5 should behave as
+before. Then the Timing errand: search
+DuckDuckGo for Jesus, click the
+Wikipedia result, let the article
+settle, open the Console and read the
+Timing entry out — fetch, parse,
+style+layout, scripts, total — against
+66.95s. The status line at the bottom
+should name en.wikipedia.org/wiki/Jesus
+once landed, not the duckduckgo.com
+doorway. js-test still keeps its eleven
+promises, and interstitial-test still
+walks through both its doors.
+
 WHAT'S NEW IN 0.37.1 — THE REPAIR BENCH
 ------------------------------------------------------
 Two live failures came back from the Mac,

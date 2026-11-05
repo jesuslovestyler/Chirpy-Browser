@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.37.1 (Swift)
+//  Chirpy Browser — engine 0.37.2 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -742,6 +742,68 @@
 //  separates flow links from seat links so
 //  the remaining on-device question can be
 //  answered by one click each.
+//  0.37.2 is the second speed stage, aimed
+//  by Tyler's own Console Timing entry for
+//  the chased Wikipedia "Jesus" article:
+//  fetch 0.09s · parse 0.36s · style+layout
+//  66.50s · scripts 0.01s · total 66.95s.
+//  The whole wait sat inside renderFirstPaint,
+//  and instrumenting the real renderer
+//  against the real article (46,631 nodes,
+//  1,204 rules) split it: the resting
+//  cascade 33.17s, the inline walk 26.32s,
+//  and the state resolutions about 24s —
+//  nearly all of it a full-sheet scan the
+//  resting cascade no longer does: the
+//  state resolution was offered EVERY rule
+//  through the subject index, though only
+//  rules carrying the state flag can ever
+//  match (on this article, 4 :hover rules
+//  of 1,204), and it ran for every element
+//  at every block close (41,313 calls). The
+//  state resolution is now offered only its
+//  flag's census through the same index —
+//  the census is rebuilt per element, never
+//  cached, because tbSelectorHasState
+//  answers about the leaf compound alone
+//  for :hover/:focus/:active-first
+//  selectors and about any compound
+//  otherwise, which the index's rightmost-
+//  compound filing would silently
+//  under-include. Values cannot move: the
+//  resolution still filters by the flag
+//  itself, and every var() substitution
+//  still happens. Harness after: the first
+//  paint falls from 79.13s to 55.86s here,
+//  the state scans from 24.35s to 0.46s;
+//  what remains is the walk's own work and
+//  the resting cascade's, and Tyler's next
+//  Timing entry is the verdict. The same
+//  stage repairs the seat hit test's grid
+//  and flex items (their rects are offsets
+//  inside their container's seat — the
+//  painters' own bargain — and the hit test
+//  read them as page coordinates, so the
+//  wiki shape test's #3 and #4 could
+//  neither hover a hand nor follow a
+//  click), and the status line now names
+//  the landed URL a chase arrived at, as
+//  the address bar already did, instead of
+//  the doorway that was merely fetched.
+//  Named for the next stage, not fixed: the
+//  overprint at the "Jesus" article's top —
+//  the hatnote paragraph and the lead
+//  paragraph are walked as ONE text block
+//  (the sheet's `div.hatnote + p` adjacency
+//  rule matches the parser's sibling test,
+//  which reads adjacency by NODE — 286
+//  element nodes intervene, carrying no
+//  text), so their shared italic face and
+//  small cap share one band, and the glyph
+//  overlap itself is AppKit's band layout
+//  on the device, which this harness cannot
+//  reproduce; see the README for the exact
+//  chain and the evidence.
 //  Not yet: JavaScript beyond the first slice
 //  above — event handlers, timers, fetch and
 //  XMLHttpRequest, and the wider DOM. The
@@ -1738,7 +1800,7 @@ func tbGETWithCache(urlString: String, accept: String,
         break
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue(accept, forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1810,7 +1872,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (got.finalURL, html)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1836,7 +1898,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1940,7 +2002,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2101,7 +2163,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
         return got.data
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3361,7 +3423,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
             ?? String(decoding: got.data, as: UTF8.self)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.2 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -7669,6 +7731,45 @@ final class TBRenderer {
         }
         return out
     }
+    // The second speed repair (0.37.2): the state
+    // resolution's candidates. tbResolveStateStyle
+    // matches ONLY rules carrying its state flag, so
+    // offer it only those rules, by the same index
+    // bargain — the flag's own census first (a cached
+    // filter of the whole sheet), then the index's
+    // buckets, and tbResolveStateStyle still filters
+    // by the flag itself, so the offered set only
+    // over-includes, never under-includes. The state
+    // resolutions were measured doing the full
+    // census scan per element instead: against the
+    // real Wikipedia "Jesus" article the filtered
+    // :hover census is 4 rules of 1,204, and the
+    // unfiltered offer made every one of the walk's
+    // 41,313 state calls scan them all — 23.78s of
+    // one 79.1s first paint in the harness, against
+    // 33.17s for the entire resting cascade, which
+    // had the index all along.
+    private var stateRuleCensus: [TBStateFlag: [TBCSSRule]] = [:]
+    private var stateCensusRuleCount = -1
+    func stateCandidateRules(node: TBNode) -> [TBCSSRule] {
+        if stateCensusRuleCount != rules.count {
+            stateRuleCensus = [:]
+            stateCensusRuleCount = rules.count
+        }
+        var out: [TBCSSRule] = []
+        for flag in [TBStateFlag.hover, .focus, .active] {
+            if let census = stateRuleCensus[flag] {
+                out += census
+                continue
+            }
+            let census = candidateRules(node: node).filter {
+                tbSelectorHasState($0.selector, flag)
+            }
+            stateRuleCensus[flag] = census
+            out += census
+        }
+        return out
+    }
     var pageBackground: NSColor? = nil
     let out = NSMutableAttributedString()
 
@@ -8315,7 +8416,7 @@ final class TBRenderer {
         let cacheKey = "\(ObjectIdentifier(node))|\(flag)"
         if let remembered = stateCache[cacheKey] { return remembered }
         let raw = tbResolveStateStyle(node: node,
-                                      rules: candidateRules(node: node),
+                                      rules: stateCandidateRules(node: node),
                                       flag: flag)
         if raw.isEmpty {
             stateCache[cacheKey] = raw

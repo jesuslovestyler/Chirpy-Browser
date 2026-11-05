@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.37.1 (Swift)
+//  Chirpy Browser — prototype 0.37.2 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.37.1 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
+    @Published var statusLine = "Chirpy Engine 0.37.2 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -448,7 +448,17 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.1 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
+                // The status line's address (0.37.2):
+                // it names the page the reader is
+                // looking at — the landed URL the
+                // render reports (after a DuckDuckGo
+                // doorway's chase, the article itself),
+                // matching the address bar — never the
+                // merely-fetched URL, which for a chased
+                // load is the doorway. Until the first
+                // paint reports, the fetched URL stands.
+                var settledLanded = finalURL
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.2 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -462,6 +472,7 @@ final class BrowserModel: ObservableObject {
                                                mediaWidth: viewTextWidth,
                                                fetchSeconds: fetchSeconds) { first in
                     guard generation == self.loadGeneration else { return }
+                    settledLanded = first.landedURL
                     self.currentURL = first.landedURL
                     self.sessionVisited.insert(first.landedURL)
                     self.addressText = first.landedURL
@@ -514,8 +525,8 @@ final class BrowserModel: ObservableObject {
                     var status = settledStatus
                     if let e = first.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
-                        status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.37.1 (Swift)"
+                        status = "\(first.landedURL)  ·  \(e)"
+                            + "  ·  Chirpy Engine 0.37.2 (Swift)"
                     }
                     self.statusLine = first.arrivalsPending
                         ? status + consoleNote
@@ -538,8 +549,8 @@ final class BrowserModel: ObservableObject {
                     var status = settledStatus
                     if let e = paint.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
-                        status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.37.1 (Swift)"
+                        status = "\(settledLanded)  ·  \(e)"
+                            + "  ·  Chirpy Engine 0.37.2 (Swift)"
                     }
                     self.statusLine = status
                         + (paint.consoleLines.isEmpty ? ""
@@ -5052,6 +5063,23 @@ final class TBBandLayoutManager: NSLayoutManager {
     // are not followed yet: their seat characters
     // carry no link, so a click there finds nothing
     // rather than the wrong door.
+    //
+    // The second speed repair (0.37.2): the seat
+    // rects themselves. A flex or grid paint's rect
+    // is the CONTAINER's seat; its items' rects are
+    // offsets within the container — the painters
+    // say so themselves (paintGridContainer lays
+    // each item at origin + item.rect). The hit
+    // test below read the items' rects as though
+    // they were page coordinates: a click on a grid
+    // or flex link was asked against a phantom box
+    // up at the page's top-left, found nothing, and
+    // the pointer stayed an I-beam. (Floats and
+    // positioned boxes carry page rects already,
+    // which is why only #3 and #4 of the wiki shape
+    // test failed.) The items' rects are rebased
+    // onto their container's seat here, exactly as
+    // the painters place them.
     func seatLink(at pointInView: NSPoint, origin: NSPoint) -> String? {
         let p = NSPoint(x: pointInView.x - origin.x,
                         y: pointInView.y - origin.y)
@@ -5070,7 +5098,11 @@ final class TBBandLayoutManager: NSLayoutManager {
         for paint in gridPaints.reversed() {
             for item in paint.spec.items {
                 if let href = itemLink(content: item.content,
-                                       rect: item.rect,
+                                       rect: NSRect(
+                                           x: paint.rect.minX + item.rect.minX,
+                                           y: paint.rect.minY + item.rect.minY,
+                                           width: item.rect.width,
+                                           height: item.rect.height),
                                        paddingLeft: item.paddingLeft,
                                        paddingTop: item.paddingTop,
                                        paddingRight: item.paddingRight,
@@ -5083,7 +5115,11 @@ final class TBBandLayoutManager: NSLayoutManager {
         for paint in flexPaints.reversed() {
             for item in paint.spec.items {
                 if let href = itemLink(content: item.content,
-                                       rect: item.rect,
+                                       rect: NSRect(
+                                           x: paint.rect.minX + item.rect.minX,
+                                           y: paint.rect.minY + item.rect.minY,
+                                           width: item.rect.width,
+                                           height: item.rect.height),
                                        paddingLeft: item.paddingLeft,
                                        paddingTop: item.paddingTop,
                                        paddingRight: item.paddingRight,
