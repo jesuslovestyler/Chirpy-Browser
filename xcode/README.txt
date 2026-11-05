@@ -7,6 +7,103 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.37.1 — THE REPAIR BENCH
+------------------------------------------------------
+Two live failures came back from the Mac,
+and both were measured before they were
+touched.
+
+* The white doorway. A live DuckDuckGo
+  result click settled on the /l/ page —
+  white, with the doorway's own address in
+  the bar and on the status line, as though
+  the load had finished there. It had, in
+  a sense: the paint-first order (0.36)
+  handed the doorway to the window BEFORE
+  its scripts ran. The window installed
+  it, cleared the progress and stood the
+  load down as finished; only then did the
+  script's send-on begin fetching the real
+  destination — a 2.7 MB article, seconds
+  away. Any touch on that "finished" white
+  page began a new load, and the new
+  load's generation guard silently
+  discarded the destination when it
+  landed. The plain refresh chase never
+  had this fault — it never paints its
+  doorway — which is why a Google
+  meta-refresh stub chase followed live
+  while the script door seemed shut, and
+  why the local file drills passed: a file
+  destination paints in a blink, leaving
+  no gap to fall into. The fix restores
+  the order of 0.33–0.35: scripts run
+  first, against the kept tree, and ONE
+  walk paints the page they leave behind.
+  A doorway is never presented as a
+  settled page again. Honest trade, named
+  plainly: a page's scripts now run before
+  its first paint, bounded by the same
+  three-second budget as ever — the way
+  a real browser's parser-blocking
+  scripts bound it — and the console's
+  Timing line loses the repaint member
+  the two-walk shape needed. The harness
+  witness: fed the verbatim live
+  interstitial, through the real progress
+  fetcher, the render now hands over
+  exactly one paint — the destination.
+
+* The pointer knows a link now. Hovering
+  Wikipedia's links showed only the text
+  selector. Two things were true: the
+  seats (floated boxes, grid and flex
+  items, columns, positioned boxes, fixed
+  overlays) were never consulted at hover
+  at all, and no link cursor was ever set
+  anywhere — a seat's link wore the I-beam
+  like any word. The point is now asked
+  both ways — the text's own link stamp,
+  then the seats' — and the pointing hand
+  shows where either answers. One
+  suspicion was measured and cleared on
+  the way: Wikipedia's article body is
+  NOT swallowed by any seat. This
+  engine's own cascade, run against the
+  live "Jesus" article and Wikipedia's
+  real stylesheets, resolves every
+  ancestor of its paragraphs — page
+  container, content container, the body
+  main, the parser output — to plain
+  block flow: no grid, no flex, no float.
+  The article's links are flow links, the
+  kind that already navigate from a
+  DuckDuckGo results page.
+
+The drill: build and run — the status
+line should read "Chirpy Engine 0.37.1
+(Swift)". First the errand that failed:
+search DuckDuckGo and click a result —
+you should land on the real site, and
+the doorway should never appear as a
+finished page on the way. Then
+Wikipedia: open an article, hover a
+paragraph link (the hand should show),
+and click it; try an infobox link too.
+Then the local witness,
+wiki-shape-test.html: five links in five
+homes — plain flow, a floated box (the
+infobox nesting: float, inner div,
+paragraph, anchor), a grid item, a flex
+item, a positioned box. Hover each for
+the hand, click each for its named
+landing. Whichever number fails is the
+whole report — that shape is where the
+remaining trouble lives. And js-test
+still keeps its eleven promises, and
+interstitial-test still walks through
+both its doors.
+
 WHAT'S NEW IN 0.37.0 — THE ONWARD DOORS
 ------------------------------------------------------
 First: this build repairs the 0.36 build

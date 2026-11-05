@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.37.0 (Swift)
+//  Chirpy Browser — engine 0.37.1 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -702,6 +702,46 @@
 //  way — through the window's own load. In
 //  history's terms every script send-on
 //  replaces, as a refresh hop does.
+//  0.37.1 is a repair stage for two live
+//  failures the doors met in the wild. A live
+//  DuckDuckGo result click settled on the
+//  white doorway: the paint-first order
+//  (0.36) handed the doorway to the window
+//  before its scripts ran — the window
+//  installed its address, cleared the
+//  progress and stood the load down as
+//  finished — and only then followed the
+//  script's send-on, so on a slow destination
+//  the reader sat on a finished white page,
+//  and any touch began a new load whose
+//  generation guard discarded the destination
+//  when it landed. The script stage now runs
+//  before the single walk again, as it did
+//  from 0.33 to 0.35: a doorway is never
+//  presented as a settled page, the console's
+//  Timing line loses the repaint member the
+//  two-walk shape needed, and the three-
+//  second script budget still bounds the
+//  wait. The plain refresh chase was never
+//  broken — it never paints its doorway —
+//  which is why a Google stub chase followed
+//  live while the script door seemed shut.
+//  The same stage teaches the pointer to
+//  know a link when it sees one: hovering
+//  text that carries a link, or a painted
+//  seat that holds one, now shows the
+//  pointing hand — until now the seats were
+//  never asked at hover, and no cursor was
+//  ever set. Wikipedia's article body was
+//  measured with this engine's own cascade
+//  against the live page and its real
+//  stylesheets: every ancestor of its
+//  paragraphs resolves to plain block flow,
+//  no grid, flex or float seat swallows it —
+//  the drill page (wiki-shape-test.html)
+//  separates flow links from seat links so
+//  the remaining on-device question can be
+//  answered by one click each.
 //  Not yet: JavaScript beyond the first slice
 //  above — event handlers, timers, fetch and
 //  XMLHttpRequest, and the wider DOM. The
@@ -1698,7 +1738,7 @@ func tbGETWithCache(urlString: String, accept: String,
         break
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue(accept, forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1770,7 +1810,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (got.finalURL, html)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1796,7 +1836,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1900,7 +1940,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -2061,7 +2101,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
         return got.data
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3321,7 +3361,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
             ?? String(decoding: got.data, as: UTF8.self)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.37.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.37.1 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -14304,40 +14344,31 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                 onFirstPaint: onFirstPaint)
         }
     }
-    // Paint first, then scripts (0.36): the session
-    // exists from the start, the walk paints what
-    // the page's HTML and CSS say, and only then do
-    // its scripts run — against the kept tree. If
-    // they change the page, it is walked again and
-    // the new paint replaces the first, the way a
-    // console change repaints (0.35). Until 0.35 the
-    // scripts ran before the walk, so a script-heavy
-    // page showed nothing at all until every script
-    // had had its say; now the reader sees the page
-    // first, and script changes land a beat later —
-    // the honest tradeoff, and the arrivals model
-    // already paints progressively in this shape.
+    // Scripts before the walk (0.37.1): the session
+    // exists from the start, and the page's scripts
+    // run against the kept tree BEFORE anything is
+    // painted, so a page whose scripts send the
+    // reader onward — or rewrite the page — is
+    // never handed to the window as a settled page
+    // first. The paint-first order (0.36) handed
+    // the doorway over first: the window installed
+    // its address in the bar, cleared the progress
+    // and stood the load down as finished, and only
+    // then did the script's send-on begin its fetch.
+    // On a slow destination the reader sat on the
+    // white doorway of a load the app itself called
+    // done, and any touch there began a new load
+    // whose generation guard silently discarded
+    // the destination when it finally landed. That
+    // is how a live DuckDuckGo result click settled
+    // on the white /l/ page. The script stage keeps
+    // its honest budget (3s, 0.36), so the wait
+    // before paint is bounded the way a real
+    // browser's parser-blocking scripts bound it,
+    // and the single walk below paints the page
+    // the scripts left behind — the order this
+    // renderer kept from 0.33 to 0.35, restored.
     let session = tbMakeSession(root: tree, base: base, initialTitle: title)
-    let renderer = TBRenderer(base: base)
-    renderer.visitedURLs = visited
-    renderer.mediaWidth = mediaWidth
-    let layoutStart = Date()
-    let body = await renderer.renderFirstPaint(root: tree)
-    let layoutSeconds = Date().timeIntervalSince(layoutStart)
-    session.renderer = renderer
-    let landedTitle = title.isEmpty ? base : title
-    let firstPaint = TBFirstPaint(
-        title: landedTitle,
-        body: body,
-        pageBackground: renderer.pageBackground,
-        columnWidth: renderer.columnTextWidth(root: tree),
-        forms: renderer.forms,
-        fields: renderer.fields,
-        landedURL: base,
-        layoutEvents: renderer.layoutEvents,
-        arrivalsPending: renderer.hasPendingArrivals,
-        consoleLines: [], session: session)
-    await MainActor.run { onFirstPaint(firstPaint) }
     let scriptStart = Date()
     let js = await tbRunScripts(session: session)
     let scriptSeconds = Date().timeIntervalSince(scriptStart)
@@ -14386,69 +14417,42 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
         }
     }
     if let override = js.titleOverride { title = override }
-    func timingLine(repaintSeconds: Double?) -> String {
-        var parts = [
-            String(format: "fetch %.2fs", fetchSeconds),
-            String(format: "parse %.2fs", parseSeconds),
-            String(format: "style+layout %.2fs", layoutSeconds),
-            String(format: "scripts %.2fs", scriptSeconds),
-        ]
-        var total = fetchSeconds + parseSeconds + layoutSeconds
-            + scriptSeconds
-        if let repaint = repaintSeconds {
-            parts.append(String(format: "repaint %.2fs", repaint))
-            total += repaint
-        }
-        parts.append(String(format: "total %.2fs", total))
-        return "Timing: " + parts.joined(separator: " \u{00B7} ")
-    }
-    // The script stage's words and the load's
-    // timing ride ONE later hand-off, so the
-    // console receives each exactly once: the
-    // first paint above carried no lines at all.
-    // When nothing changed, the same paint is
-    // handed over again carrying them — installing
-    // the same body twice is a no-op beside that
-    // delivery.
-    let finalPaint: TBFirstPaint
-    var finalRenderer = renderer
-    if session.ctx.domChanged {
-        let repaint = TBRenderer(base: base)
-        repaint.visitedURLs = visited
-        repaint.mediaWidth = mediaWidth
-        let repaintStart = Date()
-        let newBody = await repaint.renderFirstPaint(root: tree)
-        let repaintSeconds = Date().timeIntervalSince(repaintStart)
-        session.renderer = repaint
-        finalRenderer = repaint
-        finalPaint = TBFirstPaint(
-            title: title.isEmpty ? base : title,
-            body: newBody,
-            pageBackground: repaint.pageBackground,
-            columnWidth: repaint.columnTextWidth(root: tree),
-            forms: repaint.forms,
-            fields: repaint.fields,
-            landedURL: base,
-            layoutEvents: repaint.layoutEvents,
-            arrivalsPending: repaint.hasPendingArrivals,
-            consoleLines: js.consoleLines
-                + [timingLine(repaintSeconds: repaintSeconds)],
-            session: session)
-    } else {
-        finalPaint = TBFirstPaint(
-            title: landedTitle,
-            body: body,
-            pageBackground: renderer.pageBackground,
-            columnWidth: renderer.columnTextWidth(root: tree),
-            forms: renderer.forms,
-            fields: renderer.fields,
-            landedURL: base,
-            layoutEvents: renderer.layoutEvents,
-            arrivalsPending: renderer.hasPendingArrivals,
-            consoleLines: js.consoleLines
-                + [timingLine(repaintSeconds: nil)],
-            session: session)
-    }
+    // One walk, one hand-off (0.37.1): the tree
+    // the scripts left behind is walked once, and
+    // the single paint carries the script stage's
+    // console lines and the load's timing with it,
+    // so the console receives each exactly once.
+    // (The 0.36 shape walked twice when scripts
+    // changed the page; that second walk is gone
+    // with the paint-first order it served.)
+    let renderer = TBRenderer(base: base)
+    renderer.visitedURLs = visited
+    renderer.mediaWidth = mediaWidth
+    let layoutStart = Date()
+    let body = await renderer.renderFirstPaint(root: tree)
+    let layoutSeconds = Date().timeIntervalSince(layoutStart)
+    session.renderer = renderer
+    let timingLine = "Timing: " + [
+        String(format: "fetch %.2fs", fetchSeconds),
+        String(format: "parse %.2fs", parseSeconds),
+        String(format: "style+layout %.2fs", layoutSeconds),
+        String(format: "scripts %.2fs", scriptSeconds),
+        String(format: "total %.2fs",
+               fetchSeconds + parseSeconds + layoutSeconds
+                + scriptSeconds),
+    ].joined(separator: " \u{00B7} ")
+    let paint = TBFirstPaint(
+        title: title.isEmpty ? base : title,
+        body: body,
+        pageBackground: renderer.pageBackground,
+        columnWidth: renderer.columnTextWidth(root: tree),
+        forms: renderer.forms,
+        fields: renderer.fields,
+        landedURL: base,
+        layoutEvents: renderer.layoutEvents,
+        arrivalsPending: renderer.hasPendingArrivals,
+        consoleLines: js.consoleLines + [timingLine],
+        session: session)
     // A script-only send-on (a search engine's click
     // bounce, say) renders as a black void. When the
     // final walk found no words at all, offer the
@@ -14457,7 +14461,7 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
     // room. The check stands after the scripts, as
     // it did when they ran before the walk: a page
     // whose scripts write its words is no bounce.
-    let visible = (finalPaint.body.string as NSString)
+    let visible = (paint.body.string as NSString)
         .trimmingCharacters(in: .whitespacesAndNewlines)
     if visible.isEmpty {
         let targets = tbScriptBounceTargets(html: html, base: base)
@@ -14479,18 +14483,18 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                                  .foregroundColor: NSColor.linkColor,
                                  .underlineStyle: NSUnderlineStyle.single.rawValue]))
             }
-            let paint = TBFirstPaint(
+            let noticePaint = TBFirstPaint(
                 title: title.isEmpty ? "This page needs JavaScript" : title,
                 body: notice, pageBackground: nil, columnWidth: nil,
                 forms: [], fields: [], landedURL: base, layoutEvents: [],
                 arrivalsPending: false,
-                consoleLines: finalPaint.consoleLines,
+                consoleLines: paint.consoleLines,
                 session: session)
-            await MainActor.run { onFirstPaint(paint) }
-            return paint
+            await MainActor.run { onFirstPaint(noticePaint) }
+            return noticePaint
         }
     }
-    await MainActor.run { onFirstPaint(finalPaint) }
-    await finalRenderer.finishArrivals()
-    return finalPaint
+    await MainActor.run { onFirstPaint(paint) }
+    await renderer.finishArrivals()
+    return paint
 }

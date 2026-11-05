@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.37.0 (Swift)
+//  Chirpy Browser — prototype 0.37.1 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.37.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
+    @Published var statusLine = "Chirpy Engine 0.37.1 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -448,7 +448,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.37.1 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, the speed stage, painted-box links, script navigation, progress bar, parallel loading"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -515,7 +515,7 @@ final class BrowserModel: ObservableObject {
                     if let e = first.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.37.0 (Swift)"
+                            + "  ·  Chirpy Engine 0.37.1 (Swift)"
                     }
                     self.statusLine = first.arrivalsPending
                         ? status + consoleNote
@@ -539,7 +539,7 @@ final class BrowserModel: ObservableObject {
                     if let e = paint.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.37.0 (Swift)"
+                            + "  ·  Chirpy Engine 0.37.1 (Swift)"
                     }
                     self.statusLine = status
                         + (paint.consoleLines.isEmpty ? ""
@@ -2420,6 +2420,7 @@ final class TBPageTextView: NSTextView {
         super.mouseExited(with: event)
         // The pointer left the text: hover lifts, and a
         // press cannot outlive the pointer leaving.
+        NSCursor.iBeam.set()
         if hoverRange != nil || activeRange != nil {
             hoverRange = nil
             activeRange = nil
@@ -2623,6 +2624,37 @@ final class TBPageTextView: NSTextView {
                 }
             }
         }
+        // The pointer knows a link (0.37.1): until
+        // now no cursor was ever set here, and the
+        // painted seats were never asked at hover —
+        // a link inside a floated box, a grid or
+        // flex item, a column or a positioned box
+        // wore the text selector like any word, and
+        // so did the reader's doubt. Now the point
+        // is asked both ways — the text's own link
+        // stamp, then the seats' — and the hand is
+        // shown where either answers, the I-beam
+        // everywhere else.
+        var overLink = false
+        if storage.length > 0 {
+            let inView = convert(event.locationInWindow, from: nil)
+            if inView.x >= textContainerOrigin.x,
+               inView.y >= textContainerOrigin.y {
+                let index = characterIndexForInsertion(at: inView)
+                if index < storage.length,
+                   storage.attribute(.link, at: index,
+                                     effectiveRange: nil) != nil {
+                    overLink = true
+                }
+                if !overLink,
+                   let band = layoutManager as? TBBandLayoutManager,
+                   band.seatLink(at: inView,
+                                 origin: textContainerOrigin) != nil {
+                    overLink = true
+                }
+            }
+        }
+        (overLink ? NSCursor.pointingHand : NSCursor.iBeam).set()
         if extent == hoverRange { return }   // already wearing it
         hoverRange = extent
         repaintStatePaint()
@@ -5723,6 +5755,34 @@ final class TBFixedOverlayView: NSView {
             return
         }
         super.mouseDown(with: event)
+    }
+
+    // The pointer knows a link (0.37.1): the hand
+    // over this box's links, as the page text now
+    // shows over its own. The tracking area is
+    // the same shape the text view's hover wears.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas
+        where area.owner === self && area.userInfo?["tbOverlayHover"] != nil {
+            removeTrackingArea(area)
+        }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited,
+                      .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: ["tbOverlayHover": true]))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        (linkAt(event: event) != nil
+            ? NSCursor.pointingHand : NSCursor.arrow).set()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        NSCursor.arrow.set()
     }
 
     private func linkAt(event: NSEvent) -> String? {

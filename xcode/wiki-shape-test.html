@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.37.1 — Wiki Shape Test</title>
+<style>
+  body { font-family: sans-serif; background: #141a12; color: #f5efdd; margin: 24px; }
+  h1 { font-size: 26px; }
+  h2 { font-size: 20px; margin-top: 44px; }
+  p.note { color: #c9c2ab; max-width: 700px; line-height: 1.5; }
+  p.body { max-width: 700px; line-height: 1.6; }
+  a { color: #a8c686; }
+  /* The Wikipedia infobox shape: a floated outer box, an inner
+     div inside it, a paragraph inside that, the anchor inside
+     the paragraph — the exact nesting the repair brief named. */
+  .infobox { float: right; width: 300px; margin: 0 0 18px 24px;
+             background: #1d2619; border: 1px solid #3a4633; padding: 14px 16px; }
+  .infobox .inner p { line-height: 1.55; margin: 6px 0; }
+  /* A grid whose single item carries the paragraph. */
+  .grid { display: grid; grid-template-columns: 1fr; max-width: 700px;
+          background: #1d2619; border: 1px solid #3a4633; padding: 6px 16px; }
+  /* A flex row whose item carries the paragraph. */
+  .flex { display: flex; max-width: 700px;
+          background: #1d2619; border: 1px solid #3a4633; padding: 6px 16px; }
+  /* A positioned box carrying the paragraph. */
+  .stage { position: relative; height: 120px; max-width: 700px; }
+  .posbox { position: absolute; left: 40px; top: 18px; width: 480px;
+            background: #1d2619; border: 1px solid #3a4633; padding: 6px 16px; }
+  .landed { background: #2c3a26; border: 1px solid #a8c686; padding: 14px 16px;
+            max-width: 700px; margin-top: 60px; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.37.1 — wiki shape test</h1>
+<p class="note">Five links, five different homes. Live Wikipedia's links would
+not follow a click, and this page exists to find out <i>which</i> links those
+were. Hover each link first: the pointer should turn into a pointing hand over
+every one of them. Then click it. Each link names where it should land —
+if you land there, that shape works; if the click only selects text, that
+shape is the broken one, and its number is the whole report.</p>
+
+<h2>1 — plain flow (the control)</h2>
+<p class="body">This paragraph is ordinary flowing text, the same shape as a
+DuckDuckGo result. Its link should behave the way those did:
+<a href="#landed">the flow link — land at the green box below</a>.
+If even this one only selects, the trouble is not in any box at all.</p>
+
+<h2>2 — inside a floated box (the infobox shape)</h2>
+<div class="infobox"><div class="inner">
+<p>The box at the right is floated, like a Wikipedia infobox. Inside it an
+inner div holds this paragraph, and inside the paragraph sits
+<a href="destination-script.html">the float link — land on the SCRIPT
+destination page</a>. Wikipedia's infobox links live in exactly this
+nesting: floated outer container, inner div, paragraph, anchor.</p>
+</div></div>
+<p class="body">Article text flows around the box while it stands at the
+right margin. The link inside the box is the one to try — hover it for the
+hand, then click it.</p>
+
+<h2>3 — inside a grid item</h2>
+<div class="grid"><div>
+<p>This paragraph stands inside a grid item:
+<a href="destination-noscript.html">the grid link — land on the NOSCRIPT
+destination page</a>.</p>
+</div></div>
+
+<h2>4 — inside a flex item</h2>
+<div class="flex"><div>
+<p>This paragraph stands inside a flex item:
+<a href="destination-script.html">the flex link — land on the SCRIPT
+destination page</a>.</p>
+</div></div>
+
+<h2>5 — inside a positioned box</h2>
+<div class="stage"><div class="posbox">
+<p>This paragraph stands inside an absolutely positioned box:
+<a href="destination-noscript.html">the positioned link — land on the
+NOSCRIPT destination page</a>.</p>
+</div></div>
+
+<div class="landed" id="landed">
+<p><b>You landed here.</b> If the flow link (1) brought you to this green
+box, plain flow links navigate. Use Back to return to the tests above and
+try the next shape.</p>
+</div>
+
+</body>
+</html>
