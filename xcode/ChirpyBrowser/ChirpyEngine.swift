@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.34.0 (Swift)
+//  Chirpy Browser — engine 0.35.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -475,8 +475,10 @@
 //      entry and the kept body serves. no-store is
 //      never written down, no-cache is kept but
 //      always asked about again, and only 200 GET
-//      replies are kept at all — under a 200 MB cap
-//      with least-recently-used eviction, and no
+//      replies are kept at all — under the
+//      reader's cap (200 MB unless Settings
+//      names another) with least-recently-used
+//      eviction, and no
 //      single reply over 25 MB. Pages come through
 //      it (the progress fetcher included), and so do
 //      sheets, scripts and pictures, through one
@@ -566,9 +568,69 @@
 //      the hub alone declares two hundred, and
 //      past the old cap the rest of a page
 //      silently flowed un-gridded.
+//    * Developer tools and settings (0.35):
+//      the window grows a console drawer with
+//      two faces, and the page stays landed
+//      after it paints — its parsed tree, the
+//      scope its scripts ran in, and the very
+//      renderer that painted it are kept as the
+//      page's session, for the tools to work
+//      against. The Console face is where a
+//      page's words to the console, its script
+//      errors and its alerts now live, as
+//      readable entries that cannot be cut out
+//      of sight: in 0.33 and 0.34 they rode the
+//      status line, whose tail the window
+//      truncated — an alert could not be seen
+//      even full-screen. An alert also raises
+//      a banner under the bar until it is
+//      dismissed. At the foot of the Console
+//      face, a JavaScript console: what is
+//      typed there runs through this same
+//      interpreter, in the landed page's own
+//      scope — a function a fetched helper left
+//      behind is still there to call, an
+//      element's text can be read, and a write
+//      repaints the page from its kept tree so
+//      the change is seen. The Inspector face
+//      shows the landed page's own tree — tags,
+//      ids, classes, its text — and, for the
+//      element chosen, the declarations this
+//      engine itself resolved for it and the
+//      rules that matched, in cascade order:
+//      our computed style, the thing to debug
+//      when a page looks wrong in Chirpy.
+//      The page's canvas is white now where a
+//      page gives no background of its own (in
+//      the window's install of the painted
+//      page): it used to fall back to the
+//      system's text background, which follows
+//      the Mac's dark appearance, so a plain
+//      page like js-test painted black words
+//      on a near-black ground; a page that
+//      paints its own background — by its
+//      styles, or its own color-scheme rules,
+//      which join the cascade the background
+//      is resolved from — wins exactly as
+//      before.
+//      Settings joins them, each one honored
+//      by the engine and kept in the reader's
+//      defaults: the homepage the Home button
+//      and a launch open, the cache's cap, the
+//      page text size, and whether links carry
+//      their [n] numbers. The Shield stands in
+//      Settings as fact — its lists' sizes —
+//      and never as a switch: no setting turns
+//      the Shield, the family filter or ad
+//      blocking off. And Chirpy's chosen mark,
+//      the singing cardinal in stained glass,
+//      stands on the home page and at the head
+//      of the repo's README.
 //  Not yet: JavaScript beyond the first slice
 //  above — event handlers, timers, fetch and
-//  XMLHttpRequest, and the wider DOM. Live
+//  XMLHttpRequest, and the wider DOM. The
+//  Inspector shows an element's styles but
+//  does not yet edit them live. Live
 //  form controls inside grid, flex, float and
 //  column seats still stand as labelled
 //  placeholders there — the seats are paint,
@@ -584,6 +646,7 @@ let TB_HOME_HTML = """
 <html>
 <head><title>Chirpy Home</title></head>
 <body>
+<p><img src="data:image/webp;base64,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" width="160" height="160" alt="Chirpy — a singing cardinal in stained glass"></p>
 <h1>Chirpy Browser</h1>
 <p>A browser for Catholics, by Catholics. Private, simple, and ours.</p>
 <h2>Thy word is a lamp to my feet</h2>
@@ -1095,6 +1158,74 @@ func tbShieldPrivacy(_ request: inout URLRequest, pageURLString: String?) {
     }
 }
 
+// MARK: - Reader settings (0.35)
+
+// The reader's own choices, kept in the app's
+// defaults between launches and honored by the
+// engine itself: every setting here does what
+// it says. What is NOT here is deliberate —
+// the Shield has no setting. Its lists stand
+// in the Settings sheet as facts, and there is
+// no key, here or anywhere, that turns the
+// Shield, the family filter, or ad blocking
+// off.
+enum TBSettings {
+    static let homepageKey = "chirpy.settings.homepage"
+    static let cacheCapKey = "chirpy.settings.cacheCapMB"
+    static let textSizeKey = "chirpy.settings.textSizePercent"
+    static let linkNumbersKey = "chirpy.settings.showLinkNumbers"
+
+    // The address the Home button and a fresh
+    // launch open. Empty means the built-in
+    // Chirpy Home (chirpy://home).
+    static var homepage: String {
+        get { UserDefaults.standard.string(forKey: homepageKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: homepageKey) }
+    }
+    static var startAddress: String {
+        homepage.isEmpty ? "chirpy://home" : homepage
+    }
+
+    // The disk cache's cap, in megabytes —
+    // 200 until Settings names another.
+    static var cacheCapMB: Int {
+        get {
+            let v = UserDefaults.standard.integer(forKey: cacheCapKey)
+            return v == 0 ? 200 : v
+        }
+        set { UserDefaults.standard.set(newValue, forKey: cacheCapKey) }
+    }
+    static var cacheCapBytes: Int { cacheCapMB * 1024 * 1024 }
+
+    // The page text size, as a percentage of
+    // the sizes the engine would otherwise lay
+    // a page out with — 100 until Settings
+    // names another.
+    static var textSizePercent: Int {
+        get {
+            let v = UserDefaults.standard.integer(forKey: textSizeKey)
+            return v == 0 ? 100 : v
+        }
+        set { UserDefaults.standard.set(newValue, forKey: textSizeKey) }
+    }
+    static var textScale: CGFloat {
+        CGFloat(textSizePercent) / 100
+    }
+
+    // Whether links carry their stamped [n]
+    // number after them. On until the reader
+    // says otherwise.
+    static var showLinkNumbers: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: linkNumbersKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: linkNumbersKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: linkNumbersKey) }
+    }
+}
+
 // MARK: - The Cache (0.32)
 
 // The cache: what Chirpy fetched, kept on the
@@ -1122,8 +1253,10 @@ func tbShieldPrivacy(_ request: inout URLRequest, pageURLString: String?) {
 // an entry with no freshness word and no validator
 // is simply fetched again.
 //
-// The whole cache is capped at 200 MB; when a
-// store takes it past the cap, the least recently
+// The whole cache is capped at the reader's
+// setting (0.35) — 200 MB until Settings names
+// another of 50, 100 or 500 MB; when a store
+// takes it past the cap, the least recently
 // used entries are let go until it fits. A single
 // reply larger than 25 MB is never stored. The
 // reader can clear the whole cache from the
@@ -1132,7 +1265,7 @@ func tbShieldPrivacy(_ request: inout URLRequest, pageURLString: String?) {
 // between launches — and none of it is ever
 // reported anywhere.
 
-let TBCacheCapBytes = 200 * 1024 * 1024
+var TBCacheCapBytes: Int { TBSettings.cacheCapBytes }
 let TBCacheEntryCapBytes = 25 * 1024 * 1024
 
 // One kept reply's card: where its body lies, when
@@ -1489,7 +1622,7 @@ func tbGETWithCache(urlString: String, accept: String,
         break
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue(accept, forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1561,7 +1694,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (got.finalURL, html)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1587,7 +1720,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1691,7 +1824,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1852,7 +1985,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
         return got.data
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3112,7 +3245,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
             ?? String(decoding: got.data, as: UTF8.self)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.35.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3186,6 +3319,15 @@ final class TBJSContext {
     var title: String = ""
     var titleSet = false
     var elementsById: [String: TBNode] = [:]
+    // Developer tools (0.35): set when code
+    // writes an element's text or the
+    // document's title, so the window knows
+    // the painted page no longer matches its
+    // tree. The JavaScript console clears it
+    // before each run and reads it after; a
+    // page's own scripts set it too, but a
+    // load paints after its scripts anyway.
+    var domChanged = false
     // Mutating array natives (push, pop) set this
     // to the array's new shape; the call site,
     // which knows the expression the array came
@@ -3418,12 +3560,14 @@ func tbJSSetMember(_ base: TBJSValue, _ name: String, _ value: TBJSValue,
     case .element(let node):
         if name == "textContent" || name == "innerHTML" {
             tbJSSetNodeText(node, tbJSString(value))
+            ctx.domChanged = true
         }
         return base
     case .document:
         if name == "title" {
             ctx.title = tbJSString(value)
             ctx.titleSet = true
+            ctx.domChanged = true
         }
         return base
     default:
@@ -4584,23 +4728,60 @@ struct TBJSRun {
     var consoleLines: [String] = []
 }
 
+// Developer tools (0.35): a landed page, kept
+// whole for the console — its parsed tree, its
+// base address, and the very scope its scripts
+// ran in, so what the JavaScript console asks
+// is asked of the page the reader is looking
+// at, in the state its scripts left it in. The
+// renderer that painted the page rides along:
+// the Inspector reads an element's resolved
+// declarations from it — the cascade that
+// actually painted the page, not a re-derivation.
+final class TBPageSession {
+    let root: TBNode
+    let base: String
+    let ctx: TBJSContext
+    let landedTitle: String
+    var renderer: TBRenderer? = nil
+    init(root: TBNode, base: String, ctx: TBJSContext,
+         landedTitle: String) {
+        self.root = root
+        self.base = base
+        self.ctx = ctx
+        self.landedTitle = landedTitle
+    }
+    // The title the window shows: a script's
+    // word (or the console's) over the landed
+    // one.
+    var shownTitle: String {
+        ctx.titleSet ? ctx.title : landedTitle
+    }
+}
+
 // Run the landed page's scripts, in document
 // order, on one shared page scope — inline code,
 // and external files fetched the way style
 // sheets are (the Shield is asked first, then
 // the fetcher, cache and all). Writes land on
 // the parsed tree itself, so what the scripts
-// say is what the walk then paints.
+// say is what the walk then paints. The page's
+// session (0.35) comes back with the run: the
+// scope is kept, not discarded, so the console
+// can go on talking to the landed page.
 func tbRunScripts(root: TBNode, base: String,
-                  initialTitle: String) async -> TBJSRun {
-    var scripts: [TBNode] = []
-    tbCollectScripts(root, into: &scripts)
-    if scripts.isEmpty {
-        return TBJSRun()
-    }
+                  initialTitle: String) async
+    -> (run: TBJSRun, session: TBPageSession) {
     let ctx = TBJSContext()
     ctx.title = initialTitle
     tbCollectIds(root, into: &ctx.elementsById)
+    let session = TBPageSession(root: root, base: base,
+                                ctx: ctx, landedTitle: initialTitle)
+    var scripts: [TBNode] = []
+    tbCollectScripts(root, into: &scripts)
+    if scripts.isEmpty {
+        return (TBJSRun(), session)
+    }
     for script in scripts {
         var source = script.children
             .filter { $0.tag == "#text" }.map { $0.text }
@@ -4647,8 +4828,164 @@ func tbRunScripts(root: TBNode, base: String,
             ctx.logs.append("Script error: \(error)")
         }
     }
-    return TBJSRun(titleOverride: ctx.titleSet ? ctx.title : nil,
-                   consoleLines: ctx.logs)
+    return (TBJSRun(titleOverride: ctx.titleSet ? ctx.title : nil,
+                    consoleLines: ctx.logs), session)
+}
+
+// What one trip through the JavaScript
+// console produced: the lines the code spoke
+// while it ran (console words, alerts and
+// errors ride among them in their usual
+// prefixed forms; the window sorts them as it
+// does a page's), the value to show, and
+// whether the page's face changed underneath.
+struct TBConsoleEvalOutcome {
+    var newLogs: [String] = []
+    var valueText: String? = nil
+    var errorText: String? = nil
+    var pageChanged = false
+}
+
+// The JavaScript console (0.35): run what the
+// reader typed through the same lexer, parser
+// and evaluator a page's scripts use, in the
+// landed page's own scope — or a bare scope,
+// with an empty document, when no page is
+// landed. A program is accepted whole; when
+// its last statement is an expression, that
+// expression's value is the console's answer,
+// as in a browser's console; otherwise the
+// answer is undefined. An error stops the run
+// and stands as the run's error line.
+func tbConsoleEval(session: TBPageSession?,
+                   source: String) -> TBConsoleEvalOutcome {
+    let ctx = session?.ctx ?? TBJSContext()
+    var outcome = TBConsoleEvalOutcome()
+    let logCountBefore = ctx.logs.count
+    ctx.domChanged = false
+    do {
+        let tokens = try tbJSLex(source)
+        var parser = TBJSParser(tokens: tokens)
+        var program = try parser.parseProgram()
+        var lastExpr: TBJSExpr? = nil
+        if let last = program.last, case .expr(let expr) = last {
+            lastExpr = expr
+            program.removeLast()
+        }
+        if !program.isEmpty {
+            try tbJSExec(program, ctx.globals, ctx)
+        }
+        if let expr = lastExpr {
+            let value = try tbJSEval(expr, ctx.globals, ctx)
+            outcome.valueText = tbJSInspect(value)
+        } else {
+            outcome.valueText = "undefined"
+        }
+    } catch let flow as TBJSFlow {
+        switch flow {
+        case .error(let message):
+            outcome.errorText = message
+        case .returnValue(let value):
+            // A top-level return in console
+            // code: its value is the answer, as
+            // though the console were the body
+            // of a function wrapped around it.
+            outcome.valueText = tbJSInspect(value)
+        case .breakLoop, .continueLoop:
+            outcome.errorText = "break or continue outside a loop"
+        }
+    } catch {
+        outcome.errorText = "\(error)"
+    }
+    outcome.newLogs = Array(ctx.logs.dropFirst(logCountBefore))
+    outcome.pageChanged = ctx.domChanged
+    ctx.domChanged = false
+    return outcome
+}
+
+// A console's rendering of a value (0.35):
+// strings wear their quotes, so they cannot
+// be mistaken for numbers; arrays and objects
+// open one level; an element names its tag
+// and id.
+func tbJSInspect(_ value: TBJSValue) -> String {
+    switch value {
+    case .string(let s):
+        return "\"" + s + "\""
+    case .array(let items):
+        if items.isEmpty { return "[]" }
+        return "[ " + items.map { tbJSInspectShallow($0) }
+            .joined(separator: ", ") + " ]"
+    case .object(let obj):
+        if obj.isEmpty { return "{}" }
+        let parts = obj.keys.sorted().map { key in
+            key + ": " + tbJSInspectShallow(obj[key] ?? .undefined)
+        }
+        return "{ " + parts.joined(separator: ", ") + " }"
+    case .element(let node):
+        if let id = node.attrs["id"], !id.isEmpty {
+            return "<" + node.tag + " id=\"" + id + "\">"
+        }
+        return "<" + node.tag + ">"
+    default:
+        return tbJSString(value)
+    }
+}
+
+private func tbJSInspectShallow(_ value: TBJSValue) -> String {
+    switch value {
+    case .array: return "[...]"
+    case .object: return "{...}"
+    default: return tbJSInspect(value)
+    }
+}
+
+// The Inspector's report for one element
+// (0.35): the declarations this engine
+// resolved for it — read from the very
+// renderer that painted the page — and the
+// rules that match it, in cascade order, so a
+// wrong look can be traced to the rule that
+// caused it. The resolved list is the final
+// word; the rules are the evidence under it.
+func tbInspectorReport(session: TBPageSession, node: TBNode) -> String {
+    guard let renderer = session.renderer else {
+        return "The page's renderer is not at hand."
+    }
+    var lines: [String] = []
+    let resolved = renderer.resolvedStyle(node: node)
+    lines.append("Resolved style — what the engine painted:")
+    if resolved.isEmpty {
+        lines.append("  (no declarations — the element wears the defaults)")
+    } else {
+        for name in resolved.keys.sorted() {
+            lines.append("  " + name + ": " + (resolved[name] ?? ""))
+        }
+    }
+    if let inline = node.attrs["style"], !inline.isEmpty {
+        lines.append("")
+        lines.append("Inline style attribute:")
+        lines.append("  " + inline)
+    }
+    var matched: [(order: Int, declarations: [String: String])] = []
+    for rule in renderer.rules
+    where tbSelectorMatches(rule.selector, node: node) {
+        matched.append((order: rule.order,
+                        declarations: rule.declarations))
+    }
+    lines.append("")
+    if matched.isEmpty {
+        lines.append("No stylesheet rules match this element.")
+    } else {
+        lines.append("Rules that match, in cascade order:")
+        for entry in matched {
+            let body = entry.declarations.keys.sorted()
+                .map { $0 + ": " + (entry.declarations[$0] ?? "") }
+                .joined(separator: "; ")
+            lines.append("  Rule #\(entry.order): " + body)
+        }
+    }
+    return lines.joined(separator: "\n")
 }
 
 // MARK: - Parse
@@ -6499,28 +6836,35 @@ func tbStampSticky(_ target: NSMutableAttributedString,
 
 // MARK: - Font helpers
 
-func tbFontSizeValue(_ raw: String, relativeTo base: CGFloat) -> CGFloat? {
+func tbFontSizeValue(_ raw: String, relativeTo base: CGFloat,
+                     scaled: Bool = false) -> CGFloat? {
+    // The reader's text size (0.35), when the
+    // caller asks for it: absolute sizes and
+    // the named sizes scale; relative sizes
+    // (larger, smaller, em, %) ride their
+    // base, which is itself already scaled.
+    let factor: CGFloat = scaled ? TBSettings.textScale : 1
     let v = raw.trimmingCharacters(in: .whitespaces).lowercased()
     switch v {
-    case "xx-small": return 9
-    case "x-small": return 10
-    case "small": return 12
-    case "medium": return 14
-    case "large": return 18
-    case "x-large": return 24
-    case "xx-large": return 32
+    case "xx-small": return 9 * factor
+    case "x-small": return 10 * factor
+    case "small": return 12 * factor
+    case "medium": return 14 * factor
+    case "large": return 18 * factor
+    case "x-large": return 24 * factor
+    case "xx-large": return 32 * factor
     case "larger": return base * 1.2
     case "smaller": return base / 1.2
     default: break
     }
     if v.hasSuffix("rem"), let d = Double(String(v.dropLast(3))) {
-        return CGFloat(14 * d)
+        return CGFloat(14 * d) * factor
     }
     if v.hasSuffix("px"), let d = Double(String(v.dropLast(2))) {
-        return CGFloat(d)
+        return CGFloat(d) * factor
     }
     if v.hasSuffix("pt"), let d = Double(String(v.dropLast(2))) {
-        return CGFloat(d)
+        return CGFloat(d) * factor
     }
     if v.hasSuffix("em"), let d = Double(String(v.dropLast(2))) {
         return base * CGFloat(d)
@@ -6528,7 +6872,7 @@ func tbFontSizeValue(_ raw: String, relativeTo base: CGFloat) -> CGFloat? {
     if v.hasSuffix("%"), let d = Double(String(v.dropLast(1))) {
         return base * CGFloat(d) / 100
     }
-    if let d = Double(v) { return CGFloat(d) }
+    if let d = Double(v) { return CGFloat(d) * factor }
     return nil
 }
 
@@ -6605,7 +6949,7 @@ func tbFontApplying(_ decls: [String: String], to font: NSFont) -> NSFont {
             f = fm.convert(f, toNotHaveTrait: .smallCapsFontMask)
         }
     }
-    if let fs = decls["font-size"], let size = tbFontSizeValue(fs, relativeTo: f.pointSize) {
+    if let fs = decls["font-size"], let size = tbFontSizeValue(fs, relativeTo: f.pointSize, scaled: true) {
         f = fm.convert(f, toSize: size)
     }
     return f
@@ -6801,15 +7145,22 @@ func tbStyle(for tag: String) -> String {
 }
 
 func tbFont(for style: String) -> NSFont {
+    // The reader's text size (0.35) scales the
+    // tag defaults, as it scales the sizes CSS
+    // declares absolutely (tbFontApplying);
+    // sizes CSS gives relative to a base (em,
+    // %, larger and smaller) ride their base,
+    // which is itself already scaled.
+    let scale = TBSettings.textScale
     switch style {
-    case "h1": return NSFont.boldSystemFont(ofSize: 26)
-    case "h2": return NSFont.boldSystemFont(ofSize: 21)
-    case "h3": return NSFont.boldSystemFont(ofSize: 17)
-    case "h4", "h5", "h6": return NSFont.boldSystemFont(ofSize: 15)
+    case "h1": return NSFont.boldSystemFont(ofSize: 26 * scale)
+    case "h2": return NSFont.boldSystemFont(ofSize: 21 * scale)
+    case "h3": return NSFont.boldSystemFont(ofSize: 17 * scale)
+    case "h4", "h5", "h6": return NSFont.boldSystemFont(ofSize: 15 * scale)
     case "quote":
-        return NSFont(name: "Georgia-Italic", size: 14) ?? NSFont.systemFont(ofSize: 14)
+        return NSFont(name: "Georgia-Italic", size: 14 * scale) ?? NSFont.systemFont(ofSize: 14 * scale)
     default:
-        return NSFont.systemFont(ofSize: 14)
+        return NSFont.systemFont(ofSize: 14 * scale)
     }
 }
 
@@ -8847,8 +9198,12 @@ final class TBRenderer {
             out.addAttribute(.link, value: absolute,
                              range: NSRange(location: linkStart,
                                             length: out.length - linkStart))
+            // The marker honors the reader's
+            // setting (0.35): with link numbers
+            // off, the block is simply its link.
             let marker = NSAttributedString(
-                string: " [\(links.count)]",
+                string: TBSettings.showLinkNumbers
+                    ? " [\(links.count)]" : "",
                 attributes: [.font: effFont, .link: absolute,
                              .foregroundColor: NSColor.linkColor,
                              .underlineStyle: NSUnderlineStyle.single.rawValue])
@@ -13254,7 +13609,9 @@ final class TBRenderer {
                 if linked.length > 0 {
                     linked.addAttributes(linkAttrs, range: NSRange(location: 0, length: linked.length))
                 }
-                linked.append(NSAttributedString(string: " [\(links.count)]", attributes: linkAttrs))
+                if TBSettings.showLinkNumbers {
+                    linked.append(NSAttributedString(string: " [\(links.count)]", attributes: linkAttrs))
+                }
                 result.append(linked)
             } else {
                 result.append(inner)
@@ -13440,6 +13797,11 @@ struct TBFirstPaint {
     // said to the console, and their errors — the
     // window shows them on the status line.
     let consoleLines: [String]
+    // Developer tools (0.35): the landed page
+    // itself, kept for the console and the
+    // Inspector — its tree, its scope, and (once
+    // the walk below has run) its renderer.
+    let session: TBPageSession
 }
 
 // Render a page in two stages: onFirstPaint is called
@@ -13457,6 +13819,42 @@ func tbRenderPage(html: String, base: String,
                                           visited: visited,
                                           mediaWidth: mediaWidth,
                                           onFirstPaint: onFirstPaint)
+}
+
+// The JavaScript console's repaint (0.35):
+// walk the landed page's kept tree again after
+// console code changed it, and hand the window
+// a fresh paint of the same page — no fetch,
+// no re-parse, no second run of the page's
+// scripts; the scope the console worked in is
+// the scope that stays. Arrivals work as they
+// do for a load: the walked page now, the
+// finished page when its pictures have landed.
+func tbRepaintPage(session: TBPageSession,
+                   visited: Set<String> = [],
+                   mediaWidth: CGFloat? = nil,
+                   onFirstPaint: (TBFirstPaint) -> Void) async -> TBFirstPaint {
+    let renderer = TBRenderer(base: session.base)
+    renderer.visitedURLs = visited
+    renderer.mediaWidth = mediaWidth
+    let body = await renderer.renderFirstPaint(root: session.root)
+    session.renderer = renderer
+    let title = session.shownTitle
+    let paint = TBFirstPaint(
+        title: title.isEmpty ? session.base : title,
+        body: body,
+        pageBackground: renderer.pageBackground,
+        columnWidth: renderer.columnTextWidth(root: session.root),
+        forms: renderer.forms,
+        fields: renderer.fields,
+        landedURL: session.base,
+        layoutEvents: renderer.layoutEvents,
+        arrivalsPending: renderer.hasPendingArrivals,
+        consoleLines: [],
+        session: session)
+    await MainActor.run { onFirstPaint(paint) }
+    await renderer.finishArrivals()
+    return paint
 }
 
 private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
@@ -13480,13 +13878,14 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
     // has been followed, before the walk — so the
     // words they write are the words that paint,
     // and a title they set is the title shown.
-    let js = await tbRunScripts(root: tree, base: base,
-                                initialTitle: title)
+    let (js, session) = await tbRunScripts(root: tree, base: base,
+                                           initialTitle: title)
     if let override = js.titleOverride { title = override }
     let renderer = TBRenderer(base: base)
     renderer.visitedURLs = visited
     renderer.mediaWidth = mediaWidth
     let body = await renderer.renderFirstPaint(root: tree)
+    session.renderer = renderer
     // A script-only send-on (a search engine's click
     // bounce, say) renders as a black void. When the walk
     // found no words at all, offer the destinations the
@@ -13518,7 +13917,8 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
                 title: title.isEmpty ? "This page needs JavaScript" : title,
                 body: notice, pageBackground: nil, columnWidth: nil,
                 forms: [], fields: [], landedURL: base, layoutEvents: [],
-                arrivalsPending: false, consoleLines: js.consoleLines)
+                arrivalsPending: false, consoleLines: js.consoleLines,
+                session: session)
             await MainActor.run { onFirstPaint(paint) }
             return paint
         }
@@ -13533,7 +13933,7 @@ private func tbRenderFollowingRefresh(html: String, base: String, depth: Int,
         landedURL: base,
         layoutEvents: renderer.layoutEvents,
         arrivalsPending: renderer.hasPendingArrivals,
-        consoleLines: js.consoleLines)
+        consoleLines: js.consoleLines, session: session)
     // The page goes to the window now, on the main
     // actor; the arrivals fetch on behind it.
     await MainActor.run { onFirstPaint(paint) }

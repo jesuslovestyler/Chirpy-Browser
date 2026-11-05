@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.34.0 (Swift)
+//  Chirpy Browser — prototype 0.35.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.34.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, progress bar, parallel loading"
+    @Published var statusLine = "Chirpy Engine 0.35.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, progress bar, parallel loading"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -64,7 +64,12 @@ final class BrowserModel: ObservableObject {
     var viewTextWidth: CGFloat? = nil
 
     init() {
-        load("chirpy://home", push: false)
+        // Settings (0.35): a launch opens the
+        // reader's homepage, or Chirpy Home when
+        // none is named.
+        let start = TBSettings.startAddress
+        addressText = start
+        load(start, push: false)
     }
 
     func normalize(_ raw: String) -> String {
@@ -119,7 +124,7 @@ final class BrowserModel: ObservableObject {
 
     func go() { load(addressText) }
     func reload() { if !currentURL.isEmpty { load(currentURL, push: false) } }
-    func goHome() { load("chirpy://home") }
+    func goHome() { load(TBSettings.startAddress) }
 
     // The cache (0.32): the reader can empty the
     // disk cache whenever they wish. The word goes
@@ -134,6 +139,231 @@ final class BrowserModel: ObservableObject {
         } else {
             statusLine = "Cache cleared — it was already empty"
         }
+    }
+
+    // Developer tools (0.35): the console drawer
+    // and the Inspector. Entries are the landed
+    // page's own words — console lines, script
+    // errors, alerts, Shield refusals — plus
+    // what the reader does at the JavaScript
+    // console: their input, its echoes, and its
+    // results. They belong to the landed page;
+    // a new load starts a new console.
+    @Published var consoleEntries: [TBConsoleEntry] = []
+    @Published var consoleOpen = false
+    @Published var consoleFace: TBConsoleFace = .console
+    @Published var unseenConsoleCount = 0
+    // An alert the page raised, held under the
+    // bar until the reader dismisses it. The
+    // status line's tail hid alerts entirely
+    // (0.33/0.34); an alert now stands where it
+    // cannot be missed.
+    @Published var alertBanner: String? = nil
+    @Published var replText = ""
+    // The landed page, kept whole for the tools:
+    // its tree for the Inspector, its scope for
+    // the JavaScript console.
+    var pageSession: TBPageSession? = nil
+    @Published var settingsOpen = false
+    // The Inspector: the landed page's tree as
+    // flat, indented rows, and the chosen row's
+    // resolved-style report.
+    @Published var inspectorRows: [TBInspectorRow] = []
+    @Published var inspectorSelected: ObjectIdentifier? = nil
+    @Published var inspectorStyleText = ""
+
+    // Settings mirrors (0.35): the sheet's
+    // controls bind here; applying writes the
+    // reader's defaults, which the engine reads.
+    @Published var homepageText: String = TBSettings.homepage
+    @Published var cacheCapMB: Int = TBSettings.cacheCapMB
+    @Published var textSizePercent: Int = TBSettings.textSizePercent
+    @Published var showLinkNumbers: Bool = TBSettings.showLinkNumbers
+    @Published var cacheSizeText = ""
+
+    // Sort engine lines into console entries
+    // (TBConsoleEntry.classify knows the
+    // prefixes) and hold them in order.
+    func addConsoleLines(_ lines: [String]) {
+        guard !lines.isEmpty else { return }
+        var added = 0
+        for line in lines {
+            let entry = TBConsoleEntry.classify(line)
+            consoleEntries.append(entry)
+            added += 1
+            if entry.kind == .alert { alertBanner = entry.text }
+        }
+        trimConsole()
+        if !consoleOpen { unseenConsoleCount += added }
+    }
+
+    private func trimConsole() {
+        if consoleEntries.count > 500 {
+            consoleEntries.removeFirst(consoleEntries.count - 500)
+        }
+    }
+
+    func toggleConsole() {
+        consoleOpen.toggle()
+        if consoleOpen {
+            unseenConsoleCount = 0
+            if consoleFace == .inspector { refreshInspector() }
+        }
+    }
+
+    func showConsoleFace(_ face: TBConsoleFace) {
+        consoleFace = face
+        if face == .inspector { refreshInspector() }
+    }
+
+    func clearConsole() { consoleEntries = [] }
+
+    // The JavaScript console: run the reader's
+    // words in the landed page's scope, through
+    // the engine's own interpreter. The input
+    // and its outcome join the console; if the
+    // page's face changed underneath, the page
+    // is walked again from its kept tree.
+    func runRepl() {
+        let source = replText.trimmingCharacters(in: .whitespacesAndNewlines)
+        replText = ""
+        guard !source.isEmpty else { return }
+        consoleEntries.append(TBConsoleEntry(kind: .input, text: source))
+        let outcome = tbConsoleEval(session: pageSession, source: source)
+        addConsoleLines(outcome.newLogs)
+        if let error = outcome.errorText {
+            consoleEntries.append(TBConsoleEntry(kind: .error, text: error))
+        } else if let value = outcome.valueText {
+            consoleEntries.append(TBConsoleEntry(kind: .result, text: value))
+        }
+        trimConsole()
+        if outcome.pageChanged, let session = pageSession {
+            repaintFromConsole(session: session)
+        }
+        if consoleFace == .inspector { refreshInspector() }
+    }
+
+    // After console code changes the kept page,
+    // walk its tree again and install the fresh
+    // paint the way a load installs its own:
+    // first paint now, the finished page when
+    // its arrivals land.
+    private func repaintFromConsole(session: TBPageSession) {
+        loadGeneration += 1
+        let generation = loadGeneration
+        pageArrivalsPending = false
+        Task {
+            let paint = await tbRepaintPage(
+                session: session, visited: sessionVisited,
+                mediaWidth: viewTextWidth) { first in
+                guard generation == self.loadGeneration else { return }
+                self.pageTitle = first.title
+                self.pageText = first.body
+                self.pageBackground = first.pageBackground
+                self.columnTextWidth = first.columnWidth
+                self.pageForms = first.forms
+                self.pageFields = first.fields
+                self.pageLayoutEvents = first.layoutEvents
+                self.pageArrivalsPending = first.arrivalsPending
+                self.pageID += 1
+            }
+            if generation == self.loadGeneration, paint.arrivalsPending {
+                self.pageArrivalsPending = false
+            }
+        }
+    }
+
+    // The Inspector's rows: the landed page's
+    // elements and its words that say something,
+    // flattened with their depths. Fifteen
+    // hundred rows is the cap — past it the
+    // tree is simply larger than the drawer.
+    func refreshInspector() {
+        inspectorRows = []
+        guard let session = pageSession else {
+            inspectorStyleText = ""
+            return
+        }
+        var rows: [TBInspectorRow] = []
+        func visit(_ node: TBNode, _ depth: Int) {
+            for child in node.children {
+                if rows.count >= 1500 { return }
+                if child.tag == "#text" {
+                    let text = child.text
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if text.isEmpty { continue }
+                    rows.append(TBInspectorRow(node: child, depth: depth))
+                } else {
+                    rows.append(TBInspectorRow(node: child, depth: depth))
+                    visit(child, depth + 1)
+                }
+            }
+        }
+        visit(session.root, 0)
+        inspectorRows = rows
+        if let selected = inspectorSelected,
+           let row = rows.first(where: { $0.id == selected }) {
+            inspectorStyleText = tbInspectorReport(session: session,
+                                                   node: row.node)
+        }
+    }
+
+    func selectInspectorRow(_ row: TBInspectorRow) {
+        inspectorSelected = row.id
+        if let session = pageSession {
+            inspectorStyleText = tbInspectorReport(session: session,
+                                                   node: row.node)
+        }
+    }
+
+    // Settings: open the sheet on fresh mirrors
+    // of the reader's defaults.
+    func openSettings() {
+        homepageText = TBSettings.homepage
+        cacheCapMB = TBSettings.cacheCapMB
+        textSizePercent = TBSettings.textSizePercent
+        showLinkNumbers = TBSettings.showLinkNumbers
+        refreshCacheSizeText()
+        settingsOpen = true
+    }
+
+    func applyHomepage() {
+        TBSettings.homepage = homepageText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        homepageText = TBSettings.homepage
+    }
+
+    func useBuiltInHome() {
+        homepageText = ""
+        applyHomepage()
+    }
+
+    func applyCacheCap(_ mb: Int) {
+        cacheCapMB = mb
+        TBSettings.cacheCapMB = mb
+        refreshCacheSizeText()
+    }
+
+    // Text size and link numbers repaint the
+    // world, so the page the reader is looking
+    // at is loaded again under the new word.
+    func applyTextSize(_ percent: Int) {
+        textSizePercent = percent
+        TBSettings.textSizePercent = percent
+        if !currentURL.isEmpty { reload() }
+    }
+
+    func applyLinkNumbers(_ on: Bool) {
+        showLinkNumbers = on
+        TBSettings.showLinkNumbers = on
+        if !currentURL.isEmpty { reload() }
+    }
+
+    func refreshCacheSizeText() {
+        let bytes = tbCacheSizeBytes()
+        cacheSizeText = bytes > 0
+            ? String(format: "%.1f MB on disk", Double(bytes) / 1_048_576)
+            : "empty"
     }
 
     func goBack() {
@@ -155,6 +385,16 @@ final class BrowserModel: ObservableObject {
             forwardStack.removeAll()
         }
         statusLine = "Loading \(target) …"
+        // Developer tools (0.35): a new page
+        // starts a new console; the last page's
+        // session and its words are let go.
+        consoleEntries = []
+        pageSession = nil
+        alertBanner = nil
+        unseenConsoleCount = 0
+        inspectorRows = []
+        inspectorSelected = nil
+        inspectorStyleText = ""
         // Load progress (0.18): a new load supersedes any
         // in flight — stop its fetch, and let the generation
         // checks below silence its late arrival, so it can
@@ -195,7 +435,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.34.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, progress bar, parallel loading"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.35.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, the console, the inspector, settings, the white canvas, progress bar, parallel loading"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -219,6 +459,15 @@ final class BrowserModel: ObservableObject {
                     self.pageFields = first.fields
                     self.pageLayoutEvents = first.layoutEvents
                     self.pageArrivalsPending = first.arrivalsPending
+                    // Developer tools (0.35): keep the
+                    // landed page for the console and
+                    // the Inspector, and give the
+                    // console its words.
+                    self.pageSession = first.session
+                    self.addConsoleLines(first.consoleLines)
+                    if self.consoleOpen && self.consoleFace == .inspector {
+                        self.refreshInspector()
+                    }
                     // JavaScript (0.33): what the
                     // page's scripts said to the
                     // console rides the status line,
@@ -239,7 +488,7 @@ final class BrowserModel: ObservableObject {
                     if let e = first.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.34.0 (Swift)"
+                            + "  ·  Chirpy Engine 0.35.0 (Swift)"
                     }
                     self.statusLine = first.arrivalsPending
                         ? status + consoleNote
@@ -263,7 +512,7 @@ final class BrowserModel: ObservableObject {
                     if let e = paint.consoleLines.first(where: {
                         $0.hasPrefix("Script error:") }) {
                         status = "\(finalURL)  ·  \(e)"
-                            + "  ·  Chirpy Engine 0.34.0 (Swift)"
+                            + "  ·  Chirpy Engine 0.35.0 (Swift)"
                     }
                     self.statusLine = status
                         + (paint.consoleLines.isEmpty ? ""
@@ -342,7 +591,13 @@ struct PageTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
-        textView.backgroundColor = model.pageBackground ?? NSColor.textBackgroundColor
+        // The canvas (0.35): the page's own background
+        // wins when it gives one; when it gives none,
+        // the page is laid on white, as a real browser
+        // lays it — not on the system's text background,
+        // which follows the Mac's dark appearance and
+        // left plain pages black-on-near-black.
+        textView.backgroundColor = model.pageBackground ?? NSColor.white
         if context.coordinator.lastPageID != model.pageID {
             context.coordinator.lastPageID = model.pageID
             context.coordinator.clearFormViews()
@@ -5285,6 +5540,39 @@ struct ContentView: View {
                 // one press empties the disk cache.
                 Button("Clear cache") { model.clearCache() }
                     .help("Empty the disk cache of fetched pages and pictures")
+                // Developer tools (0.35): the console
+                // drawer — a page's errors, alerts and
+                // console words, a JavaScript console
+                // that runs in the page's own scope,
+                // and the Inspector. The button counts
+                // what arrived while it was shut.
+                Button {
+                    model.toggleConsole()
+                } label: {
+                    if model.unseenConsoleCount > 0 {
+                        Text("Console (\(model.unseenConsoleCount))")
+                    } else {
+                        Text("Console")
+                    }
+                }
+                .help("The console: page errors, alerts and console words, the JavaScript console, and the Inspector")
+                Button("Settings") { model.openSettings() }
+                    .help("Homepage, cache cap, text size, link numbers — the Shield is shown there as fact and has no switch")
+            }
+            // An alert the page raised (0.35): a
+            // banner under the bar until dismissed —
+            // an alert cannot be missed here, the
+            // way it could at the status line's end.
+            if let alert = model.alertBanner {
+                HStack(spacing: 8) {
+                    Text("Alert from the page: \(alert)")
+                        .font(.callout)
+                    Spacer()
+                    Button("Dismiss") { model.alertBanner = nil }
+                }
+                .padding(8)
+                .background(Color.yellow.opacity(0.25))
+                .cornerRadius(6)
             }
             // Load progress (0.18): a thin bar directly
             // under the address bar while a page is coming
@@ -5309,6 +5597,15 @@ struct ContentView: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            // The console drawer (0.35): Console and
+            // Inspector faces under the page.
+            if model.consoleOpen {
+                ConsolePanelView(model: model)
+                    .frame(height: 240)
+            }
+        }
+        .sheet(isPresented: $model.settingsOpen) {
+            SettingsSheetView(model: model)
         }
         .padding(10)
         .frame(minWidth: 720, minHeight: 520)
@@ -5333,5 +5630,304 @@ struct ContentView: View {
             }
             return true
         }
+    }
+}
+
+
+// One line in the console drawer (0.35).
+struct TBConsoleEntry: Identifiable {
+    enum Kind {
+        case console, error, alert, shield, note, input, result
+        var label: String {
+            switch self {
+            case .console: return "Console"
+            case .error: return "Error"
+            case .alert: return "Alert"
+            case .shield: return "Shield"
+            case .note: return "Note"
+            case .input: return ">"
+            case .result: return "Result"
+            }
+        }
+    }
+    let id = UUID()
+    let kind: Kind
+    let text: String
+
+    // The engine's console lines arrive as one
+    // string apiece, the grave kinds prefixed;
+    // sort them here, where they become entries.
+    static func classify(_ line: String) -> TBConsoleEntry {
+        if line.hasPrefix("Script error: ") {
+            return TBConsoleEntry(
+                kind: .error,
+                text: String(line.dropFirst("Script error: ".count)))
+        }
+        if line.hasPrefix("Alert: ") {
+            return TBConsoleEntry(
+                kind: .alert,
+                text: String(line.dropFirst("Alert: ".count)))
+        }
+        if line.hasPrefix("Shield: ") {
+            return TBConsoleEntry(
+                kind: .shield,
+                text: String(line.dropFirst("Shield: ".count)))
+        }
+        if line.hasPrefix("Script did not load: ") {
+            return TBConsoleEntry(kind: .error, text: line)
+        }
+        return TBConsoleEntry(kind: .console, text: line)
+    }
+}
+
+// The console drawer's two faces (0.35).
+enum TBConsoleFace {
+    case console, inspector
+}
+
+// One row of the Inspector's tree (0.35): the
+// node itself, its depth, and the words it
+// wears in the drawer — its tag and identity
+// for an element, a snippet of its words for a
+// text node.
+struct TBInspectorRow: Identifiable {
+    let node: TBNode
+    let depth: Int
+    var id: ObjectIdentifier { ObjectIdentifier(node) }
+    var label: String {
+        if node.tag == "#text" {
+            let text = node.text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let snippet = text.count > 48
+                ? String(text.prefix(48)) + "…" : text
+            return "\"" + snippet + "\""
+        }
+        var label = "<" + node.tag
+        if let id = node.attrs["id"], !id.isEmpty {
+            label += " id=\"" + id + "\""
+        }
+        if let cls = node.attrs["class"], !cls.isEmpty {
+            label += " class=\"" + cls + "\""
+        }
+        label += ">"
+        return label
+    }
+}
+
+// The console drawer (0.35): two faces. The
+// Console face holds the landed page's entries
+// and, at its foot, the JavaScript console —
+// what is typed there runs in the page's own
+// scope through the engine's interpreter. The
+// Inspector face holds the page's tree and,
+// beside the chosen element, the declarations
+// our engine resolved for it and the rules
+// that matched.
+struct ConsolePanelView: View {
+    @ObservedObject var model: BrowserModel
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Picker("", selection: Binding(
+                    get: { model.consoleFace },
+                    set: { model.showConsoleFace($0) })) {
+                    Text("Console").tag(TBConsoleFace.console)
+                    Text("Inspector").tag(TBConsoleFace.inspector)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
+                Spacer()
+                if model.consoleFace == .console {
+                    Button("Clear") { model.clearConsole() }
+                }
+                Button("Close") { model.toggleConsole() }
+            }
+            if model.consoleFace == .console {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(model.consoleEntries) { entry in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text(entry.kind.label)
+                                        .font(.caption.monospaced())
+                                        .foregroundColor(color(for: entry.kind))
+                                        .frame(width: 52, alignment: .leading)
+                                    Text(entry.text)
+                                        .font(.system(.body, design: .monospaced))
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity,
+                                               alignment: .leading)
+                                }
+                                .id(entry.id)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                    }
+                    .onChange(of: model.consoleEntries.count) { _ in
+                        if let last = model.consoleEntries.last {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+                HStack(spacing: 8) {
+                    Text(">")
+                        .font(.system(.body, design: .monospaced))
+                    TextField("JavaScript — runs in the landed page's scope",
+                              text: $model.replText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .onSubmit { model.runRepl() }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(model.inspectorRows) { row in
+                                Text(row.label)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                    .padding(.leading, CGFloat(row.depth) * 14)
+                                    .frame(maxWidth: .infinity,
+                                           alignment: .leading)
+                                    .background(
+                                        model.inspectorSelected == row.id
+                                            ? Color.accentColor.opacity(0.25)
+                                            : Color.clear)
+                                    .onTapGesture {
+                                        model.selectInspectorRow(row)
+                                    }
+                            }
+                        }
+                        .padding(6)
+                    }
+                    .frame(maxWidth: .infinity)
+                    Divider()
+                    ScrollView {
+                        Text(model.inspectorStyleText.isEmpty
+                             ? "Choose an element on the left to see the style our engine resolved for it."
+                             : model.inspectorStyleText)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(6)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .padding(8)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(6)
+    }
+
+    private func color(for kind: TBConsoleEntry.Kind) -> Color {
+        switch kind {
+        case .error: return .red
+        case .alert: return .orange
+        case .shield: return .purple
+        case .input, .console, .note: return .secondary
+        case .result: return .primary
+        }
+    }
+}
+
+// The Settings sheet (0.35): the reader's
+// homepage, the cache's cap, the page text
+// size, and whether links carry their numbers
+// — each one written to the reader's defaults
+// and honored by the engine. The Shield stands
+// here as fact, with its lists' sizes, and
+// never as a switch: there is deliberately
+// nothing here that can turn it off.
+struct SettingsSheetView: View {
+    @ObservedObject var model: BrowserModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Settings")
+                .font(.headline)
+            Group {
+                Text("Homepage")
+                    .font(.subheadline).bold()
+                TextField("Homepage address", text: $model.homepageText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { model.applyHomepage() }
+                HStack {
+                    Button("Save homepage") { model.applyHomepage() }
+                    Button("Use Chirpy Home") { model.useBuiltInHome() }
+                }
+                Text("The Home button and a fresh launch open this address. Empty means Chirpy Home, the built-in page.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Divider()
+            Group {
+                Text("Cache")
+                    .font(.subheadline).bold()
+                Picker("", selection: Binding(
+                    get: { model.cacheCapMB },
+                    set: { model.applyCacheCap($0) })) {
+                    Text("50 MB").tag(50)
+                    Text("100 MB").tag(100)
+                    Text("200 MB").tag(200)
+                    Text("500 MB").tag(500)
+                }
+                .pickerStyle(.segmented)
+                HStack {
+                    Text("On disk now: \(model.cacheSizeText)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("Clear cache") {
+                        model.clearCache()
+                        model.refreshCacheSizeText()
+                    }
+                }
+            }
+            Divider()
+            Group {
+                Text("Page text size")
+                    .font(.subheadline).bold()
+                Picker("", selection: Binding(
+                    get: { model.textSizePercent },
+                    set: { model.applyTextSize($0) })) {
+                    Text("90%").tag(90)
+                    Text("100%").tag(100)
+                    Text("110%").tag(110)
+                    Text("125%").tag(125)
+                }
+                .pickerStyle(.segmented)
+                Text("Scales the text pages are laid out with — the tag defaults and the sizes CSS declares. The page reloads so you can see it.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Divider()
+            Group {
+                Toggle("Number the links ([1], [2], …)", isOn: Binding(
+                    get: { model.showLinkNumbers },
+                    set: { model.applyLinkNumbers($0) }))
+                Text("Chirpy stamps each link with its number, so the order of a page's doors is plain. Turn this off and links stand on their own words.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Divider()
+            Group {
+                Text("The Shield")
+                    .font(.subheadline).bold()
+                Text("Ad and tracker domains on its list: \(TBShieldAdDomains.count). Family-filter domains: \(TBShieldFamilyDomains.count). The Shield is always on — there is no switch for it here, deliberately: protection that can be switched off by accident is not protection.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Done") { model.settingsOpen = false }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 460)
     }
 }

@@ -7,6 +7,118 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.35.0 — DEVELOPER TOOLS AND SETTINGS
+------------------------------------------------------
+You asked for what every browser has: a
+console for the page — its HTML, its CSS,
+its JavaScript — and a place to debug our
+own engine with. And you could not see the
+alert, even full-screen. Both are answered
+here.
+
+* A console drawer. Press Console on the
+  bar and a drawer opens under the page, with
+  two faces. The Console face holds what a
+  page said — its console words, its script
+  errors, its alerts, the Shield's refusals —
+  as readable entries, in the order they
+  came. They no longer live only at the
+  status line's tail, which the window cut
+  out of sight; that is where the alert was
+  hiding. An alert also raises a banner
+  under the bar until you dismiss it. While
+  the drawer is shut, the Console button
+  counts what arrived.
+
+* A JavaScript console. At the foot of the
+  Console face, a field: type JavaScript,
+  press Return, and it runs through our own
+  interpreter in the landed page's own scope.
+  The page is kept after it paints — its
+  tree, its scope, the renderer that painted
+  it — so a function a fetched helper left
+  behind is still there to call, an element's
+  text can be read, and a write repaints the
+  page from its kept tree so you see the
+  change. Debugging our engine, with our
+  engine's own machinery.
+
+* The Inspector. The drawer's second face:
+  the landed page's tree — tags, ids,
+  classes, its text — and, for the element
+  you choose, the declarations our engine
+  itself resolved for it, plus the rules
+  that matched it, in cascade order. When a
+  page looks wrong in Chirpy, this is where
+  the reason stands. Read-only for now;
+  editing a style live is the next step.
+
+* A white page. A page that paints no
+  background of its own is now laid on
+  white, as real browsers lay it. The canvas
+  used to fall back to the Mac's system
+  text background, which follows the dark
+  appearance — so js-test, a plain unstyled
+  page, showed black words on a near-black
+  ground. A page that paints its own
+  background, in its styles or in its own
+  color-scheme rules, keeps it untouched:
+  the hub and hub-shape-test look exactly
+  as they did.
+
+* Settings. A Settings button opens a
+  sheet: the homepage the Home button and a
+  launch open; the cache's cap (50, 100, 200
+  or 500 MB); the page text size (90% to
+  125%), which reloads the page so you can
+  see it; and whether links carry their [n]
+  numbers. Every one is honored by the
+  engine and kept between launches. The
+  Shield stands there as fact — its lists'
+  sizes — and never as a switch: there is no
+  setting that turns it off, on purpose.
+
+* The mark. The singing cardinal in stained
+  glass — your choice — now stands on Chirpy
+  Home and at the head of the repo's README.
+  The app icon is the named remainder: the
+  project carries no asset catalog yet, so
+  the icon set is cut and waiting in the
+  workspace's assets, not yet wired in.
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.35.0 (Swift)"
+and name "the console, the inspector,
+settings" among the features. Open
+js-test.html (helper beside it) and press
+Console: promises 10 and 11's evidence is
+all there, readable at any window size —
+two Console entries ("the console is alive"
+and "second line with two arguments"), one
+Alert entry, and the alert banner under
+the bar. And look at js-test itself: the
+plain unstyled page now reads
+black-on-white like paper, all eleven
+promises still filled — where on 0.34 it
+stood black on near-black. In the
+JavaScript field type 1+1
+and press Return: the answer is 2. Type
+document.getElementById("p1").textContent
+and Return: the promise-1 sentence. Set
+it — document.getElementById("p1")
+.textContent = "Changed from the console."
+— and watch the page change. Type
+chirpyHelperNumber: 42, the helper's gift,
+still in scope. Then open the Inspector,
+tap the element <p id="p1">, and read the
+style our engine resolved for it and the
+rules that matched. Settings drill: give
+the homepage an address, save it, and
+press Home; change the text size and
+watch a page grow; turn the link numbers
+off and watch the [n]s vanish — and back
+on again just as easily.
+
 WHAT'S NEW IN 0.34.0 — THE REPAIR
 ------------------------------------------------------
 Three failures from your own drill on Nov 5,

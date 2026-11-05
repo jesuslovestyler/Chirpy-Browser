@@ -1,5 +1,7 @@
 # Chirpy Browser
 
+![Chirpy Browser's mark — a singing cardinal in stained glass](assets/chirpy-logo.webp)
+
 A web browser with **its own engine**, written from scratch.
 
 Chirpy Browser fetches pages itself, parses the HTML with its own
@@ -101,11 +103,28 @@ Honest limits, for now:
   conditions), `document.getElementById` with `textContent`
   and `innerHTML` read and written — a write lands as
   text, as script-written markup is not parsed yet — and
-  console output on the status line. Not in the slice,
+  console output in the console drawer (0.35). Not in the slice,
   named plainly: event handlers, timers, `fetch` and
   XMLHttpRequest, script-driven navigation, and the wider
   DOM beyond `getElementById`. JavaScript-heavy sites
   will still look bare where they lean on those.
+- Developer tools (0.35): a console drawer holds each
+  page's console lines, script errors and alerts as
+  readable entries, and an alert also raises a banner
+  under the bar. A JavaScript console runs what you
+  type through the engine's own interpreter in the
+  landed page's own scope — the page is kept after it
+  paints, and a write from the console repaints it.
+  An Inspector shows the page's element tree and, for
+  a chosen element, the declarations the engine itself
+  resolved for it and the rules that matched, in
+  cascade order; it is read-only for now — live style
+  editing is the named next step. Settings — the
+  homepage, the cache's cap, the page text size, and
+  whether links carry their `[n]` numbers — are
+  honored by the engine. The Shield is displayed in
+  Settings as fact (its lists' sizes) and has no off
+  switch anywhere, deliberately.
 - A form control that lands inside a grid, flex, float
   or multicolumn seat stands there as its labelled
   placeholder rather than a live field — the seats are
