@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.34 — Hub Shape Test</title>
+<style>
+  body { font-family: sans-serif; background: #141a12; color: #f5efdd; margin: 24px; }
+  h1 { font-size: 26px; }
+  h2 { font-size: 20px; margin-top: 40px; }
+  p.note { color: #c9c2ab; max-width: 700px; line-height: 1.5; }
+  /* The hub's own card shape (its .link rule, values unchanged):
+     a grid link built of three spans. */
+  .card { display: grid; grid-template-columns: minmax(0, 0.75fr) minmax(180px, 1fr) auto;
+           gap: 22px; align-items: center; min-height: 84px; padding: 17px 13px 17px 4px;
+           text-decoration: none; color: #f5efdd; border-bottom: 1px solid #3a4633; }
+  .cname { font-weight: 650; }
+  .cdesc { color: #c9c2ab; }
+  .carrow { display: grid; place-items: center; width: 33px; height: 33px;
+             background: #2c3a26; border-radius: 50%; }
+  .links { border-top: 1px solid #3a4633; }
+  /* The hub's own section shape (its .section rule, values unchanged). */
+  .section { display: grid; grid-template-columns: minmax(145px, 0.33fr) minmax(0, 1fr);
+              gap: 34px; align-items: start; }
+</style>
+</head>
+<body>
+<h1>Chirpy Engine 0.34 — hub shape test</h1>
+<p class="note">Three promises, each shaped like a piece of jesuslovestyler.com
+that failed in the Nov 5 screenshots. Read what each promise says, then look at
+the shape itself — the shape is the verdict.</p>
+
+<h2>1 — one card, three tracks</h2>
+<p class="note">Promise: the card below stands in three tracks on one row —
+its name in the first, its description in the second, its arrow disc in the
+third. Before the repair, the name and description flowed together in the
+first track and the arrow stood in the second.</p>
+<a class="card" href="#one"><span class="cname">Being With Jesus</span><span class="cdesc">A quiet page for writing a private prayer.</span><span class="carrow">→</span></a>
+
+<h2>2 — forty cards, and the fortieth still a card</h2>
+<p class="note">Promise: every card below keeps the same three-track shape —
+above all the last ones. Before the repair, a page-wide grid cap of sixty
+containers ran out partway down a directory (the hub declares two hundred),
+and the cards past it flowed un-gridded.</p>
+<a class="card" href="#card1"><span class="cname">Card 01</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card2"><span class="cname">Card 02</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card3"><span class="cname">Card 03</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card4"><span class="cname">Card 04</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card5"><span class="cname">Card 05</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card6"><span class="cname">Card 06</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card7"><span class="cname">Card 07</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card8"><span class="cname">Card 08</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card9"><span class="cname">Card 09</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card10"><span class="cname">Card 10</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card11"><span class="cname">Card 11</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card12"><span class="cname">Card 12</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card13"><span class="cname">Card 13</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card14"><span class="cname">Card 14</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card15"><span class="cname">Card 15</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card16"><span class="cname">Card 16</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card17"><span class="cname">Card 17</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card18"><span class="cname">Card 18</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card19"><span class="cname">Card 19</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card20"><span class="cname">Card 20</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card21"><span class="cname">Card 21</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card22"><span class="cname">Card 22</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card23"><span class="cname">Card 23</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card24"><span class="cname">Card 24</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card25"><span class="cname">Card 25</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card26"><span class="cname">Card 26</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card27"><span class="cname">Card 27</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card28"><span class="cname">Card 28</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card29"><span class="cname">Card 29</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card30"><span class="cname">Card 30</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card31"><span class="cname">Card 31</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card32"><span class="cname">Card 32</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card33"><span class="cname">Card 33</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card34"><span class="cname">Card 34</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card35"><span class="cname">Card 35</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card36"><span class="cname">Card 36</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card37"><span class="cname">Card 37</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card38"><span class="cname">Card 38</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card39"><span class="cname">Card 39</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+<a class="card" href="#card40"><span class="cname">Card 40</span><span class="cdesc">A directory card in the hub's own shape — name, description, arrow.</span><span class="carrow">→</span></a>
+
+<h2>3 — a section in two columns</h2>
+<p class="note">Promise: the section heading stands at the left in its
+narrower column, and its cards stand at the right in theirs — the hub's
+Faith section shape.</p>
+<div class="section">
+  <div>
+    <h2 style="margin-top: 0;">Faith</h2>
+    <p class="note">37 pages</p>
+  </div>
+  <div class="links">
+    <a class="card" href="#a"><span class="cname">Being With Jesus</span><span class="cdesc">A quiet page for writing a private prayer.</span><span class="carrow">→</span></a>
+    <a class="card" href="#b"><span class="cname">The Gospel</span><span class="cdesc">Who Jesus is and how to receive eternal life.</span><span class="carrow">→</span></a>
+  </div>
+</div>
+</body>
+</html>

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Chirpy Browser — prototype 0.33.0 (Swift)
+//  Chirpy Browser — prototype 0.34.0 (Swift)
 //
 //  The browser window: back / forward / reload / home, an address
 //  bar, and a page view painted by our own Chirpy Engine.
@@ -16,7 +16,7 @@ final class BrowserModel: ObservableObject {
     @Published var pageText = NSAttributedString(string: "")
     @Published var addressText = "chirpy://home"
     @Published var pageTitle = "Chirpy Browser"
-    @Published var statusLine = "Chirpy Engine 0.33.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, progress bar, parallel loading"
+    @Published var statusLine = "Chirpy Engine 0.34.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, progress bar, parallel loading"
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var pageID = 0
@@ -195,7 +195,7 @@ final class BrowserModel: ObservableObject {
                 if generation == self.loadGeneration {
                     self.loadProgress = nil
                 }
-                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.33.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, progress bar, parallel loading"
+                let settledStatus = "\(finalURL)  ·  Chirpy Engine 0.34.0 (Swift) — first paint, positioned layout, floats, columns, flexbox, grid, sticky, focus, active, styled forms, color-mix, font shorthand, media queries, hover, shadows, transforms, transitions, animations, the shield, the banding repair, the completions, live selects and text areas, the cache, JavaScript's first slice, the repair, progress bar, parallel loading"
                 // First paint (0.20): the render hands the
                 // walked page over the moment it exists —
                 // the install below runs then (the render
@@ -222,16 +222,29 @@ final class BrowserModel: ObservableObject {
                     // JavaScript (0.33): what the
                     // page's scripts said to the
                     // console rides the status line,
-                    // marked as what it is.
+                    // marked as what it is. The
+                    // repair (0.34): a script error
+                    // leads the line, right after the
+                    // address — in 0.33 the note rode
+                    // at the very end of this long
+                    // line, and a page whose scripts
+                    // had died hid the fact past the
+                    // window's edge.
                     let consoleNote = first.consoleLines.isEmpty
                         ? ""
                         : "  ·  Console: "
                             + first.consoleLines
                                 .joined(separator: " | ")
+                    var status = settledStatus
+                    if let e = first.consoleLines.first(where: {
+                        $0.hasPrefix("Script error:") }) {
+                        status = "\(finalURL)  ·  \(e)"
+                            + "  ·  Chirpy Engine 0.34.0 (Swift)"
+                    }
                     self.statusLine = first.arrivalsPending
-                        ? settledStatus + consoleNote
+                        ? status + consoleNote
                             + "  ·  pictures still arriving"
-                        : settledStatus + consoleNote
+                        : status + consoleNote
                     self.isLoading = false
                     self.loadProgress = nil
                     self.activeFetch = nil
@@ -244,7 +257,15 @@ final class BrowserModel: ObservableObject {
                 // here may touch the window).
                 if generation == self.loadGeneration, paint.arrivalsPending {
                     self.pageArrivalsPending = false
-                    self.statusLine = settledStatus
+                    // The repair (0.34): as at first
+                    // paint, a script error leads.
+                    var status = settledStatus
+                    if let e = paint.consoleLines.first(where: {
+                        $0.hasPrefix("Script error:") }) {
+                        status = "\(finalURL)  ·  \(e)"
+                            + "  ·  Chirpy Engine 0.34.0 (Swift)"
+                    }
+                    self.statusLine = status
                         + (paint.consoleLines.isEmpty ? ""
                            : "  ·  Console: "
                                + paint.consoleLines

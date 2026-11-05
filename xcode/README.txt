@@ -7,6 +7,76 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.34.0 — THE REPAIR
+------------------------------------------------------
+Three failures from your own drill on Nov 5,
+each traced to its mechanism before it was
+touched, and fixed at the root.
+
+* JavaScript runs now. On Nov 5 the js-test
+  page landed with all eleven promises still
+  reading "waiting for the script" — the whole
+  script block had died on one line. The cause,
+  proven against the engine's own code: the
+  parser's "return" asked the wrong question —
+  it took a returned value to begin only when
+  the next token was punctuation, so a return
+  whose value begins with a name, a number or
+  a string was read as a bare return. Worst
+  hit: a returned closure, "return function()
+  {...}" — the orphaned function was parsed as
+  a new statement and died, and because a
+  script is parsed whole before any of it
+  runs, that one line silenced every promise.
+  The question is asked rightly now, and the
+  whole drill passes against this code.
+  And a script error no longer hides: it leads
+  the status line, right after the address,
+  instead of riding at the end of it where the
+  window's edge cut it out of sight.
+
+* Cards keep their shape. A grid container's
+  inline children — the spans a card is built
+  of — were gathered into one text item, so
+  the hub's directory cards collapsed: name
+  and description flowing together in the
+  first track, the arrow standing in the
+  second, the third track empty. Now every
+  child of a grid container stands as its own
+  item, as CSS says. And the grid cap is
+  twelve hundred containers, not sixty: the
+  hub alone declares two hundred grids (every
+  card, every arrow disc), and past the old
+  cap the rest of the page silently flowed
+  un-gridded.
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.34.0 (Swift)" and
+name "the repair" among the features. Open
+js-test.html again (helper beside it): every
+promise should now be filled by the page's
+own scripts, the title over the page should
+read "JavaScript Lives Here — Set by Script",
+and the status line should carry its Console
+notes. Then open hub-shape-test.html — three
+promises in the hub's own shapes: a directory
+card whose name, description and arrow stand
+in their own tracks; forty cards in a row's
+worth of directory, the fortieth still a
+proper card; and a section whose heading and
+links keep their two columns. Then look at
+jesuslovestyler.com itself: the Faith cards
+should stand in three tracks, near and far
+down the directory alike. Two honest notes:
+a control inside a grid or flex seat still
+stands as its labelled placeholder (the
+hub's search field is one — the seats are
+paint, not text), and two things from your
+screenshots are still unproven and unfixed,
+named in the repo README: the wide empty
+stretch under the hub's search bar, and the
+share row's buttons standing full-width.
+
 WHAT'S NEW IN 0.33.0 — JAVASCRIPT, THE FIRST SLICE
 ------------------------------------------------------
 The mountain's first camp, called back onto the

@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.33.0 (Swift)
+//  Chirpy Browser — engine 0.34.0 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -534,10 +534,46 @@
 //      style access. The drill page js-test.html
 //      promises each piece above, one numbered
 //      promise at a time.
+//    * The repair (0.34): three field failures
+//      from the hub and the drill, each traced
+//      to its mechanism before it was touched.
+//      (1) JavaScript's parser read "return"
+//      wrongly: its value test demanded the next
+//      token be punctuation, so a return whose
+//      value begins with a name, number or
+//      string — above all a returned closure,
+//      "return function() {...}" — was read as a
+//      bare return, and the orphaned value was
+//      parsed as a new statement and died. One
+//      such line in a page's single script block
+//      silenced every script on the page (the
+//      js-test drill's eleven promises, proven
+//      against this code off-device). The test
+//      now asks only for ";" or "}" ahead. And a
+//      script error now leads the window's
+//      status line, right after the address,
+//      instead of riding at the end of it where
+//      the window's edge cut it out of sight.
+//      (2) Grid items: every child of a grid
+//      container now stands as its own item,
+//      inline children included, as CSS says —
+//      before, inline children were gathered
+//      into the text run around them, and a
+//      card built of spans collapsed into one
+//      item with its tracks unfilled (the hub's
+//      directory cards). (3) The grid cap is
+//      twelve hundred containers, not sixty —
+//      the hub alone declares two hundred, and
+//      past the old cap the rest of a page
+//      silently flowed un-gridded.
 //  Not yet: JavaScript beyond the first slice
 //  above — event handlers, timers, fetch and
-//  XMLHttpRequest, and the wider DOM. And the
-//  outs named in the README.
+//  XMLHttpRequest, and the wider DOM. Live
+//  form controls inside grid, flex, float and
+//  column seats still stand as labelled
+//  placeholders there — the seats are paint,
+//  not text (the hub's search field is one).
+//  And the outs named in the README.
 //
 
 import Foundation
@@ -1453,7 +1489,7 @@ func tbGETWithCache(urlString: String, accept: String,
         break
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue(accept, forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1525,7 +1561,7 @@ func tbFetch(urlString: String) async throws -> (finalURL: String, html: String)
         return (got.finalURL, html)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1551,7 +1587,7 @@ func tbFetchPOST(urlString: String, body: String) async throws -> (finalURL: Str
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
-    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1655,7 +1691,7 @@ final class TBProgressFetcher: NSObject, URLSessionDataDelegate {
                              forHTTPHeaderField: "Content-Type")
             request.httpBody = postBody.data(using: .utf8)
         }
-        request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
+        request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
                          forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -1816,7 +1852,7 @@ func tbFetchData(urlString: String, pageURLString: String? = nil) async -> Data?
         return got.data
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("image/*,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3076,7 +3112,7 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
             ?? String(decoding: got.data, as: UTF8.self)
     }
     var request = URLRequest(url: url)
-    request.setValue("ChirpyBrowser/0.33.0 (Swift; our own engine)",
+    request.setValue("ChirpyBrowser/0.34.0 (Swift; our own engine)",
                      forHTTPHeaderField: "User-Agent")
     request.setValue("text/css,*/*", forHTTPHeaderField: "Accept")
     request.setValue("1", forHTTPHeaderField: "Sec-GPC")
@@ -3783,8 +3819,24 @@ struct TBJSParser {
             case "return":
                 advance()
                 var value: TBJSExpr? = nil
-                if peekPunct() != ";" && peekPunct() != "}"
-                    && peekPunct() != nil {
+                // A value follows unless the next
+                // token is ";" or "}" (or the end of
+                // the script, checked inside). The
+                // 0.33 code also required the next
+                // token to be punctuation — but a
+                // value can begin with a name, a
+                // number or a string, whose next
+                // token is not punctuation at all,
+                // so "return x", "return 5" and above
+                // all "return function() {...}" were
+                // read as bare returns. The closure's
+                // orphaned "function() {...}" was then
+                // parsed as a statement and died on
+                // "expected a name" — one bad line
+                // silencing a page's whole script
+                // (the js-test drill, Nov 5, 2026;
+                // the repair is 0.34).
+                if peekPunct() != ";" && peekPunct() != "}" {
                     if case .eof = peek() {
                         // No value; the return ends the script.
                     } else {
@@ -8614,8 +8666,13 @@ final class TBRenderer {
         // columns'; and like flex it is taken inside
         // painted boxes too, the seat carrying its spec
         // as an attribute where no event is recorded.
+        // The cap (0.34): twelve hundred containers,
+        // not sixty — the hub's directory alone
+        // declares two hundred grids (every card and
+        // every arrow disc among them), and past the
+        // old cap the rest silently flowed un-gridded.
         var tookGrid = false
-        if !tookFlex, node.tag != "document", gridCount < 60,
+        if !tookFlex, node.tag != "document", gridCount < 1200,
            let gridSpec = gridContainerSpec(own, fontSize: effFont.pointSize,
                                             metrics: metrics) {
             gridSpec.boxShadows = boxShadowSet(
@@ -11928,15 +11985,21 @@ final class TBRenderer {
                 }
                 continue
             }
-            let display = (childOwn["display"] ?? "").lowercased()
-            let forceBlock = ["block", "flex", "grid", "list-item",
-                              "table", "flow-root"].contains(display)
-            let forceInline = ["inline", "inline-block", "inline-flex",
-                               "inline-grid", "contents"].contains(display)
-            let isItem = child.tag == "img"
-                || ["input", "select", "textarea", "button"].contains(child.tag)
-                || forceBlock
-                || (TBBlockTags.contains(child.tag) && !forceInline)
+            // Grid items (0.34): in CSS, EVERY child
+            // of a grid container stands as its own
+            // item, inline children included — they
+            // are blockified — and only loose text
+            // gathers into an anonymous item. The
+            // 0.25 code gathered inline children into
+            // the text run around them, so a card
+            // built of spans (the hub's directory
+            // cards: a name span, a description span,
+            // an arrow span under one display:grid
+            // link) collapsed into a single item —
+            // name and description flowing together
+            // in the first track, the arrow standing
+            // in the second, the third track empty.
+            let isItem = true
             if isItem {
                 flushRun()
                 let childFont = tbFontApplying(childOwn, to: font)

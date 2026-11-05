@@ -106,6 +106,16 @@ Honest limits, for now:
   XMLHttpRequest, script-driven navigation, and the wider
   DOM beyond `getElementById`. JavaScript-heavy sites
   will still look bare where they lean on those.
+- A form control that lands inside a grid, flex, float
+  or multicolumn seat stands there as its labelled
+  placeholder rather than a live field — the seats are
+  paint, not text. (The hub's search field is one.)
+- Two blemishes from the hub's page (Nov 5, 2026) are
+  seen and admitted, with their causes not yet proven,
+  so they stand unfixed rather than guessed at: a wide
+  empty stretch under the hub's search bar, and the
+  banner's share buttons standing full-width instead
+  of side by side.
 - One window, one page at a time — no tabs yet.
 - A known blemish, admitted rather than guessed at: on
   lists with alternating row backgrounds, the odd rows'
