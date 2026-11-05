@@ -7,6 +7,160 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+WHAT'S NEW IN 0.28.0 — THE SHIELD
+------------------------------------------------------
+The release Tyler asked for on Nov 4, the evening
+the CSS program finished: ad blocking built in,
+privacy by default, and pornography and gambling
+refused — not as a filter bolted onto the renderer,
+but as a gate in the fetcher itself. Every request
+this engine issues is built by one of its fetch
+helpers, and each helper now asks the Shield first,
+before any network I/O. The lists and the gate live
+in ChirpyEngine.swift (TBShieldAdDomains,
+TBShieldFamilyDomains, tbShieldCategory).
+
+* The matching rule — one rule for both lists. A
+  request is refused when its host IS a listed
+  domain or sits under one: www.bet365.com is held
+  by bet365.com, and tpc.googlesyndication.com by
+  googlesyndication.com. Domains are stored bare —
+  no scheme, no wildcards — and the lists are
+  plainly commented Swift data, so they grow a line
+  at a time.
+
+* The ad shield — 299 domains, counted in the file.
+  The majors: Google's ad and measurement hosts,
+  the big exchanges and native networks, the
+  analytics and session-replay services, the
+  affiliate and attribution trackers, the pop and
+  push networks, and the social platforms'
+  advertising hosts. (The social sites themselves
+  are NOT listed — facebook.com opens; facebook.net,
+  its tracking arm, does not.) A refused picture
+  or stylesheet simply never arrives — the picture
+  keeps its label, the page renders without the
+  sheet, the fallbacks a failed fetch has always
+  taken. A refused page load becomes the block
+  page, named for the ad shield. HONEST SCOPE:
+  this is a curated starter shield, not the
+  EasyList corpus — an ad served from a domain on
+  nobody's list yet still loads.
+
+* The family filter — 297 domains, counted in the
+  file: 141 adult, 156 gambling. The major tube
+  and studio and cam sites, the creator platforms,
+  the drawn and written adult shelves; the big
+  sportsbooks and casinos, offshore and crypto
+  books, poker rooms, sweepstakes casinos, racing
+  and lottery and bingo operators. It guards the
+  side doors as well as the front: a subresource
+  addressed to a listed host is refused exactly
+  like an ad. ON BY DEFAULT, AND WITH NO OFF
+  SWITCH — that is deliberate, and it is Tyler's
+  standing word: the home page promises the filter
+  is "on on purpose, not buried in a settings
+  page," and a promise with a switch is a
+  different promise. Extending the list is easy
+  (a line of data); weakening it is not offered.
+
+* The block page — generated inside the engine,
+  like the home page, in Chirpy's voice. It names
+  what stopped the load (the family filter, or the
+  ad shield for advertising and tracking), shows
+  the refused address, and says plainly that
+  nothing was fetched — the refusal happened on
+  this Mac before any request left it. There is no
+  shaming in it. The way back is honest: this
+  engine has no script to walk history from inside
+  a page, so the page points to the window's own
+  Back button, and links home; the verse it
+  carries is the home page's own — Psalm 118:105,
+  Douay-Rheims.
+
+* Redirects — the navigation fetcher (the window's
+  normal road, the one with the progress bar) asks
+  the Shield about redirect targets too: a redirect
+  to a listed host is not followed, and the block
+  page answers instead. NAMED LIMIT: the plain
+  helpers (the fallback page fetch, pictures,
+  stylesheets) ride the shared session, whose
+  redirects the system follows without asking the
+  engine — so a redirect chain that starts on an
+  allowed host and lands on a listed one through
+  those doors is not re-checked. The address you
+  ask for always is, on every door, and a meta
+  refresh's target is asked for by name, so it is
+  checked too.
+
+* Privacy defaults, at the same layer.
+  Cookies: the shared session's ordinary storage
+  used to ride on EVERY request, third-party
+  pictures included. Now a subresource request
+  that crosses to another site — a picture, a
+  background photo, a stylesheet whose host's
+  registrable domain differs from the page's —
+  carries no cookies in either direction: stored
+  cookies are not sent with it, and any the reply
+  tries to set are not kept. Same-site subresources
+  are untouched, and page loads keep the ordinary
+  behavior — a site you visit can still hold its
+  own cookies; what ended is the trailing.
+  Referer: Chirpy has never sent one on a page
+  load and still does not. A cross-site subresource
+  now sends the asking page's ORIGIN only —
+  scheme and host, never its path; same-site
+  subresources send none, as before.
+  "Same site" is judged by registrable domain —
+  the host's last two labels — an approximation,
+  named: two-part public suffixes (co.uk and kin)
+  read as the domain, which can only make two of
+  their subdomains count as one site.
+  Signals: every request the engine builds — page,
+  post, picture, sheet — now carries Sec-GPC: 1
+  and DNT: 1, the honest "do not sell or track"
+  flags. They cost nothing and bind nobody; they
+  are said out loud anyway.
+  Telemetry: there is none, and none was added.
+  Chirpy sends nothing about its reader anywhere,
+  ever. Stated, not changed — there was nothing
+  to change.
+
+* The home page's promises were reworded to stay
+  exactly true of this build: "No ads" became what
+  is actually kept — an ad shield against the big
+  ad and tracking networks, and a family filter
+  against the big adult and gambling sites, both
+  on on purpose. The verse is untouched.
+
+The drill (shield-test.html, in this folder):
+1. Build and run. The status line reads "Chirpy
+   Engine 0.28.0 (Swift)" and names the shield.
+2. Drag shield-test.html onto the window. Six
+   promises: (1) a picture addressed to a listed
+   ad domain must NOT appear — its fallback label
+   stands; (2) a picture from unlisted
+   upload.wikimedia.org loads normally; (3) TAP —
+   the bet365 link lands on the block page under
+   the FAMILY FILTER's name; (4) TAP — the adult
+   link, the family filter again; (5) TAP — the
+   doubleclick link, the block page under the AD
+   SHIELD's name; (6) a picture addressed to a
+   listed adult domain must NOT appear.
+3. The home page: its verse, its doors, and its
+   promises — now kept by machinery, not just
+   words.
+4. One real site with heavy advertising: the page
+   itself intact, its listed-network ads missing.
+What this drill cannot prove, said plainly: the
+cookie and Referer dressing leaves no mark a page
+can show. The page-load signals can be seen at an
+echo page (https://httpbin.org/headers shows
+Sec-GPC and DNT among the headers Chirpy sent);
+the subresource dressing would need a reflecting
+image endpoint to witness, and is described here,
+not claimed as proven.
+
 WHAT'S NEW IN 0.27.0 — PAINT & MOTION
 ------------------------------------------------------
 The fourth and final stage of the remaining-CSS

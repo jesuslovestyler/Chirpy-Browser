@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Chirpy 0.28 — The Shield Test Page</title>
+<style>
+  body { font-family: sans-serif; }
+  .note { background-color: #eef3e0; padding: 10px; }
+  .warn { background-color: #fbe9e7; padding: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Chirpy 0.28 — The Shield</h1>
+
+<p>This page makes six promises. Three of them you can judge with
+your eyes where you stand; three ask for your tap, and each tap
+should land you on the block page — read its wording before you
+come back, because each one names a different keeper: the family
+filter twice, the ad shield once.</p>
+
+<p class="note">Nothing on this page is fetched from the sites it
+names in promises 1 and 6 — that is the promise. If either picture
+below actually appears, the Shield has failed, loudly.</p>
+
+<h2>1 — An advertisement picture that must never arrive</h2>
+
+<p>The picture below is addressed to an ad network on the Shield's
+list (a subdomain of googlesyndication.com). It must NOT load.
+What you should see is the picture's fallback label —
+[Image: Advertisement picture from a listed ad domain] — the same
+seat a failed picture has always taken.</p>
+
+<p><img src="https://tpc.googlesyndication.com/simgad/shieldtest"
+        alt="Advertisement picture from a listed ad domain"
+        width="468" height="60"></p>
+
+<h2>2 — An honest picture from an unlisted host</h2>
+
+<p>This picture lives at upload.wikimedia.org, which is on no
+list. It should load and show normally — the Shield refuses the
+listed, not the web.</p>
+
+<p><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Wikipedia-logo-v2.svg/200px-Wikipedia-logo-v2.svg.png"
+        alt="The Wikipedia globe, from an unlisted host"
+        width="200" height="200"></p>
+
+<h2>3 — Tap check: a gambling site</h2>
+
+<p class="warn">Tap this link. You must land on the block page,
+and the block page must name the FAMILY FILTER as what stopped
+it: <a href="https://www.bet365.com/">bet365.com — a listed
+gambling site</a>.</p>
+
+<h2>4 — Tap check: an adult site</h2>
+
+<p class="warn">Tap this link. You must land on the block page,
+again under the FAMILY FILTER's name:
+<a href="https://www.pornhub.com/">pornhub.com — a listed adult
+site</a>.</p>
+
+<h2>5 — Tap check: an ad network, visited on purpose</h2>
+
+<p class="warn">Tap this link. You must land on the block page,
+and this time it must name the AD SHIELD — advertising and
+tracking:
+<a href="https://www.doubleclick.net/">doubleclick.net — a
+listed ad network</a>.</p>
+
+<h2>6 — A picture from a listed adult domain</h2>
+
+<p>The family filter guards the side doors too, not just the
+front: a picture addressed to a listed adult domain must NOT
+load, and its fallback label is what you should see —
+[Image: Picture addressed to a listed adult domain].</p>
+
+<p><img src="https://www.xvideos.com/images/shield-test-picture.png"
+        alt="Picture addressed to a listed adult domain"
+        width="320" height="180"></p>
+
+<h2>What this page cannot prove</h2>
+
+<p>Two pieces of the Shield leave no mark a page can show. The
+cookie and Referer dressing — cross-site subresources carrying no
+cookies, and only the asking page's origin as a Referer — can
+only be seen by a service that echoes back what it received; the
+README describes how to look. And the lists themselves are
+curated starters: a tracker or a den on nobody's list yet will
+still load, and the README says that plainly too.</p>
+
+</body>
+</html>
