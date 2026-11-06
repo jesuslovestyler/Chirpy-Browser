@@ -7,6 +7,128 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.41 — JAVASCRIPT'S FIFTH STAGE: STATICS,
+GETTERS AND SETTERS
+------------------------------------------------------
+Since 0.39 the reader has refused class
+statics, getters and setters by name
+whenever their shape appeared. This
+stage removes the refusal by building
+the real thing: a class now has two
+faces — the instances it builds, and
+its own — and both faces can carry
+doors as well as rooms.
+
+Static methods live on the class's own
+face. They are called through the
+class's name, and `this` inside one is
+the class it was called through. They
+are inherited down the class road the
+way instance methods always have been:
+a subclass calls its parent's static,
+and called through the subclass it
+answers with the subclass standing as
+`this` — one method, two answers, each
+honest about who was asked.
+
+Static fields (static x = a value) are
+reckoned once, where the class is
+declared, in the order they were
+written — each in a room whose `this`
+is the class itself, so a later field
+may read an earlier one through the
+class's name or through `this`. A
+field with no written value stands
+present under its name, as undefined.
+Reads inherit like the methods do; a
+write through a subclass lands on the
+subclass alone, shadowing what the
+parent holds under the name (a field,
+or a static method's standing), and
+the parent's own face keeps its
+answer.
+
+Getters and setters stand in a class
+body as pairs under one name — a get,
+a set, or one of each, merged as they
+are written. An instance pair stands
+on the class road the way a method
+does: a read of the name calls the
+getter with the instance as `this`;
+a write calls the setter with the
+value in hand, and the name never
+becomes a plain field. An inherited
+pair fires for a child instance with
+the child standing as `this`. A
+static pair guards the class face the
+same way, with the class the read or
+write came through standing in the
+doorway. And `super` reads climb the
+matching road: a parent's getter
+fires through super.name, and inside
+a static member super reads the
+parent's statics.
+
+The answers at the edges follow the
+interpreter's standing conventions,
+named here plainly: a read of a name
+whose pair holds no getter answers
+undefined where the pair stands; a
+write to a name whose pair holds no
+setter is silently set aside — the
+sloppy-mode answer — and a field
+already standing on an instance under
+a name is simply renewed, door or no
+door. Class.name and Class.length keep
+their built-in answers. A getter's or
+a setter's own throw travels as
+catchably as any throw — a member read
+or write now raises through the
+evaluator rather than swallowing (a
+destructuring pattern opens through a
+getter like any other read). One
+name, one standing: a later member on
+the same face replaces an earlier one
+outright, except that a get and a set
+merge into one pair. A method merely
+named get, set or static — the name,
+then its parameters — is still an
+ordinary method.
+
+What is still refused, by name, at
+the reading: static initialization
+blocks (static { ... }); private
+fields and methods (#name); getters
+and setters in object literals — a
+plain object here is a dictionary of
+values, and has no doors to stand in
+it; instance fields; computed member
+names in a class body; a static
+constructor; an accessor named
+'constructor'; a static member named
+'prototype', 'name' or 'length'; a
+getter carrying a parameter; and a
+setter without exactly one.
+
+THE DRILL.
+Build and run — the status line should
+read "Chirpy Engine 0.41 (Swift)". Open
+js-suite.html and walk the whole suite:
+the count is 49 promises now — js-test's
+11, js2-test's 8, js3-test's 10,
+js4-test's 10, and the new
+js5-test.html's 10, each PASS in page
+and console. Then shield-test.html and
+its six promises. The pages by eye must
+look exactly as they did at 0.40 —
+this stage touched only the
+interpreter's classes, no paint. Then
+the standing evidence: Wikipedia's
+Jesus article in its ~7.5-second
+family, and google.com/search?q=jesus —
+whatever its console says names the
+next stage.
+
 0.40 — JAVASCRIPT'S FOURTH STAGE: DESTRUCTURING
 ------------------------------------------------------
 JavaScript learns to open a value into

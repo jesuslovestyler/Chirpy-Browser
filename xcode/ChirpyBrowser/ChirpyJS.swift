@@ -1,6 +1,6 @@
 //
 //  ChirpyJS.swift
-//  Chirpy Browser — engine 0.40 (Swift)
+//  Chirpy Browser — engine 0.41 (Swift)
 //
 //  Chirpy's JavaScript interpreter: its values
 //  and rooms, its lexer, its parser, its
@@ -126,6 +126,13 @@ struct TBJSFunc {
     // the building hands it out: `super(...)`
     // may stand only in one of these.
     var isClassConstructor = false
+    // JavaScript fifth stage (0.41): a static
+    // member — a method or an accessor living
+    // on the class's own face — marked when
+    // the class face hands it out, so the
+    // frame it lays down knows `super` inside
+    // it climbs the static road.
+    var isStatic = false
 }
 
 // JavaScript third stage (0.39): a class as
@@ -141,10 +148,40 @@ final class TBJSClassBox {
     var parent: TBJSClassBox?
     var ctor: TBJSFunc? = nil
     var methods: [String: TBJSFunc] = [:]
+    // JavaScript fifth stage (0.41): what
+    // lives on the class's own face — its
+    // static methods, its static fields (the
+    // values themselves, reckoned once when
+    // the class is declared), and the
+    // accessor pairs of both faces:
+    // `accessors` serve the instances,
+    // `staticAccessors` the class itself.
+    // Reads and writes walk the class road
+    // for all of them, the way they always
+    // have for methods.
+    var statics: [String: TBJSFunc] = [:]
+    var staticFields: [String: TBJSValue] = [:]
+    var accessors: [String: TBJSAccessor] = [:]
+    var staticAccessors: [String: TBJSAccessor] = [:]
     init(name: String, parent: TBJSClassBox? = nil) {
         self.name = name
         self.parent = parent
     }
+}
+
+// JavaScript fifth stage (0.41): one
+// accessor pair under a single name — a
+// getter a read calls, a setter a write
+// calls, either standing alone if its
+// partner was never written. A read of a
+// name whose pair holds no getter answers
+// undefined; a write to a name whose pair
+// holds no setter is silently set aside —
+// the sloppy-mode answers, named in the
+// README.
+struct TBJSAccessor {
+    var getter: TBJSFunc? = nil
+    var setter: TBJSFunc? = nil
 }
 
 // A class instance's own fields, held by
@@ -175,6 +212,72 @@ struct TBJSParam {
     var pattern: TBJSPattern? = nil
     var `default`: TBJSExpr? = nil
     var isRest = false
+}
+
+// JavaScript fifth stage (0.41): an
+// accessor as the parser gathers it — a
+// getter's shape, a setter's shape, or one
+// of each merged under a single name.
+struct TBJSAccessorParts {
+    var getter: ([TBJSParam], [TBJSStmt])? = nil
+    var setter: ([TBJSParam], [TBJSStmt])? = nil
+}
+
+// JavaScript fifth stage (0.41): a class
+// body as the parser gathers it — the
+// constructor and the instance methods, as
+// before, and now the class face's own
+// members: static methods, static fields
+// with the expressions that will reckon
+// them once when the class is declared,
+// and the accessor pairs of both faces.
+struct TBJSClassParts {
+    var ctor: ([TBJSParam], [TBJSStmt])? = nil
+    var methods: [(String, [TBJSParam], [TBJSStmt])] = []
+    var statics: [(String, [TBJSParam], [TBJSStmt])] = []
+    var staticFields: [(String, TBJSExpr?)] = []
+    var accessors: [(String, TBJSAccessorParts)] = []
+    var staticAccessors: [(String, TBJSAccessorParts)] = []
+}
+
+// One name, one standing on a class face
+// (0.41): when a member is written under a
+// name already standing on its face, the
+// earlier member is forgotten outright, as
+// the language has it — the one exception
+// is an accessor's two halves, which merge
+// instead (see tbJSMergeAccessor).
+func tbJSForgetClassMember(_ parts: inout TBJSClassParts,
+                           _ member: String,
+                           statics staticFace: Bool) {
+    if staticFace {
+        parts.statics.removeAll { $0.0 == member }
+        parts.staticFields.removeAll { $0.0 == member }
+        parts.staticAccessors.removeAll { $0.0 == member }
+    } else {
+        parts.methods.removeAll { $0.0 == member }
+        parts.accessors.removeAll { $0.0 == member }
+    }
+}
+
+// An accessor's halves merge under their
+// name (0.41): a get written after a set (or
+// the other way round) joins the pair
+// already standing, and a half rewritten
+// replaces its own half.
+func tbJSMergeAccessor(
+    _ list: inout [(String, TBJSAccessorParts)],
+    _ member: String, _ word: String,
+    _ shape: ([TBJSParam], [TBJSStmt])) {
+    var pair = list.first(where: { $0.0 == member })?.1
+        ?? TBJSAccessorParts()
+    if word == "get" {
+        pair.getter = shape
+    } else {
+        pair.setter = shape
+    }
+    list.removeAll { $0.0 == member }
+    list.append((member, pair))
 }
 
 // JavaScript fourth stage (0.40): a
@@ -475,13 +578,17 @@ final class TBJSContext {
     // class rooms the evaluator is standing in
     // — a method's or constructor's defining
     // class, whether the standing is a
-    // constructor's, and, for a constructor of
-    // a class that extends another, the fresh
-    // instance `super(...)` will build into,
-    // held here while the constructor's own
-    // `this` still reads unbound.
+    // constructor's, whether it is a static
+    // member's (0.41 — `super` inside one
+    // climbs the static road), and, for a
+    // constructor of a class that extends
+    // another, the fresh instance `super(...)`
+    // will build into, held here while the
+    // constructor's own `this` still reads
+    // unbound.
     let objectClass = TBJSClassBox(name: "Object")
     var classFrames: [(home: TBJSClassBox, isConstructor: Bool,
+                       isStatic: Bool,
                        pendingThis: TBJSValue?)] = []
     init() {
         globals.vars["document"] = .document
@@ -695,7 +802,28 @@ func tbJSHasProperty(_ base: TBJSValue, _ name: String,
         if name == "constructor" { return true }
         var cursor: TBJSClassBox? = box.klass
         while let current = cursor {
+            if current.accessors[name] != nil { return true }
             if current.methods[name] != nil { return true }
+            cursor = current.parent
+        }
+        return false
+    case .classDef(let box):
+        // JavaScript fifth stage (0.41): the
+        // class's own face — its name and its
+        // constructor's length, and whatever
+        // statics, static fields or static
+        // accessors stand anywhere on its
+        // road. (A static member cannot bear
+        // the names name or length here; the
+        // reader refuses them.)
+        if name == "name" || name == "length" { return true }
+        var cursor: TBJSClassBox? = box
+        while let current = cursor {
+            if current.statics[name] != nil
+                || current.staticFields[name] != nil
+                || current.staticAccessors[name] != nil {
+                return true
+            }
             cursor = current.parent
         }
         return false
@@ -716,7 +844,12 @@ func tbJSHasProperty(_ base: TBJSValue, _ name: String,
         }
         return false
     default:
-        if case .undefined = tbJSGetMember(base, name, ctx) {
+        // The shapes that reach this branch
+        // never carry an accessor (0.41), so
+        // this read cannot raise; the try? is
+        // only the compiler's due.
+        if case .undefined = (try? tbJSGetMember(base, name, ctx))
+            ?? .undefined {
             return false
         }
         return true
@@ -755,8 +888,15 @@ func tbJSResolveNavigation(_ value: TBJSValue, base: String) -> String? {
     return url.absoluteString
 }
 
+// A member read (0.33). JavaScript fifth
+// stage (0.41): a read may now be a call —
+// an accessor's getter standing on the road
+// is invoked where the read finds it — so
+// the read raises, like the evaluator it
+// serves, and a getter's own error travels
+// as catchably as any throw.
 func tbJSGetMember(_ base: TBJSValue, _ name: String,
-                   _ ctx: TBJSContext) -> TBJSValue {
+                   _ ctx: TBJSContext) throws -> TBJSValue {
     switch base {
     case .string(let s):
         if name == "length" { return .number(Double(s.count)) }
@@ -776,10 +916,25 @@ func tbJSGetMember(_ base: TBJSValue, _ name: String,
         // method is handed out as a copy
         // carrying the class it was found on,
         // so `super` inside it knows its room.
+        // JavaScript fifth stage (0.41): an
+        // accessor standing on the road is a
+        // door, not a value — the read calls
+        // its getter with this very instance,
+        // and a pair holding no getter answers
+        // undefined where it stands.
         if let field = box.fields[name] { return field }
         if name == "constructor" { return .classDef(box.klass) }
         var cursor: TBJSClassBox? = box.klass
         while let current = cursor {
+            if let pair = current.accessors[name] {
+                guard let stored = pair.getter else {
+                    return .undefined
+                }
+                var getter = stored
+                getter.classHome = current
+                return try tbJSCall(.function(getter), [],
+                                    this: base, ctx)
+            }
             if let stored = current.methods[name] {
                 var method = stored
                 method.classHome = current
@@ -790,14 +945,56 @@ func tbJSGetMember(_ base: TBJSValue, _ name: String,
         return .undefined
     case .classDef(let box):
         // A class's own face (0.39): its name,
-        // and its constructor's length. Static
-        // methods are not in this stage.
+        // and its constructor's length.
+        // JavaScript fifth stage (0.41): and
+        // now its statics. A read walks the
+        // class road the way an instance's read
+        // walks for methods: a static accessor
+        // is a door whose getter is called with
+        // the class this read came through (a
+        // subclass reading an inherited door
+        // stands in the doorway itself), a
+        // static field answers the value it
+        // was reckoned with, and a static
+        // method is handed out carrying the
+        // class it was found on, marked static
+        // so its frame knows which road its
+        // `super` climbs. The call itself binds
+        // `this` to the class the member was
+        // read through, as every member call
+        // here does — so a static called
+        // through a subclass answers with the
+        // subclass standing as `this`.
         switch name {
         case "name": return .string(box.name)
         case "length":
             return .number(Double(box.ctor?.params.count ?? 0))
-        default: return .undefined
+        default: break
         }
+        var cursor: TBJSClassBox? = box
+        while let current = cursor {
+            if let pair = current.staticAccessors[name] {
+                guard let stored = pair.getter else {
+                    return .undefined
+                }
+                var getter = stored
+                getter.classHome = current
+                getter.isStatic = true
+                return try tbJSCall(.function(getter), [],
+                                    this: base, ctx)
+            }
+            if let field = current.staticFields[name] {
+                return field
+            }
+            if let stored = current.statics[name] {
+                var method = stored
+                method.classHome = current
+                method.isStatic = true
+                return .function(method)
+            }
+            cursor = current.parent
+        }
+        return .undefined
     case .element(let node):
         switch name {
         case "textContent", "innerHTML":
@@ -872,8 +1069,12 @@ func tbJSGetMember(_ base: TBJSValue, _ name: String,
 // are values here, so a write makes a new one the
 // caller writes back); element and document
 // writes land in place and return the base.
+// JavaScript fifth stage (0.41): a write may
+// now be a call — an accessor's setter standing
+// on the road is invoked where the write finds
+// it — so the write raises, like the read.
 func tbJSSetMember(_ base: TBJSValue, _ name: String, _ value: TBJSValue,
-                   _ ctx: TBJSContext) -> TBJSValue {
+                   _ ctx: TBJSContext) throws -> TBJSValue {
     switch base {
     case .object(var obj):
         obj[name] = value
@@ -883,8 +1084,69 @@ func tbJSSetMember(_ base: TBJSValue, _ name: String, _ value: TBJSValue,
         // write to an instance lands in its
         // box, in place — every hand holding
         // the instance sees it, and the base
-        // rides back unchanged.
+        // rides back unchanged. JavaScript
+        // fifth stage (0.41): unless an
+        // accessor stands on the class road
+        // under this name — then the write is
+        // a call through the door: the setter
+        // is invoked with this very instance,
+        // and the name never becomes a plain
+        // field. A pair holding no setter
+        // swallows the write silently, the
+        // sloppy-mode answer. A field already
+        // standing under the name is the
+        // instance's own, and is simply
+        // renewed, door or no door.
+        if box.fields[name] != nil {
+            box.fields[name] = value
+            return base
+        }
+        var cursor: TBJSClassBox? = box.klass
+        while let current = cursor {
+            if let pair = current.accessors[name] {
+                if let stored = pair.setter {
+                    var setter = stored
+                    setter.classHome = current
+                    _ = try tbJSCall(.function(setter), [value],
+                                     this: base, ctx)
+                }
+                return base
+            }
+            cursor = current.parent
+        }
         box.fields[name] = value
+        return base
+    case .classDef(let box):
+        // JavaScript fifth stage (0.41): a
+        // write on a class's own face. A static
+        // accessor standing on the road under
+        // this name is a door, as it is for an
+        // instance — its setter is called with
+        // the class this write came through,
+        // and a pair holding no setter swallows
+        // the write silently. Otherwise the
+        // value lands as a static field on this
+        // very class: a write through a
+        // subclass shadows whatever the parent
+        // holds under the name (a field, or a
+        // static method's standing) on the
+        // subclass alone, and the parent's own
+        // face keeps its answer.
+        var cursor: TBJSClassBox? = box
+        while let current = cursor {
+            if let pair = current.staticAccessors[name] {
+                if let stored = pair.setter {
+                    var setter = stored
+                    setter.classHome = current
+                    setter.isStatic = true
+                    _ = try tbJSCall(.function(setter), [value],
+                                     this: base, ctx)
+                }
+                return base
+            }
+            cursor = current.parent
+        }
+        box.staticFields[name] = value
         return base
     case .array(var items):
         if name == "length" {
@@ -950,7 +1212,7 @@ func tbJSSetMember(_ base: TBJSValue, _ name: String, _ value: TBJSValue,
 }
 
 func tbJSGetIndex(_ base: TBJSValue, _ index: TBJSValue,
-                  _ ctx: TBJSContext) -> TBJSValue {
+                  _ ctx: TBJSContext) throws -> TBJSValue {
     switch base {
     case .array(let items):
         if case .number(let d) = index {
@@ -960,7 +1222,7 @@ func tbJSGetIndex(_ base: TBJSValue, _ index: TBJSValue,
             }
             return .undefined
         }
-        return tbJSGetMember(base, tbJSString(index), ctx)
+        return try tbJSGetMember(base, tbJSString(index), ctx)
     case .string(let s):
         if case .number(let d) = index {
             let i = Int(d)
@@ -970,17 +1232,17 @@ func tbJSGetIndex(_ base: TBJSValue, _ index: TBJSValue,
             }
             return .undefined
         }
-        return tbJSGetMember(base, tbJSString(index), ctx)
+        return try tbJSGetMember(base, tbJSString(index), ctx)
     case .object, .instance, .element, .document, .console, .window,
          .location, .regex:
-        return tbJSGetMember(base, tbJSString(index), ctx)
+        return try tbJSGetMember(base, tbJSString(index), ctx)
     default:
         return .undefined
     }
 }
 
 func tbJSSetIndex(_ base: TBJSValue, _ index: TBJSValue, _ value: TBJSValue,
-                  _ ctx: TBJSContext) -> TBJSValue {
+                  _ ctx: TBJSContext) throws -> TBJSValue {
     switch base {
     case .array(var items):
         if case .number(let d) = index {
@@ -992,9 +1254,9 @@ func tbJSSetIndex(_ base: TBJSValue, _ index: TBJSValue, _ value: TBJSValue,
             }
             return base
         }
-        return tbJSSetMember(base, tbJSString(index), value, ctx)
+        return try tbJSSetMember(base, tbJSString(index), value, ctx)
     case .object, .instance, .element, .document:
-        return tbJSSetMember(base, tbJSString(index), value, ctx)
+        return try tbJSSetMember(base, tbJSString(index), value, ctx)
     default:
         return base
     }
@@ -1500,6 +1762,17 @@ func tbJSLex(_ source: String) throws -> [TBJSToken] {
             i += 1
             continue
         }
+        if c == "#" {
+            // JavaScript fifth stage (0.41):
+            // outside a string or a pattern, a
+            // hash opens only one thing in the
+            // language — a private name — and
+            // private members are refused by
+            // name rather than as a stray mark.
+            throw TBJSFlow.error(
+                "private fields and methods (#name)"
+                + " are not in this stage")
+        }
         throw TBJSFlow.error("unexpected character '\(c)'")
     }
     tokens.append(.eof)
@@ -1608,13 +1881,13 @@ indirect enum TBJSStmt {
                       TBJSExpr, TBJSStmt)
     // JavaScript third stage (0.39): a class
     // declaration — its name, the name of the
-    // class it extends if it names one, its
-    // constructor's parameters and body if it
-    // declares one, and its methods, each a
-    // name with parameters and a body.
-    case classDecl(String, String?,
-                   ([TBJSParam], [TBJSStmt])?,
-                   [(String, [TBJSParam], [TBJSStmt])])
+    // class it extends if it names one, and
+    // its body as the parser gathered it.
+    // JavaScript fifth stage (0.41): the body
+    // now carries the class face's own
+    // members too — statics, static fields,
+    // and the accessor pairs of both faces.
+    case classDecl(String, String?, TBJSClassParts)
     case funcDecl(String, [TBJSParam], [TBJSStmt])
     case returnStmt(TBJSExpr?)
     case breakStmt
@@ -1971,10 +2244,14 @@ struct TBJSParser {
     // optional `extends` naming one other
     // class, and a body of methods — the one
     // named constructor, and the rest by name.
-    // Static methods, getters and setters are
-    // named plainly as not in this stage when
-    // their shape appears, rather than read as
-    // something they are not.
+    // JavaScript fifth stage (0.41): the body
+    // holds the class face's own members too —
+    // static methods, static fields, and
+    // accessor pairs (get/set) standing on
+    // either face. What this stage still does
+    // not hold is named where it stands:
+    // static initialization blocks, computed
+    // member names, and instance fields.
     mutating func parseClassDecl() throws -> TBJSStmt {
         advance()  // the word class itself
         let name = try expectIdent()
@@ -1983,43 +2260,170 @@ struct TBJSParser {
             parentName = try expectIdent()
         }
         try expectPunct("{")
-        var ctor: ([TBJSParam], [TBJSStmt])? = nil
-        var methods: [(String, [TBJSParam], [TBJSStmt])] = []
+        var parts = TBJSClassParts()
         while peekPunct() != "}" {
             if case .eof = peek() {
                 throw TBJSFlow.error("unterminated class body")
             }
             skipSemicolons()
             if peekPunct() == "}" { break }
+            if peekPunct() == "[" {
+                throw TBJSFlow.error(
+                    "computed member names in a class body"
+                    + " are not in this stage")
+            }
+            // A static initialization block —
+            // `static`, then the body's own
+            // brace — is named and refused.
+            if peekIdent() == "static",
+               case .punct("{") = tokens[min(pos + 1,
+                                             tokens.count - 1)] {
+                throw TBJSFlow.error(
+                    "static initialization blocks"
+                    + " are not in this stage")
+            }
+            var isStatic = false
+            // `static` is a modifier only when a
+            // member's name follows it; a method
+            // merely named static (its name, then
+            // its parameters) is an ordinary
+            // method, read as one below.
+            if peekIdent() == "static",
+               case .ident = tokens[min(pos + 1,
+                                        tokens.count - 1)] {
+                isStatic = true
+                advance()
+            }
+            if isStatic, peekPunct() == "[" {
+                throw TBJSFlow.error(
+                    "computed member names in a class body"
+                    + " are not in this stage")
+            }
+            // An accessor: get or set, then the
+            // member's name, then its parameters.
+            // A method merely named get or set
+            // (the name, then its parameters)
+            // falls through and is read as an
+            // ordinary method below.
             if let word = peekIdent(),
-               word == "static" || word == "get" || word == "set" {
-                // A modifier only when another
-                // name follows it; a method that
-                // merely bears one of these names
-                // (the name, then its parameters)
-                // is an ordinary method.
-                let ahead = tokens[min(pos + 1, tokens.count - 1)]
-                if case .ident = ahead {
+               word == "get" || word == "set",
+               case .ident = tokens[min(pos + 1,
+                                        tokens.count - 1)],
+               case .punct("(") = tokens[min(pos + 2,
+                                             tokens.count - 1)] {
+                advance()  // the word get or set
+                let memberName = try expectIdent()
+                if isStatic {
+                    if memberName == "constructor" {
+                        throw TBJSFlow.error(
+                            "a constructor cannot be static")
+                    }
+                    if memberName == "prototype"
+                        || memberName == "name"
+                        || memberName == "length" {
+                        throw TBJSFlow.error(
+                            "a static member cannot be named '"
+                            + memberName + "' in this stage")
+                    }
+                } else if memberName == "constructor" {
                     throw TBJSFlow.error(
-                        "class statics, getters and setters"
-                        + " are not in this stage")
+                        "an accessor cannot be named"
+                        + " 'constructor' in this stage")
                 }
+                let (params, body) = try parseFunctionTail()
+                if word == "get", !params.isEmpty {
+                    throw TBJSFlow.error(
+                        "a getter takes no parameters")
+                }
+                if word == "set", params.count != 1 {
+                    throw TBJSFlow.error(
+                        "a setter takes exactly one parameter")
+                }
+                let alreadyPaired = isStatic
+                    ? parts.staticAccessors.contains {
+                        $0.0 == memberName }
+                    : parts.accessors.contains {
+                        $0.0 == memberName }
+                if !alreadyPaired {
+                    tbJSForgetClassMember(&parts, memberName,
+                                          statics: isStatic)
+                }
+                if isStatic {
+                    tbJSMergeAccessor(&parts.staticAccessors,
+                                      memberName, word,
+                                      (params, body))
+                } else {
+                    tbJSMergeAccessor(&parts.accessors,
+                                      memberName, word,
+                                      (params, body))
+                }
+                skipSemicolons()
+                continue
             }
             let memberName = try expectIdent()
+            // A field: the name, then a value's
+            // opening stroke, the member's own
+            // ending, or the body's end. Only
+            // the class face's fields are in
+            // this stage.
+            if peekPunct() == "=" || peekPunct() == ";"
+                || peekPunct() == "}" {
+                guard isStatic else {
+                    throw TBJSFlow.error(
+                        "instance fields are not in this stage")
+                }
+                if memberName == "constructor" {
+                    throw TBJSFlow.error(
+                        "a constructor cannot be static")
+                }
+                if memberName == "prototype"
+                    || memberName == "name"
+                    || memberName == "length" {
+                    throw TBJSFlow.error(
+                        "a static member cannot be named '"
+                        + memberName + "' in this stage")
+                }
+                var first: TBJSExpr? = nil
+                if acceptPunct("=") {
+                    first = try parseAssign()
+                }
+                tbJSForgetClassMember(&parts, memberName,
+                                      statics: true)
+                parts.staticFields.append((memberName, first))
+                skipSemicolons()
+                continue
+            }
             let (params, body) = try parseFunctionTail()
             if memberName == "constructor" {
-                if ctor != nil {
+                if isStatic {
+                    throw TBJSFlow.error(
+                        "a constructor cannot be static")
+                }
+                if parts.ctor != nil {
                     throw TBJSFlow.error(
                         "a class holds one constructor")
                 }
-                ctor = (params, body)
+                parts.ctor = (params, body)
+            } else if isStatic {
+                if memberName == "prototype"
+                    || memberName == "name"
+                    || memberName == "length" {
+                    throw TBJSFlow.error(
+                        "a static member cannot be named '"
+                        + memberName + "' in this stage")
+                }
+                tbJSForgetClassMember(&parts, memberName,
+                                      statics: true)
+                parts.statics.append((memberName, params, body))
             } else {
-                methods.append((memberName, params, body))
+                tbJSForgetClassMember(&parts, memberName,
+                                      statics: false)
+                parts.methods.append((memberName, params, body))
             }
             skipSemicolons()
         }
         try expectPunct("}")
-        return .classDecl(name, parentName, ctor, methods)
+        return .classDecl(name, parentName, parts)
     }
 
     mutating func parseStatement() throws -> TBJSStmt {
@@ -2770,6 +3174,23 @@ struct TBJSParser {
                     default:
                         throw TBJSFlow.error("bad object key")
                     }
+                    // JavaScript fifth stage
+                    // (0.41): an accessor in an
+                    // object literal — get or set,
+                    // then a name that is not a
+                    // colon — is refused by name.
+                    // A plain object here is a
+                    // dictionary of values; it has
+                    // no doors to stand in it. (A
+                    // key merely named get or set,
+                    // with its colon after it, is
+                    // an ordinary key.)
+                    if key == "get" || key == "set",
+                       peekPunct() != ":" {
+                        throw TBJSFlow.error(
+                            "getters and setters in object"
+                            + " literals are not in this stage")
+                    }
                     try expectPunct(":")
                     pairs.append((key, try parseAssign()))
                     if !acceptPunct(",") { break }
@@ -3178,8 +3599,7 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
                 }
             }
         }
-    case .classDecl(let name, let parentName, let ctor,
-                    let methods):
+    case .classDecl(let name, let parentName, let parts):
         // JavaScript third stage (0.39): the
         // class is made where its declaration
         // stands — a box holding its name, its
@@ -3191,7 +3611,18 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
         // box's stored functions keep no road
         // back to the box; the road is written
         // onto the copies handed out at a build
-        // or a member read.
+        // or a member read. JavaScript fifth
+        // stage (0.41): the box now also holds
+        // the class face's own members, made
+        // the same way, and its static fields
+        // reckon once, here, in the order they
+        // were written — each in a room whose
+        // `this` is the class itself, so a
+        // later field may read an earlier one
+        // through the class's name or through
+        // `this`, as the language has it. A
+        // field with no written value stands
+        // as undefined, present under its name.
         var parent: TBJSClassBox? = nil
         if let parentName = parentName {
             let found = try env.lookup(parentName) ?? .undefined
@@ -3203,15 +3634,49 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
             parent = parentBox
         }
         let box = TBJSClassBox(name: name, parent: parent)
-        if let ctor = ctor {
+        if let ctor = parts.ctor {
             box.ctor = TBJSFunc(params: ctor.0, body: ctor.1,
                                 env: env)
         }
-        for (methodName, params, body) in methods {
+        for (methodName, params, body) in parts.methods {
             box.methods[methodName] = TBJSFunc(
                 params: params, body: body, env: env)
         }
+        for (methodName, params, body) in parts.statics {
+            box.statics[methodName] = TBJSFunc(
+                params: params, body: body, env: env)
+        }
+        for (memberName, pair) in parts.accessors {
+            box.accessors[memberName] = TBJSAccessor(
+                getter: pair.getter.map {
+                    TBJSFunc(params: $0.0, body: $0.1, env: env)
+                },
+                setter: pair.setter.map {
+                    TBJSFunc(params: $0.0, body: $0.1, env: env)
+                })
+        }
+        for (memberName, pair) in parts.staticAccessors {
+            box.staticAccessors[memberName] = TBJSAccessor(
+                getter: pair.getter.map {
+                    TBJSFunc(params: $0.0, body: $0.1, env: env)
+                },
+                setter: pair.setter.map {
+                    TBJSFunc(params: $0.0, body: $0.1, env: env)
+                })
+        }
         env.vars[name] = .classDef(box)
+        if !parts.staticFields.isEmpty {
+            let fieldRoom = env.childBlock()
+            fieldRoom.vars["this"] = .classDef(box)
+            for (fieldName, first) in parts.staticFields {
+                if let first = first {
+                    box.staticFields[fieldName] =
+                        try tbJSEval(first, fieldRoom, ctx)
+                } else {
+                    box.staticFields[fieldName] = .undefined
+                }
+            }
+        }
     case .returnStmt(let value):
         if let value = value {
             throw TBJSFlow.returnValue(try tbJSEval(value, env, ctx))
@@ -3304,12 +3769,14 @@ func tbJSStoreValue(_ target: TBJSExpr, _ value: TBJSValue,
         return true
     case .member(let baseExpr, let name):
         let base = (try? tbJSEval(baseExpr, env, ctx)) ?? .undefined
-        let renewed = tbJSSetMember(base, name, value, ctx)
+        let renewed = (try? tbJSSetMember(base, name, value,
+                                          ctx)) ?? base
         return tbJSStoreValue(baseExpr, renewed, env, ctx)
     case .index(let baseExpr, let indexExpr):
         let base = (try? tbJSEval(baseExpr, env, ctx)) ?? .undefined
         let index = (try? tbJSEval(indexExpr, env, ctx)) ?? .undefined
-        let renewed = tbJSSetIndex(base, index, value, ctx)
+        let renewed = (try? tbJSSetIndex(base, index, value,
+                                         ctx)) ?? base
         return tbJSStoreValue(baseExpr, renewed, env, ctx)
     default:
         return false
@@ -3452,7 +3919,7 @@ func tbJSBindPattern(_ pattern: TBJSPattern, _ value: TBJSValue,
             switch prop {
             case .prop(let key, let inner):
                 taken.insert(key)
-                let piece = tbJSGetMember(value, key, ctx)
+                let piece = try tbJSGetMember(value, key, ctx)
                 try tbJSBindPattern(inner, piece, env, mode, ctx)
             case .rest(let inner):
                 restTarget = inner
@@ -3509,7 +3976,7 @@ func tbJSAssign(_ target: TBJSExpr, _ value: TBJSValue, _ env: TBJSEnv,
         try env.set(name, value)
     case .member(let baseExpr, let name):
         let base = try tbJSEval(baseExpr, env, ctx)
-        let newBase = tbJSSetMember(base, name, value, ctx)
+        let newBase = try tbJSSetMember(base, name, value, ctx)
         // JavaScript third stage (0.39): when the
         // chain bottoms out at a name, the whole
         // renewed value is carried back through the
@@ -3535,7 +4002,7 @@ func tbJSAssign(_ target: TBJSExpr, _ value: TBJSValue, _ env: TBJSEnv,
     case .index(let baseExpr, let indexExpr):
         let base = try tbJSEval(baseExpr, env, ctx)
         let index = try tbJSEval(indexExpr, env, ctx)
-        let newBase = tbJSSetIndex(base, index, value, ctx)
+        let newBase = try tbJSSetIndex(base, index, value, ctx)
         // JavaScript third stage (0.39): an index
         // write into a name-held value is the same
         // renewal as a member write — carried back
@@ -3593,11 +4060,11 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
         return .object(obj)
     case .member(let baseExpr, let name):
         let base = try tbJSEval(baseExpr, env, ctx)
-        return tbJSGetMember(base, name, ctx)
+        return try tbJSGetMember(base, name, ctx)
     case .index(let baseExpr, let indexExpr):
         let base = try tbJSEval(baseExpr, env, ctx)
         let index = try tbJSEval(indexExpr, env, ctx)
-        return tbJSGetIndex(base, index, ctx)
+        return try tbJSGetIndex(base, index, ctx)
     case .call(let callee, let argExprs):
         var args: [TBJSValue] = []
         for argExpr in argExprs {
@@ -3618,7 +4085,7 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
         switch callee {
         case .member(let baseExpr, let name):
             let base = try tbJSEval(baseExpr, env, ctx)
-            let fn = tbJSGetMember(base, name, ctx)
+            let fn = try tbJSGetMember(base, name, ctx)
             ctx.mutatedThis = nil
             let result = try tbJSCall(fn, args, this: base, ctx)
             if let mutated = ctx.mutatedThis {
@@ -3634,7 +4101,7 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
         case .index(let baseExpr, let indexExpr):
             let base = try tbJSEval(baseExpr, env, ctx)
             let index = try tbJSEval(indexExpr, env, ctx)
-            let fn = tbJSGetIndex(base, index, ctx)
+            let fn = try tbJSGetIndex(base, index, ctx)
             return try tbJSCall(fn, args, this: base, ctx)
         case .superMember:
             // JavaScript third stage (0.39): a
@@ -3833,17 +4300,57 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
         // method is handed out carrying the
         // class it was found on, so a `super`
         // inside it looks one road further up.
+        // JavaScript fifth stage (0.41): the
+        // read may also find a door — an
+        // accessor standing on the parent's
+        // road is called with this very `this`
+        // — and inside a static member the
+        // whole read climbs the static road
+        // instead: the parent's static
+        // accessors, fields and methods.
         guard let frame = ctx.classFrames.last else {
             throw TBJSFlow.error(
                 "super stands only in a class method"
                 + " or constructor")
         }
+        let standingThis = env.get("this") ?? .undefined
         var cursor = frame.home.parent
         while let current = cursor {
-            if let stored = current.methods[name] {
-                var method = stored
-                method.classHome = current
-                return .function(method)
+            if frame.isStatic {
+                if let pair = current.staticAccessors[name] {
+                    guard let stored = pair.getter else {
+                        return .undefined
+                    }
+                    var getter = stored
+                    getter.classHome = current
+                    getter.isStatic = true
+                    return try tbJSCall(.function(getter), [],
+                                        this: standingThis, ctx)
+                }
+                if let field = current.staticFields[name] {
+                    return field
+                }
+                if let stored = current.statics[name] {
+                    var method = stored
+                    method.classHome = current
+                    method.isStatic = true
+                    return .function(method)
+                }
+            } else {
+                if let pair = current.accessors[name] {
+                    guard let stored = pair.getter else {
+                        return .undefined
+                    }
+                    var getter = stored
+                    getter.classHome = current
+                    return try tbJSCall(.function(getter), [],
+                                        this: standingThis, ctx)
+                }
+                if let stored = current.methods[name] {
+                    var method = stored
+                    method.classHome = current
+                    return .function(method)
+                }
             }
             cursor = current.parent
         }
@@ -4009,12 +4516,14 @@ func tbJSCall(_ fn: TBJSValue, _ args: [TBJSValue], this: TBJSValue,
             if fn.isClassConstructor, home.parent != nil {
                 ctx.classFrames.append(
                     (home: home, isConstructor: true,
+                     isStatic: fn.isStatic,
                      pendingThis: receiver))
                 receiver = .undefined
             } else {
                 ctx.classFrames.append(
                     (home: home,
                      isConstructor: fn.isClassConstructor,
+                     isStatic: fn.isStatic,
                      pendingThis: nil))
             }
         }

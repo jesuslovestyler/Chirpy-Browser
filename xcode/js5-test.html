@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chirpy JS Fifth Stage Drill</title>
+</head>
+<body>
+<h1 id="heading">Chirpy JavaScript Drill — Fifth Stage (0.41)</h1>
+<p>Ten numbered promises, each written into this page by its own
+scripts and repeated in the console. If a line below still reads
+"not yet", that piece did not run.</p>
+<p id="r1">1. Static methods answer on the class: not yet</p>
+<p id="r2">2. Static fields reckon once, in order: not yet</p>
+<p id="r3">3. Statics walk down the class road: not yet</p>
+<p id="r4">4. Called through the child, this is the child: not yet</p>
+<p id="r5">5. A getter reckons at every read: not yet</p>
+<p id="r6">6. A setter stands guard at every write: not yet</p>
+<p id="r7">7. A door both ways — get and set together: not yet</p>
+<p id="r8">8. Accessors are inherited like methods: not yet</p>
+<p id="r9">9. The class face has doors too, and super climbs: not yet</p>
+<p id="r10">10. The whole shape at once, edges honest: not yet</p>
+<script>
+// 1 — a static method lives on the class itself: it is called
+// through the class's name, its `this` is the class it was
+// called through (so `this.name` answers the class's own name),
+// and an instance never sees it.
+class Greeter {
+  static greet() { return "hello from " + this.name; }
+  static twice(n) { return n * 2; }
+}
+var g1 = new Greeter();
+var ok1 = (Greeter.greet() === "hello from Greeter"
+  && Greeter.twice(21) === 42
+  && g1.greet === undefined
+  && typeof Greeter.greet === "function");
+document.getElementById("r1").textContent =
+  "1. Static methods answer on the class: "
+  + (ok1 ? "PASS" : "FAIL");
+console.log("1. static methods on the class: "
+  + (ok1 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 2 — a static field is reckoned once, when the class is
+// declared, in the order the fields were written: a later
+// field may read an earlier one through the class's name or
+// through `this`. A field with no written value stands
+// present, as undefined. A later write changes the field,
+// never the reckoning already done.
+class Measures {
+  static unit = "cm";
+  static base = 3;
+  static triple = Measures.base * 3;
+  static viaThis = this.base + 1;
+  static empty;
+}
+var ok2 = (Measures.unit === "cm" && Measures.base === 3
+  && Measures.triple === 9 && Measures.viaThis === 4
+  && Measures.empty === undefined && ("empty" in Measures));
+Measures.base = 30;
+ok2 = ok2 && Measures.base === 30 && Measures.triple === 9;
+document.getElementById("r2").textContent =
+  "2. Static fields reckon once, in order: "
+  + (ok2 ? "PASS" : "FAIL");
+console.log("2. static fields in order: "
+  + (ok2 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 3 — statics are inherited: a subclass reads its parent's
+// static field and calls its parent's static method, and the
+// parent's own answers are unchanged.
+class Parent3 {
+  static kind = "parent";
+  static describe() { return "I am " + this.kind; }
+}
+class Child3 extends Parent3 { }
+var ok3 = (Child3.kind === "parent"
+  && Child3.describe() === "I am parent"
+  && Parent3.describe() === "I am parent");
+document.getElementById("r3").textContent =
+  "3. Statics walk down the class road: "
+  + (ok3 ? "PASS" : "FAIL");
+console.log("3. inherited statics: " + (ok3 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 4 — called through the child, `this` is the child: one
+// static method written on the parent answers with the name
+// of whichever class it was called through. And a write
+// through the child shadows on the child alone — the
+// parent's field keeps its answer.
+class Parent4 {
+  static count = 1;
+  static who() { return this.name; }
+}
+class Child4 extends Parent4 { }
+Child4.count = 99;
+var ok4 = (Parent4.who() === "Parent4"
+  && Child4.who() === "Child4"
+  && Child4.count === 99 && Parent4.count === 1);
+document.getElementById("r4").textContent =
+  "4. Called through the child, this is the child: "
+  + (ok4 ? "PASS" : "FAIL");
+console.log("4. this through the subclass: "
+  + (ok4 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 5 — a getter is not a stored value but a reckoning at every
+// read: it answers from the instance's own fields, so when a
+// field changes the answer changes with it.
+class Thermometer {
+  constructor() { this._c = 20; }
+  get fahrenheit() { return this._c * 9 / 5 + 32; }
+}
+var t5 = new Thermometer();
+var first5 = t5.fahrenheit;
+t5._c = 30;
+var ok5 = (first5 === 68 && t5.fahrenheit === 86);
+document.getElementById("r5").textContent =
+  "5. A getter reckons at every read: "
+  + (ok5 ? "PASS" : "FAIL");
+console.log("5. getter at every read: " + (ok5 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 6 — a setter stands guard at every write: the value a page
+// hands in passes through the setter's hands before anything
+// is stored, so a guard written there holds on every write,
+// and the name itself never becomes a plain field.
+class Tank {
+  constructor() { this._level = 0; }
+  set level(v) { this._level = v < 0 ? 0 : (v > 100 ? 100 : v); }
+  get level() { return this._level; }
+}
+var t6 = new Tank();
+t6.level = -5;
+var low6 = t6._level;
+t6.level = 250;
+var high6 = t6._level;
+t6.level = 42;
+var ok6 = (low6 === 0 && high6 === 100 && t6.level === 42);
+document.getElementById("r6").textContent =
+  "6. A setter stands guard at every write: "
+  + (ok6 ? "PASS" : "FAIL");
+console.log("6. setter stands guard: " + (ok6 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 7 — a getter and a setter under one name make a door both
+// ways: the write goes through the setter (which may shape
+// what it stores), and the read comes back through the
+// getter, while the backing field holds the stored shape.
+class Shout {
+  constructor() { this._word = ""; }
+  set word(v) { this._word = v.toUpperCase(); }
+  get word() { return this._word + "!"; }
+}
+var s7 = new Shout();
+s7.word = "hosanna";
+var ok7 = (s7._word === "HOSANNA" && s7.word === "HOSANNA!");
+document.getElementById("r7").textContent =
+  "7. A door both ways — get and set together: "
+  + (ok7 ? "PASS" : "FAIL");
+console.log("7. get and set round trip: "
+  + (ok7 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 8 — accessors are inherited like methods: a child instance
+// with no accessors of its own is read and written through
+// the parent's pair, with the child instance standing as
+// `this` inside them.
+class Parent8 {
+  constructor() { this._v = 1; }
+  get v() { return this._v * 10; }
+  set v(x) { this._v = x; }
+}
+class Child8 extends Parent8 { }
+var c8 = new Child8();
+var before8 = c8.v;
+c8.v = 5;
+var ok8 = (before8 === 10 && c8.v === 50 && c8._v === 5);
+document.getElementById("r8").textContent =
+  "8. Accessors are inherited like methods: "
+  + (ok8 ? "PASS" : "FAIL");
+console.log("8. inherited accessors: " + (ok8 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 9 — the class face has doors too: a static getter and
+// setter guard a static field, a read through a subclass
+// fires the inherited door with the subclass standing in
+// the doorway, and `super` inside a static method climbs
+// the static road to the parent's statics.
+class Parent9 {
+  static _tag = "plain";
+  static get tag() { return "[" + this._tag + "]"; }
+  static set tag(v) { this._tag = v; }
+  static greet() { return "peace"; }
+}
+class Child9 extends Parent9 {
+  static greet() { return super.greet() + " and grace"; }
+}
+Parent9.tag = "holy";
+var ok9 = (Parent9.tag === "[holy]" && Parent9._tag === "holy"
+  && Child9.greet() === "peace and grace"
+  && Child9.tag === "[holy]");
+Parent9._tag = "direct";
+ok9 = ok9 && Parent9.tag === "[direct]";
+document.getElementById("r9").textContent =
+  "9. The class face has doors too, and super climbs: "
+  + (ok9 ? "PASS" : "FAIL");
+console.log("9. static doors and static super: "
+  + (ok9 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 10 — the whole shape at once: a family's statics, a
+// shadowed static field, an inherited method reading the
+// shadowed field through `this`, and an instance door both
+// ways — and the edges stay honest: a write to a getter-only
+// name is silently set aside (the sloppy-mode answer), and
+// a setter-only name reads as undefined.
+class Creature {
+  static kingdom = "animalia";
+  constructor(name) { this._name = name; }
+  get name() { return this._name; }
+  set name(v) { this._name = v; }
+  static ofKind() { return this.kingdom; }
+}
+class Lamb extends Creature {
+  static kingdom = "lamb";
+}
+var l10 = new Lamb("little");
+l10.name = "gentle";
+var ok10 = (l10.name === "gentle"
+  && Lamb.ofKind() === "lamb"
+  && Creature.ofKind() === "animalia"
+  && l10 instanceof Lamb && l10 instanceof Creature);
+class OneWay {
+  get only() { return "seen"; }
+  set hidden(v) { this._h = v; }
+}
+var w10 = new OneWay();
+w10.only = "changed";
+w10.hidden = 7;
+ok10 = ok10 && (w10.only === "seen" && w10.hidden === undefined
+  && w10._h === 7);
+document.getElementById("r10").textContent =
+  "10. The whole shape at once, edges honest: "
+  + (ok10 ? "PASS" : "FAIL");
+console.log("10. statics and accessors together: "
+  + (ok10 ? "PASS" : "FAIL"));
+</script>
+</body>
+</html>
