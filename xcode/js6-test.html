@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chirpy JS Sixth Stage Drill</title>
+</head>
+<body>
+<h1 id="heading">Chirpy JavaScript Drill — Sixth Stage (0.42)</h1>
+<p>Ten numbered promises, each written into this page by its own
+scripts and repeated in the console. If a line below still reads
+"not yet", that piece did not run.</p>
+<p id="r1">1. The constants stand exact: not yet</p>
+<p id="r2">2. floor, ceil, and the honest round: not yet</p>
+<p id="r3">3. trunc, sign, and abs: not yet</p>
+<p id="r4">4. max and min, empty and poisoned: not yet</p>
+<p id="r5">5. pow and sqrt: not yet</p>
+<p id="r6">6. exp and log, there and back: not yet</p>
+<p id="r7">7. cbrt and hypot: not yet</p>
+<p id="r8">8. The edges answer in NaN and Infinity: not yet</p>
+<p id="r9">9. random draws inside [0, 1): not yet</p>
+<p id="r10">10. Math at work in real code: not yet</p>
+<script>
+// 1 — the Math global stands in the page's scope as one
+// object, and its constants are the language's own values,
+// exact to the last digit a Double can hold: each is
+// compared against the literal the language itself names.
+var ok1 = (typeof Math === "object"
+  && Math.PI === 3.141592653589793
+  && Math.E === 2.718281828459045
+  && Math.SQRT2 === 1.4142135623730951
+  && Math.SQRT1_2 === 0.7071067811865476
+  && Math.LN2 === 0.6931471805599453
+  && Math.LN10 === 2.302585092994046
+  && Math.LOG2E === 1.4426950408889634
+  && Math.LOG10E === 0.4342944819032518);
+document.getElementById("r1").textContent =
+  "1. The constants stand exact: "
+  + (ok1 ? "PASS" : "FAIL");
+console.log("1. Math constants exact: "
+  + (ok1 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 2 — floor walks down, ceil walks up, and round follows
+// the language's own law at the half: half rounds toward
+// +Infinity, so round(-2.5) is -2, not -3 — the case every
+// borrowed rounding gets wrong.
+var ok2 = (Math.floor(2.9) === 2 && Math.floor(-2.1) === -3
+  && Math.ceil(2.1) === 3 && Math.ceil(-2.9) === -2
+  && Math.round(2.5) === 3 && Math.round(2.4) === 2
+  && Math.round(-2.5) === -2 && Math.round(-2.6) === -3);
+document.getElementById("r2").textContent =
+  "2. floor, ceil, and the honest round: "
+  + (ok2 ? "PASS" : "FAIL");
+console.log("2. floor, ceil, round: "
+  + (ok2 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 3 — trunc cuts the fraction away toward zero (where
+// floor would keep walking on a negative), sign answers
+// -1, 0 or 1, and abs makes a value positive — and every
+// argument is read as a number first, as the language
+// reads it, so a digit string reckons by its digits.
+var ok3 = (Math.trunc(-2.9) === -2 && Math.trunc(2.9) === 2
+  && Math.sign(-7) === -1 && Math.sign(0) === 0
+  && Math.sign(12) === 1
+  && Math.abs(-5) === 5 && Math.abs(5) === 5
+  && Math.abs("-3") === 3);
+document.getElementById("r3").textContent =
+  "3. trunc, sign, and abs: "
+  + (ok3 ? "PASS" : "FAIL");
+console.log("3. trunc, sign, abs: "
+  + (ok3 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 4 — max and min take however many numbers are handed
+// to them. Empty-handed, max answers -Infinity and min
+// +Infinity — each starts from the far end and finds
+// nothing. One NaN anywhere poisons the whole reckoning.
+var ok4 = (Math.max(1, 9, 4) === 9
+  && Math.min(1, 9, 4) === 1
+  && Math.max(7) === 7 && Math.min(7) === 7
+  && Math.max() === -Infinity
+  && Math.min() === Infinity
+  && isNaN(Math.max(1, NaN)) && isNaN(Math.min(NaN, 2)));
+document.getElementById("r4").textContent =
+  "4. max and min, empty and poisoned: "
+  + (ok4 ? "PASS" : "FAIL");
+console.log("4. max and min: " + (ok4 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 5 — pow raises and sqrt roots: a half power is the
+// root itself, agreeing with the SQRT2 constant to the
+// last digit; anything to the power 0 is 1; and 0 to a
+// negative power stands at +Infinity.
+var ok5 = (Math.pow(2, 10) === 1024
+  && Math.pow(5, 0) === 1
+  && Math.pow(2, 0.5) === Math.SQRT2
+  && Math.pow(0, -1) === Infinity
+  && Math.sqrt(144) === 12
+  && Math.sqrt(2) === Math.SQRT2);
+document.getElementById("r5").textContent =
+  "5. pow and sqrt: " + (ok5 ? "PASS" : "FAIL");
+console.log("5. pow and sqrt: " + (ok5 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 6 — exp and log are one road walked both ways, with
+// log2 and log10 beside them: the exact landings are
+// exact (exp(0), log(1), whole powers of 2 and 10), and
+// the round trips come home within a hair.
+var ok6 = (Math.exp(0) === 1 && Math.exp(1) === Math.E
+  && Math.log(1) === 0
+  && Math.log2(1024) === 10 && Math.log10(1000) === 3
+  && Math.abs(Math.log(Math.exp(2)) - 2) < 0.000000000001
+  && Math.abs(Math.exp(Math.log(5)) - 5) < 0.000000000001);
+document.getElementById("r6").textContent =
+  "6. exp and log, there and back: "
+  + (ok6 ? "PASS" : "FAIL");
+console.log("6. exp and log round trips: "
+  + (ok6 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 7 — cbrt roots a cube, keeping the sign the way sqrt
+// cannot; hypot joins legs into the long side, accepts
+// however many legs it is handed, and answers 0 when
+// handed none.
+var ok7 = (Math.cbrt(27) === 3 && Math.cbrt(-8) === -2
+  && Math.hypot(3, 4) === 5 && Math.hypot(5) === 5
+  && Math.hypot() === 0);
+document.getElementById("r7").textContent =
+  "7. cbrt and hypot: " + (ok7 ? "PASS" : "FAIL");
+console.log("7. cbrt and hypot: " + (ok7 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 8 — the edges answer the way the language answers:
+// the root or log of a negative is NaN, log(0) falls to
+// -Infinity, a NaN power poisons even the base 1 while
+// anything at all to the power 0 is 1 — even NaN — and
+// a missing argument reckons as NaN, never as silence.
+var ok8 = (isNaN(Math.sqrt(-1)) && isNaN(Math.log(-1))
+  && Math.log(0) === -Infinity
+  && isNaN(Math.pow(1, NaN)) && Math.pow(NaN, 0) === 1
+  && isNaN(Math.abs()));
+document.getElementById("r8").textContent =
+  "8. The edges answer in NaN and Infinity: "
+  + (ok8 ? "PASS" : "FAIL");
+console.log("8. NaN and Infinity edges: "
+  + (ok8 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 9 — random is honest randomness: it cannot be promised
+// a value, only a range and a kind. A hundred draws must
+// each be a number in [0, 1), and the draws must vary —
+// a bounded search finds a second draw differing from
+// the first, as real entropy all but always does.
+var ok9 = true;
+var first9 = Math.random();
+if (typeof first9 !== "number" || first9 < 0 || first9 >= 1) {
+  ok9 = false;
+}
+for (var i9 = 0; i9 < 100; i9++) {
+  var draw9 = Math.random();
+  if (typeof draw9 !== "number" || draw9 < 0 || draw9 >= 1) {
+    ok9 = false;
+  }
+}
+var varied9 = false;
+for (var j9 = 0; j9 < 200 && !varied9; j9++) {
+  if (Math.random() !== first9) { varied9 = true; }
+}
+ok9 = ok9 && varied9;
+document.getElementById("r9").textContent =
+  "9. random draws inside [0, 1): "
+  + (ok9 ? "PASS" : "FAIL");
+console.log("9. random in range, and varying: "
+  + (ok9 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 10 — the whole face at work in real code, beside the
+// stages that came before it: a class static reckons
+// with Math, spread hands a list to max, the window
+// holds the same Math the bare name does, every function
+// is a function — and a name Math does not carry still
+// answers undefined, absent rather than faked.
+class Circle {
+  static area(r) { return Math.PI * Math.pow(r, 2); }
+}
+var ok10 = (Circle.area(1) === Math.PI
+  && Math.round(Circle.area(2)) === 13
+  && Math.max(...[3, 9, 4]) === 9
+  && Math === window.Math
+  && typeof Math.floor === "function"
+  && Math.sin === undefined);
+document.getElementById("r10").textContent =
+  "10. Math at work in real code: "
+  + (ok10 ? "PASS" : "FAIL");
+console.log("10. Math integrated: "
+  + (ok10 ? "PASS" : "FAIL"));
+</script>
+</body>
+</html>

@@ -7,6 +7,97 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.42 — JAVASCRIPT'S SIXTH STAGE: THE
+MATH GLOBAL
+------------------------------------------------------
+Since the second stage the interpreter
+has had no Math at all: the name was
+simply absent from the globals, named
+here as a gap at every stage since.
+This stage builds it — one built-in
+object, standing in the globals the
+way the console stands in them,
+carrying the language's constants and
+its reckoning functions.
+
+The constants are the language's own
+values, to the last digit a Double
+can hold: PI, E, SQRT2, SQRT1_2, LN2,
+LN10, LOG2E and LOG10E. The functions
+are abs, floor, ceil, round, trunc
+and sign; max and min, taking however
+many numbers they are handed; pow,
+sqrt, exp, log, log2, log10, cbrt and
+hypot; and random.
+
+Every argument is read as a number
+first, the way the language reads
+it — a missing one is NaN, a string
+reckons by its digits — and the
+answers follow the language at the
+edges. round halves toward
++Infinity: round(-2.5) is -2, exactly
+as floor(x + 0.5) says it. max of
+nothing is -Infinity, min of nothing
+is +Infinity, and one NaN anywhere
+poisons either. sqrt and log of a
+negative answer NaN, log(0) answers
+-Infinity, anything to the power 0
+is 1 — even NaN — and a NaN power
+poisons every base, even 1. hypot
+folds however many legs it is handed
+without overflowing where squaring
+them would, and an infinite leg
+answers +Infinity even beside a NaN.
+One library gap is repaired at the
+bridge: the library's cbrt can miss a
+perfect cube by one digit in the last
+place, so when a neighbor of its
+answer cubes to the very value handed
+in, that neighbor — the true root —
+stands.
+
+random is honest randomness: a fresh
+draw from the system's entropy at
+every call, in [0, 1). It is never
+seeded and never faked to a fixed
+answer, so its drill promises only
+what can honestly be promised — the
+range, the kind, and that the draws
+vary.
+
+What is still absent, named plainly:
+the whole trigonometric family (sin,
+cos, tan, asin, acos, atan, atan2),
+the hyperbolics (sinh, cosh, tanh,
+asinh, acosh, atanh), expm1 and
+log1p, fround, imul and clz32. A name
+Math does not carry answers
+undefined — absent, never faked. And
+a write to Math's face is set aside
+the way a write to the console's face
+is: the built-ins keep the answers
+they were built with.
+
+THE DRILL.
+Build and run — the status line should
+read "Chirpy Engine 0.42 (Swift)". Open
+js-suite.html and walk the whole suite:
+the count is 59 promises now — js-test's
+11, js2-test's 8, js3-test's 10,
+js4-test's 10, js5-test's 10, and the
+new js6-test.html's 10, each PASS in page
+and console. Then shield-test.html and
+its six promises. The pages by eye must
+look exactly as they did at 0.41 —
+this stage touched only the
+interpreter, no paint. Then the
+standing evidence: Wikipedia's
+Jesus article in its ~7.5-second
+family, and google.com/search?q=jesus —
+whatever its console says names the
+next stage.
+
 0.41 — JAVASCRIPT'S FIFTH STAGE: STATICS,
 GETTERS AND SETTERS
 ------------------------------------------------------

@@ -1,6 +1,6 @@
 //
 //  ChirpyJS.swift
-//  Chirpy Browser — engine 0.41 (Swift)
+//  Chirpy Browser — engine 0.42 (Swift)
 //
 //  Chirpy's JavaScript interpreter: its values
 //  and rooms, its lexer, its parser, its
@@ -78,6 +78,12 @@ enum TBJSValue {
     case console
     case window
     case location
+    // JavaScript sixth stage (0.42): the
+    // Math face — one built-in object of
+    // constants and reckoning functions,
+    // standing in the globals the way the
+    // console stands in them.
+    case math
     // JavaScript second stage (0.38): a regular
     // expression — its pattern, its flags, and
     // the index its next exec or test starts
@@ -616,6 +622,12 @@ final class TBJSContext {
         // with a pattern and optional flags makes
         // a regex value (see tbJSRegexCompile).
         globals.vars["RegExp"] = .native("global.RegExp")
+        // JavaScript sixth stage (0.42): the
+        // Math global — its constants and
+        // reckoning functions stand behind
+        // the .math face (see tbJSGetMember
+        // and the math.* natives below).
+        globals.vars["Math"] = .math
     }
 }
 
@@ -666,6 +678,7 @@ func tbJSString(_ value: TBJSValue) -> String {
     case .element: return "[object Element]"
     case .document: return "[object HTMLDocument]"
     case .console: return "[object Object]"
+    case .math: return "[object Object]"
     case .window: return "[object Window]"
     case .location: return "[object Location]"
     case .regex(let pattern, let flags, _):
@@ -690,7 +703,7 @@ func tbJSNumber(_ value: TBJSValue) -> Double {
         return Double.nan
     case .array(let items): return tbJSNumber(.string(tbJSString(.array(items))))
     case .object, .instance, .classDef, .function, .native, .element,
-         .document, .console, .window, .location, .regex:
+         .document, .console, .window, .location, .regex, .math:
         return Double.nan
     }
 }
@@ -727,6 +740,7 @@ func tbJSStrictEqual(_ a: TBJSValue, _ b: TBJSValue) -> Bool {
     case (.instance(let x), .instance(let y)): return x === y
     case (.classDef(let x), .classDef(let y)): return x === y
     case (.location, .location): return true
+    case (.math, .math): return true
     case (.regex(let p1, let f1, _), .regex(let p2, let f2, _)):
         // A copy of a pattern is this engine's
         // stand-in for the same object (0.38).
@@ -1016,6 +1030,31 @@ func tbJSGetMember(_ base: TBJSValue, _ name: String,
             return .native("console.log")
         default: return .undefined
         }
+    case .math:
+        // JavaScript sixth stage (0.42): the
+        // Math face — its constants stand as
+        // numbers, its functions as natives,
+        // and a name it does not carry answers
+        // undefined, like every other built-in
+        // face here. The constants are the
+        // language's own values, to the last
+        // digit a Double can hold.
+        switch name {
+        case "E": return .number(2.718281828459045)
+        case "PI": return .number(3.141592653589793)
+        case "LN2": return .number(0.6931471805599453)
+        case "LN10": return .number(2.302585092994046)
+        case "LOG2E": return .number(1.4426950408889634)
+        case "LOG10E": return .number(0.4342944819032518)
+        case "SQRT1_2": return .number(0.7071067811865476)
+        case "SQRT2": return .number(1.4142135623730951)
+        case "abs", "floor", "ceil", "round", "trunc",
+             "sign", "max", "min", "pow", "sqrt", "exp",
+             "log", "log2", "log10", "cbrt", "hypot",
+             "random":
+            return .native("math." + name)
+        default: return .undefined
+        }
     case .window:
         switch name {
         case "document": return .document
@@ -1234,7 +1273,7 @@ func tbJSGetIndex(_ base: TBJSValue, _ index: TBJSValue,
         }
         return try tbJSGetMember(base, tbJSString(index), ctx)
     case .object, .instance, .element, .document, .console, .window,
-         .location, .regex:
+         .location, .regex, .math:
         return try tbJSGetMember(base, tbJSString(index), ctx)
     default:
         return .undefined
@@ -4701,6 +4740,142 @@ func tbJSNative(_ name: String, _ args: [TBJSValue], this: TBJSValue,
         let flags = args.count > 1 ? tbJSString(arg(1)) : ""
         _ = try tbJSRegexCompile(pattern, flags)
         return .regex(pattern, flags, 0)
+    case "math.abs":
+        // JavaScript sixth stage (0.42): the
+        // Math reckonings. Every argument is
+        // read as a number first, the way the
+        // language reads it — a missing one is
+        // NaN, a string is reckoned by its
+        // digits — and the answers follow the
+        // language at the edges: NaN and the
+        // infinities land where JavaScript
+        // puts them, named case by case where
+        // the library underneath differs.
+        return .number(abs(tbJSNumber(arg(0))))
+    case "math.floor":
+        return .number(tbJSNumber(arg(0)).rounded(.down))
+    case "math.ceil":
+        return .number(tbJSNumber(arg(0)).rounded(.up))
+    case "math.round":
+        // The language rounds half toward
+        // +Infinity — round(-2.5) is -2, not
+        // -3 — which floor(x + 0.5) says
+        // exactly.
+        return .number((tbJSNumber(arg(0)) + 0.5).rounded(.down))
+    case "math.trunc":
+        return .number(tbJSNumber(arg(0)).rounded(.towardZero))
+    case "math.sign":
+        let reckoned = tbJSNumber(arg(0))
+        if reckoned.isNaN { return .number(Double.nan) }
+        if reckoned > 0 { return .number(1) }
+        if reckoned < 0 { return .number(-1) }
+        return .number(reckoned)
+    case "math.max":
+        // The greatest of however many are
+        // handed in: none at all answers
+        // -Infinity, one NaN anywhere poisons
+        // the whole reckoning, and +0 stands
+        // greater than -0.
+        var greatest = -Double.infinity
+        for value in args {
+            let n = tbJSNumber(value)
+            if n.isNaN { return .number(Double.nan) }
+            if n > greatest || (n == 0 && greatest == 0
+                && greatest.sign == .minus
+                && n.sign == .plus) {
+                greatest = n
+            }
+        }
+        return .number(greatest)
+    case "math.min":
+        // The least, mirrored: none at all
+        // answers +Infinity, one NaN poisons,
+        // and -0 stands less than +0.
+        var least = Double.infinity
+        for value in args {
+            let n = tbJSNumber(value)
+            if n.isNaN { return .number(Double.nan) }
+            if n < least || (n == 0 && least == 0
+                && least.sign == .plus
+                && n.sign == .minus) {
+                least = n
+            }
+        }
+        return .number(least)
+    case "math.pow":
+        let base = tbJSNumber(arg(0))
+        let power = tbJSNumber(arg(1))
+        // The language's edge law, where the
+        // library underneath answers
+        // differently: anything to the power
+        // 0 is 1, even NaN; a NaN power
+        // poisons every base, even 1; and a
+        // base of ±1 to an infinite power is
+        // NaN.
+        if power == 0 { return .number(1) }
+        if power.isNaN { return .number(Double.nan) }
+        if abs(base) == 1 && power.isInfinite {
+            return .number(Double.nan)
+        }
+        return .number(pow(base, power))
+    case "math.sqrt":
+        return .number(sqrt(tbJSNumber(arg(0))))
+    case "math.exp":
+        return .number(exp(tbJSNumber(arg(0))))
+    case "math.log":
+        return .number(log(tbJSNumber(arg(0))))
+    case "math.log2":
+        return .number(log2(tbJSNumber(arg(0))))
+    case "math.log10":
+        return .number(log10(tbJSNumber(arg(0))))
+    case "math.cbrt":
+        // The library's cbrt can miss a
+        // perfect cube by one digit in the
+        // last place (27 comes back a hair
+        // over 3). When a neighbor of its
+        // answer cubes to the very value
+        // handed in, that neighbor is the
+        // true root, and it stands.
+        let handed = tbJSNumber(arg(0))
+        let rough = cbrt(handed)
+        if rough * rough * rough == handed {
+            return .number(rough)
+        }
+        let below = rough.nextDown
+        if below * below * below == handed {
+            return .number(below)
+        }
+        let above = rough.nextUp
+        if above * above * above == handed {
+            return .number(above)
+        }
+        return .number(rough)
+    case "math.hypot":
+        // However many legs are handed in,
+        // folded two at a time. An infinite
+        // leg answers +Infinity outright —
+        // even beside a NaN, as the language
+        // has it — and no legs at all
+        // answers 0.
+        var sawInfinite = false
+        var sawNaN = false
+        var joined = 0.0
+        for value in args {
+            let n = tbJSNumber(value)
+            if n.isInfinite { sawInfinite = true }
+            else if n.isNaN { sawNaN = true }
+            else { joined = hypot(joined, n) }
+        }
+        if sawInfinite { return .number(Double.infinity) }
+        if sawNaN { return .number(Double.nan) }
+        return .number(joined)
+    case "math.random":
+        // Non-deterministic by the language's
+        // own definition: a fresh draw from
+        // the system's entropy at every call,
+        // in [0, 1). Never seeded, never
+        // faked to a fixed answer.
+        return .number(Double.random(in: 0..<1))
     case "regex.test":
         // JavaScript second stage (0.38).
         guard case .regex(let pattern, let flags, let lastIndex) = this
