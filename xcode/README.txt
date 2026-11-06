@@ -7,6 +7,120 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.39.5 — THE SPLIT, STEP FIVE
+------------------------------------------------------
+No new behavior, no new feature: the code
+moved house a fifth time. The whole paint
+system — the surface-edge machinery that
+tracks the painted background boxes, the
+background box itself, and everything
+under the renderer's paint & motion mark:
+the shadow, transform, opacity,
+transition and animation parsing, the
+hover, focus and active paint styles, the
+image and background finishes, the first
+paint and the arrivals finish, and the
+walk that draws the text — now lives in
+its own file, ChirpyPaint.swift. The
+paint regions moved as extensions of
+TBRenderer in the new file, word for
+word under one added level of
+indentation. One honest difference, the
+same kind the layout step met: a renderer
+method in one file cannot reach a
+private member declared in another file,
+so six of the renderer's private members
+— exactly the paint state the two files
+now share — stand internal instead of
+private. That is the only change inside
+the moved words; no declaration moved,
+merged, or vanished. The split's fifth
+step, at Tyler's direction, one step at
+a time. (The sections below say the
+paint lives in the engine; that was true
+when they were written — read them as
+the record of their day.)
+
+THE FILE MAP, as of 0.39.5.
+ChirpyBrowserApp.swift — the app shell.
+ContentView.swift — the window: the
+browser model, the page view, the
+console drawer, the inspector, settings.
+ChirpyEngine.swift — the engine:
+fetching, the cache, HTML parsing, the
+render core, and the home page.
+ChirpyJS.swift — the JavaScript
+interpreter, with the session the
+scripts run in.
+ChirpyShield.swift — the Shield: the two
+domain lists, the category and the
+match, the block page, and the privacy
+dressing.
+ChirpyCSS.swift — the CSS and style
+system: the parsers, the selectors, the
+cascade, and the style helpers.
+ChirpyLayout.swift — the layout system:
+the box and length helpers, and the
+renderer's layout regions — positioned,
+multi-column, flexbox, and grid — as
+extensions of TBRenderer.
+ChirpyPaint.swift — the paint system:
+the surface edges and the background
+box, and the renderer's paint & motion
+regions — shadows, transforms,
+transitions, animations, the state
+paint styles, the image and background
+finishes, the first paint, and the walk
+— as extensions of TBRenderer.
+Markers in ChirpyEngine.swift stand
+where the paint lived and point at its
+new home; ChirpyPaint.swift's header
+points back.
+
+ONE THING TO DO BY HAND. ChirpyPaint.swift
+is a new file, so add it to the Xcode
+project once: put it in the ChirpyBrowser
+folder beside the other sources, then
+drag it into the project (or File > Add
+Files) so it stands in the list with
+them — and after adding it, click
+ChirpyPaint.swift and confirm in the
+File Inspector that Target Membership →
+ChirpyBrowser is CHECKED. That check is
+today's lesson: at 0.39.4 the build
+failed because the split files had
+fallen out of the target, and re-adding
+them fixed it. After that it travels
+like any other file. (The project file
+in the repo already lists it, the same
+drag-and-drop way the earlier split
+files arrived.)
+
+THE DRILL, PLUS THE PAINTED PAGES.
+Build and run — the status line should
+read "Chirpy Engine 0.39.5 (Swift)".
+Open js-suite.html and walk the whole
+suite: 29 promises, all PASS in page and
+console. Then shield-test.html and its
+six promises. Then the pages by eye:
+positioning-test.html, floats-test.html,
+flex-test.html, grid-test.html,
+multicolumn-test.html — each must LOOK
+exactly as it did at 0.39.4, the same
+page, the same paint, nothing moved.
+One honesty note: scrolling the
+multicolumn page has a known crash that
+was already there before this step — it
+is not this step's subject, and
+scrolling that page is not part of this
+drill; a separate hunt will take it up
+at Tyler's call. Then the standing
+evidence: Wikipedia's Jesus article —
+identical face, Timing in the same
+~7.5-second family. And
+google.com/search?q=jesus — whatever its
+console says names the next stage.
+
 0.39.4 — THE SPLIT, STEP FOUR
 ------------------------------------------------------
 No new behavior, no new feature: the code

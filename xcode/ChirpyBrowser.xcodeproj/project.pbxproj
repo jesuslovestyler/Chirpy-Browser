@@ -14,6 +14,7 @@
 		AA0000000000000000000023 /* ChirpyShield.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000022 /* ChirpyShield.swift */; };
 		AA0000000000000000000025 /* ChirpyCSS.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000024 /* ChirpyCSS.swift */; };
 		AA0000000000000000000027 /* ChirpyLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000026 /* ChirpyLayout.swift */; };
+		AA0000000000000000000029 /* ChirpyPaint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000028 /* ChirpyPaint.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -25,6 +26,7 @@
 		AA0000000000000000000022 /* ChirpyShield.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChirpyShield.swift; sourceTree = "<group>"; };
 		AA0000000000000000000024 /* ChirpyCSS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChirpyCSS.swift; sourceTree = "<group>"; };
 		AA0000000000000000000026 /* ChirpyLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChirpyLayout.swift; sourceTree = "<group>"; };
+		AA0000000000000000000028 /* ChirpyPaint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChirpyPaint.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -64,6 +66,7 @@
 				AA0000000000000000000022 /* ChirpyShield.swift */,
 				AA0000000000000000000024 /* ChirpyCSS.swift */,
 				AA0000000000000000000026 /* ChirpyLayout.swift */,
+				AA0000000000000000000028 /* ChirpyPaint.swift */,
 			);
 			path = ChirpyBrowser;
 			sourceTree = "<group>";
@@ -143,6 +146,7 @@
 				AA0000000000000000000023 /* ChirpyShield.swift in Sources */,
 				AA0000000000000000000025 /* ChirpyCSS.swift in Sources */,
 				AA0000000000000000000027 /* ChirpyLayout.swift in Sources */,
+				AA0000000000000000000029 /* ChirpyPaint.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
