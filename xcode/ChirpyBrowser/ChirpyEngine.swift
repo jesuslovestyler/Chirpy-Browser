@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.38 (Swift)
+//  Chirpy Browser — engine 0.39 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -950,6 +950,64 @@
 //  fetch — is a later stage still. The
 //  drill page js2-test.html promises each
 //  piece, one numbered promise at a time.
+//  0.39 is JavaScript's third stage — the
+//  modern shapes real scripts are written
+//  in. Bindings: let and const, block-scoped
+//  — planted in their room's opening, so
+//  reading one before its own line is the
+//  temporal-dead-zone error and writing a
+//  constant is a refusal, both errors a try
+//  can catch; var keeps its old roads. A
+//  for head wearing let or const keeps a
+//  fresh binding for every round, so a
+//  closure made in a round keeps that
+//  round's counter. Arrows: (a, b) => expr,
+//  (a) => { … }, a => expr — each born
+//  holding the `this` of the room it was
+//  written in, which no call can take from
+//  it; an arrow still cannot be built with.
+//  Parameters grow defaults (an explicit
+//  undefined wakes one, as a missing
+//  argument does) and a closing rest, which
+//  gathers what remains into a true array;
+//  spread opens an array into another
+//  array, a call's arguments, and a
+//  building's. for-of walks an array's
+//  values and a string's letters, into a
+//  let, a const, a var, or a name already
+//  standing. Classes: class, extends, new —
+//  an instance carries its class in a box
+//  held by reference, so two hands on one
+//  instance see the same fields; a member
+//  read walks instance, class, parent
+//  class; super(...) builds the parent part
+//  before the child's own body may touch
+//  `this`, and super.method() calls the
+//  parent's with the child's `this`; a
+//  child with no constructor forwards its
+//  arguments to the parent's. instanceof
+//  walks that same class road, with the
+//  root Object above every object-shaped
+//  value, and the `in` operator rides
+//  beside it. Named gaps, on purpose:
+//  static methods and getters/setters are
+//  refused by name at the reading, not
+//  faked; classes are declarations, not
+//  expressions; destructuring is not here
+//  (0.40 evidence); instanceof against a
+//  plain function constructor answers false
+//  — its products are dictionary objects
+//  and carry no class stamp to walk; a
+//  derived constructor's `this` reads as
+//  undefined before super(...) rather than
+//  raising, though ending still unbound is
+//  an error; for-of walks arrays and
+//  strings only. The drill is a suite now,
+//  and stays one: js-suite.html opens every
+//  stage's page — js-test.html, js2-test.html,
+//  and this stage's js3-test.html, ten
+//  promises — and no stage is done until
+//  the whole suite passes.
 //
 
 import Foundation
@@ -3641,6 +3699,16 @@ enum TBJSValue {
     case string(String)
     case array([TBJSValue])
     case object([String: TBJSValue])
+    // JavaScript third stage (0.39): a class
+    // instance — its own fields in a reference
+    // box, so a write through one name is seen
+    // through every name that holds it, and the
+    // box carries the class it was built from —
+    // and a class itself, a value a name can
+    // hold, `new` can build from, and
+    // `instanceof` can ask about.
+    case instance(TBJSInstanceBox)
+    case classDef(TBJSClassBox)
     case function(TBJSFunc)
     case native(String)
     case element(TBNode)
@@ -3655,26 +3723,218 @@ enum TBJSValue {
     case regex(String, String, Int)
 }
 
+// A value held by reference (0.39): an arrow's
+// captured `this` rides in one of these, so the
+// function type and the value type stay free of
+// each other.
+final class TBJSBoxedValue {
+    var value: TBJSValue
+    init(_ value: TBJSValue) { self.value = value }
+}
+
 struct TBJSFunc {
-    var params: [String]
+    var params: [TBJSParam]
     var body: [TBJSStmt]
     var env: TBJSEnv
+    // JavaScript third stage (0.39): an arrow
+    // function keeps the `this` of the room it
+    // was written in; a plain function keeps
+    // nil here and takes the `this` of its call
+    // site, as it always has. The value rides
+    // in a small box — a class — because a
+    // function value cannot hold another value
+    // outright without the two types chasing
+    // their own tail.
+    var capturedThis: TBJSBoxedValue? = nil
+    // An arrow whose body is one expression
+    // answers that expression's value without a
+    // written return (the body's one statement
+    // is an expression statement wearing this).
+    var expressionBody = false
+    // JavaScript third stage (0.39): the class
+    // a method or constructor belongs to, when
+    // the function is one. The copies handed
+    // out at a call or a member read carry it —
+    // it is how `super` knows the room it was
+    // written in — while the originals a class
+    // box stores keep nil, so no class box ever
+    // holds a road back into itself.
+    var classHome: TBJSClassBox? = nil
+    // A class's own constructor, marked when
+    // the building hands it out: `super(...)`
+    // may stand only in one of these.
+    var isClassConstructor = false
+}
+
+// JavaScript third stage (0.39): a class as
+// the engine keeps it — its name, the class it
+// extends (nil for a root class), its
+// constructor's function if it declared one,
+// and its methods by name. The methods are
+// looked up through this box at every read, so
+// an instance carries its class, not copies of
+// its methods.
+final class TBJSClassBox {
+    var name: String
+    var parent: TBJSClassBox?
+    var ctor: TBJSFunc? = nil
+    var methods: [String: TBJSFunc] = [:]
+    init(name: String, parent: TBJSClassBox? = nil) {
+        self.name = name
+        self.parent = parent
+    }
+}
+
+// A class instance's own fields, held by
+// reference (0.39): the instance value can be
+// copied from hand to hand the way every value
+// here is, and every hand still writes the
+// same fields — the way an object in the
+// language behaves, and the way this engine's
+// plain dictionary objects, which are copies,
+// do not.
+final class TBJSInstanceBox {
+    var fields: [String: TBJSValue] = [:]
+    var klass: TBJSClassBox
+    init(klass: TBJSClassBox) { self.klass = klass }
+}
+
+// JavaScript third stage (0.39): one declared
+// parameter — a name, an optional default the
+// caller may leave unwritten, and whether it
+// gathers the road's remaining arguments into
+// an array (a rest parameter, always last).
+struct TBJSParam {
+    var name: String
+    var `default`: TBJSExpr? = nil
+    var isRest = false
 }
 
 final class TBJSEnv {
     var vars: [String: TBJSValue] = [:]
     var parent: TBJSEnv?
+    // JavaScript third stage (0.39): what kind
+    // of binding each name in this room is, and
+    // whether a let/const binding has been
+    // initialized yet. A name absent from kinds
+    // is an ordinary var-shaped binding (the
+    // globals, parameters, function names and
+    // sloppy globals all predate the distinction
+    // and behave as they always have). A lexical
+    // binding exists from the moment its block
+    // is entered — declareLexical plants it
+    // uninitialized — and reading it before its
+    // declaration runs is the temporal-dead-zone
+    // error, not a silent undefined.
+    enum Kind { case flexible, lexical, constant }
+    var kinds: [String: Kind] = [:]
+    var initialized: [String: Bool] = [:]
+    // The nearest enclosing function body's
+    // room (or the root): where var declarations
+    // and hoisted function declarations land.
+    // A fresh environment is its own var scope
+    // until marked a mere block — blocks and
+    // the try/catch/finally rooms pass the mark
+    // down from the room they were opened in.
+    var isVarScope = true
     init(parent: TBJSEnv? = nil) { self.parent = parent }
     func get(_ name: String) -> TBJSValue? {
         if let value = vars[name] { return value }
         return parent?.get(name)
     }
+    // The same road as get, but a lexical
+    // binding still waiting for its declaration
+    // stops the walk with the dead-zone error
+    // instead of reading as a name nobody holds.
+    func lookup(_ name: String) throws -> TBJSValue? {
+        if vars[name] != nil || kinds[name] != nil {
+            if kinds[name] == .lexical || kinds[name] == .constant,
+               initialized[name] != true {
+                throw TBJSFlow.error(
+                    "cannot use '\(name)' before its declaration")
+            }
+            return vars[name]
+        }
+        return try parent?.lookup(name)
+    }
+    // Whether any room on the road holds a
+    // lexical or constant binding of this name
+    // (an initialized one still counts: a var
+    // may not be declared over it in this nest).
+    func hasLexical(_ name: String) -> Bool {
+        if kinds[name] == .lexical || kinds[name] == .constant {
+            return true
+        }
+        return parent?.hasLexical(name) ?? false
+    }
+    // Plant a let/const binding in this room,
+    // uninitialized, the moment the room opens.
+    func declareLexical(_ name: String, constant: Bool) {
+        kinds[name] = constant ? .constant : .lexical
+        initialized[name] = false
+        vars[name] = nil
+    }
+    // Run a declaration's own line: the binding
+    // takes its value and stands initialized.
+    func initializeLexical(_ name: String, _ value: TBJSValue) {
+        kinds[name] = kinds[name] ?? .lexical
+        initialized[name] = true
+        vars[name] = value
+    }
+    func varScope() -> TBJSEnv {
+        if isVarScope { return self }
+        return parent?.varScope() ?? self
+    }
+    // A new room inside this one: a block, a
+    // try's guarded room, a catch's, a finally's
+    // — never itself a var scope, always under
+    // this room's var scope.
+    func childBlock() -> TBJSEnv {
+        let child = TBJSEnv(parent: self)
+        child.isVarScope = false
+        return child
+    }
+    // Open a statement list's lexical bindings
+    // in this room before any of it runs: every
+    // let/const declared directly in the list
+    // stands planted, uninitialized, from the
+    // room's first moment — the dead zone.
+    func hoistLexical(_ stmts: [TBJSStmt]) {
+        for stmt in stmts {
+            if case .lexicalDecl(let names, _, let constant) = stmt {
+                for name in names where kinds[name] == nil {
+                    declareLexical(name, constant: constant)
+                }
+            }
+        }
+    }
     // Assign where the name already lives; a name
     // nobody holds is defined at the root, the
     // way a browser's sloppy mode makes a global.
-    func set(_ name: String, _ value: TBJSValue) {
-        if vars[name] != nil { vars[name] = value; return }
-        if let parent = parent { parent.set(name, value); return }
+    // A constant's room refuses the write, and a
+    // lexical binding still in its dead zone
+    // refuses it too.
+    func set(_ name: String, _ value: TBJSValue) throws {
+        if vars[name] != nil || kinds[name] != nil {
+            if kinds[name] == .constant {
+                if initialized[name] == true {
+                    throw TBJSFlow.error(
+                        "assignment to a constant '\(name)'")
+                }
+                throw TBJSFlow.error(
+                    "cannot use '\(name)' before its declaration")
+            }
+            if kinds[name] == .lexical, initialized[name] != true {
+                throw TBJSFlow.error(
+                    "cannot use '\(name)' before its declaration")
+            }
+            vars[name] = value
+            return
+        }
+        if let parent = parent {
+            try parent.set(name, value)
+            return
+        }
         vars[name] = value
     }
 }
@@ -3750,6 +4010,20 @@ final class TBJSContext {
     // which knows the expression the array came
     // from, writes it back.
     var mutatedThis: TBJSValue? = nil
+    // JavaScript third stage (0.39): the root
+    // class every value is asked about by
+    // `instanceof Object`, and the stack of
+    // class rooms the evaluator is standing in
+    // — a method's or constructor's defining
+    // class, whether the standing is a
+    // constructor's, and, for a constructor of
+    // a class that extends another, the fresh
+    // instance `super(...)` will build into,
+    // held here while the constructor's own
+    // `this` still reads unbound.
+    let objectClass = TBJSClassBox(name: "Object")
+    var classFrames: [(home: TBJSClassBox, isConstructor: Bool,
+                       pendingThis: TBJSValue?)] = []
     init() {
         globals.vars["document"] = .document
         globals.vars["window"] = .window
@@ -3765,6 +4039,12 @@ final class TBJSContext {
         globals.vars["isNaN"] = .native("global.isNaN")
         globals.vars["String"] = .native("global.String")
         globals.vars["Number"] = .native("global.Number")
+        // JavaScript third stage (0.39): the
+        // root class, standing in the globals
+        // like any class a page declares, so
+        // `instanceof Object` has something to
+        // ask about.
+        globals.vars["Object"] = .classDef(objectClass)
         // JavaScript second stage (0.38): the
         // RegExp constructor — a call or a `new`
         // with a pattern and optional flags makes
@@ -3815,7 +4095,8 @@ func tbJSString(_ value: TBJSValue) -> String {
             }
         }.joined(separator: ",")
     case .object: return "[object Object]"
-    case .function, .native: return "function"
+    case .instance: return "[object Object]"
+    case .function, .native, .classDef: return "function"
     case .element: return "[object Element]"
     case .document: return "[object HTMLDocument]"
     case .console: return "[object Object]"
@@ -3842,8 +4123,8 @@ func tbJSNumber(_ value: TBJSValue) -> Double {
         }
         return Double.nan
     case .array(let items): return tbJSNumber(.string(tbJSString(.array(items))))
-    case .object, .function, .native, .element, .document, .console, .window,
-         .location, .regex:
+    case .object, .instance, .classDef, .function, .native, .element,
+         .document, .console, .window, .location, .regex:
         return Double.nan
     }
 }
@@ -3865,7 +4146,7 @@ func tbJSTypeName(_ value: TBJSValue) -> String {
     case .boolean: return "boolean"
     case .number: return "number"
     case .string: return "string"
-    case .function, .native: return "function"
+    case .function, .native, .classDef: return "function"
     default: return "object"
     }
 }
@@ -3877,6 +4158,8 @@ func tbJSStrictEqual(_ a: TBJSValue, _ b: TBJSValue) -> Bool {
     case (.number(let x), .number(let y)): return x == y
     case (.string(let x), .string(let y)): return x == y
     case (.element(let x), .element(let y)): return x === y
+    case (.instance(let x), .instance(let y)): return x === y
+    case (.classDef(let x), .classDef(let y)): return x === y
     case (.location, .location): return true
     case (.regex(let p1, let f1, _), .regex(let p2, let f2, _)):
         // A copy of a pattern is this engine's
@@ -3899,6 +4182,85 @@ func tbJSLooseEqual(_ a: TBJSValue, _ b: TBJSValue) -> Bool {
     case (.array, .number(let y)): return tbJSNumber(a) == y
     case (.number(let x), .array): return x == tbJSNumber(b)
     default: return false
+    }
+}
+
+// JavaScript third stage (0.39): whether a
+// value is object-shaped at all — the answer
+// `instanceof Object` gives for anything that
+// is not a primitive.
+func tbJSIsObjectLike(_ value: TBJSValue) -> Bool {
+    switch value {
+    case .undefined, .null, .boolean, .number, .string:
+        return false
+    default:
+        return true
+    }
+}
+
+// `instanceof` (0.39): against a class, an
+// instance answers by walking its own class
+// road — itself, its parent, its parent's
+// parent — looking for the very box on the
+// right. Against the root Object class, every
+// object-shaped value answers true. A plain
+// function on the right names a constructor
+// whose products are this engine's dictionary
+// objects, and those carry no class stamp to
+// walk — so the honest answer there is false,
+// named in the README.
+func tbJSInstanceOf(_ value: TBJSValue, _ target: TBJSValue,
+                    _ ctx: TBJSContext) -> Bool {
+    guard case .classDef(let wanted) = target else { return false }
+    if wanted === ctx.objectClass { return tbJSIsObjectLike(value) }
+    guard case .instance(let box) = value else { return false }
+    var cursor: TBJSClassBox? = box.klass
+    while let current = cursor {
+        if current === wanted { return true }
+        cursor = current.parent
+    }
+    return false
+}
+
+// The `in` operator's question (0.39): does
+// this name stand on this value — as a field,
+// or, for an instance, as a field or a method
+// anywhere on its class road?
+func tbJSHasProperty(_ base: TBJSValue, _ name: String,
+                     _ ctx: TBJSContext) -> Bool {
+    switch base {
+    case .object(let obj):
+        return obj[name] != nil
+    case .instance(let box):
+        if box.fields[name] != nil { return true }
+        if name == "constructor" { return true }
+        var cursor: TBJSClassBox? = box.klass
+        while let current = cursor {
+            if current.methods[name] != nil { return true }
+            cursor = current.parent
+        }
+        return false
+    case .array(let items):
+        if name == "length" || TBJSArrayMethods[name] != nil {
+            return true
+        }
+        if let idx = Int(name) {
+            return idx >= 0 && idx < items.count
+        }
+        return false
+    case .string(let s):
+        if name == "length" || TBJSStringMethods[name] != nil {
+            return true
+        }
+        if let idx = Int(name) {
+            return idx >= 0 && idx < s.count
+        }
+        return false
+    default:
+        if case .undefined = tbJSGetMember(base, name, ctx) {
+            return false
+        }
+        return true
     }
 }
 
@@ -3947,6 +4309,36 @@ func tbJSGetMember(_ base: TBJSValue, _ name: String,
         return .undefined
     case .object(let obj):
         return obj[name] ?? .undefined
+    case .instance(let box):
+        // JavaScript third stage (0.39): an
+        // instance reads its own fields first,
+        // then its class's methods, then its
+        // parent's, and so on up the road. A
+        // method is handed out as a copy
+        // carrying the class it was found on,
+        // so `super` inside it knows its room.
+        if let field = box.fields[name] { return field }
+        if name == "constructor" { return .classDef(box.klass) }
+        var cursor: TBJSClassBox? = box.klass
+        while let current = cursor {
+            if let stored = current.methods[name] {
+                var method = stored
+                method.classHome = current
+                return .function(method)
+            }
+            cursor = current.parent
+        }
+        return .undefined
+    case .classDef(let box):
+        // A class's own face (0.39): its name,
+        // and its constructor's length. Static
+        // methods are not in this stage.
+        switch name {
+        case "name": return .string(box.name)
+        case "length":
+            return .number(Double(box.ctor?.params.count ?? 0))
+        default: return .undefined
+        }
     case .element(let node):
         switch name {
         case "textContent", "innerHTML":
@@ -4027,6 +4419,14 @@ func tbJSSetMember(_ base: TBJSValue, _ name: String, _ value: TBJSValue,
     case .object(var obj):
         obj[name] = value
         return .object(obj)
+    case .instance(let box):
+        // JavaScript third stage (0.39): a
+        // write to an instance lands in its
+        // box, in place — every hand holding
+        // the instance sees it, and the base
+        // rides back unchanged.
+        box.fields[name] = value
+        return base
     case .array(var items):
         if name == "length" {
             let wanted = Int(tbJSNumber(value))
@@ -4112,8 +4512,8 @@ func tbJSGetIndex(_ base: TBJSValue, _ index: TBJSValue,
             return .undefined
         }
         return tbJSGetMember(base, tbJSString(index), ctx)
-    case .object, .element, .document, .console, .window, .location,
-         .regex:
+    case .object, .instance, .element, .document, .console, .window,
+         .location, .regex:
         return tbJSGetMember(base, tbJSString(index), ctx)
     default:
         return .undefined
@@ -4134,7 +4534,7 @@ func tbJSSetIndex(_ base: TBJSValue, _ index: TBJSValue, _ value: TBJSValue,
             return base
         }
         return tbJSSetMember(base, tbJSString(index), value, ctx)
-    case .object, .element, .document:
+    case .object, .instance, .element, .document:
         return tbJSSetMember(base, tbJSString(index), value, ctx)
     default:
         return base
@@ -4320,6 +4720,7 @@ enum TBJSToken {
     case punct(String)
     case eof
 }
+
 
 func tbJSLex(_ source: String) throws -> [TBJSToken] {
     let chars = Array(source)
@@ -4623,7 +5024,11 @@ func tbJSLex(_ source: String) throws -> [TBJSToken] {
         let rest = String(chars[i..<min(i + 3, n)])
         var matched: String? = nil
         for op in ["===", "!==", "==", "!=", "<=", ">=", "&&", "||",
-                   "++", "--", "+=", "-=", "*=", "/=", "%="] {
+                   "++", "--", "+=", "-=", "*=", "/=", "%=",
+                   // JavaScript third stage (0.39):
+                   // the arrow's joining stroke, and
+                   // spread's three dots.
+                   "=>", "..."] {
             if rest.hasPrefix(op) { matched = op; break }
         }
         if let op = matched {
@@ -4657,23 +5062,74 @@ indirect enum TBJSExpr {
     case assign(TBJSExpr, TBJSExpr)
     case opAssign(String, TBJSExpr, TBJSExpr)
     case ternary(TBJSExpr, TBJSExpr, TBJSExpr)
-    case funcExpr([String], [TBJSStmt])
+    case funcExpr([TBJSParam], [TBJSStmt])
     // JavaScript second stage (0.38): building
     // with `new` — the thing built, and the
     // arguments it is built with.
     case newExpr(TBJSExpr, [TBJSExpr])
+    // JavaScript third stage (0.39): an arrow
+    // function — the shared parameter road and
+    // its body. When the body is one expression
+    // the flag says so, and the body holds that
+    // expression as a lone expression statement.
+    case arrowExpr([TBJSParam], [TBJSStmt], Bool)
+    // Spread (0.39): stands inside a call's
+    // arguments and an array literal's pieces,
+    // and opens into the values it holds.
+    case spread(TBJSExpr)
+    // JavaScript third stage (0.39): `super`
+    // in a class's rooms — a call of the
+    // parent class's constructor, standing
+    // only in a constructor; and a read of a
+    // name on the parent class, whose call
+    // keeps the child's `this`.
+    case superCall([TBJSExpr])
+    case superMember(String)
 }
 
 indirect enum TBJSStmt {
     case empty
     case expr(TBJSExpr)
     case decl(String, TBJSExpr?)
+    // JavaScript third stage (0.39): a let or
+    // const declaration — every declarator's
+    // name and first value together, and
+    // whether the bindings are constants. The
+    // names are planted in whatever room the
+    // list stands in when that room opens.
+    case lexicalDecl([String], [TBJSExpr?], Bool)
+    // A for head wearing let/const (0.39): the
+    // head runs in a room of its own, and the
+    // loop copies the head's bindings into a
+    // fresh room for every round, so a closure
+    // made in one round keeps that round's
+    // counter. (kind: true = const.)
+    case forLexical([String], [TBJSExpr?], Bool,
+                    TBJSExpr?, TBJSExpr?, TBJSStmt)
     case block([TBJSStmt])
     case ifElse(TBJSExpr, TBJSStmt, TBJSStmt?)
     case whileLoop(TBJSExpr, TBJSStmt)
     case doWhile(TBJSStmt, TBJSExpr)
     case forLoop(TBJSStmt?, TBJSExpr?, TBJSExpr?, TBJSStmt)
-    case funcDecl(String, [String], [TBJSStmt])
+    // JavaScript third stage (0.39): for-of —
+    // the thing walked, and the target each
+    // piece is handed to (a name being
+    // declared with var when the flag stands,
+    // or an existing name, member or index).
+    // The let/const form keeps its name apart:
+    // every round is a fresh binding.
+    case forOf(TBJSExpr, TBJSExpr, TBJSStmt, Bool)
+    case forOfLexical(String, Bool, TBJSExpr, TBJSStmt)
+    // JavaScript third stage (0.39): a class
+    // declaration — its name, the name of the
+    // class it extends if it names one, its
+    // constructor's parameters and body if it
+    // declares one, and its methods, each a
+    // name with parameters and a body.
+    case classDecl(String, String?,
+                   ([TBJSParam], [TBJSStmt])?,
+                   [(String, [TBJSParam], [TBJSStmt])])
+    case funcDecl(String, [TBJSParam], [TBJSStmt])
     case returnStmt(TBJSExpr?)
     case breakStmt
     case continueStmt
@@ -4759,18 +5215,122 @@ struct TBJSParser {
         return stmts
     }
 
-    mutating func parseFunctionTail() throws -> ([String], [TBJSStmt]) {
+    // A let/const declaration (0.39): the whole
+    // list as one statement, every declarator's
+    // name and first value together, so the
+    // room the list stands in can plant all the
+    // names — uninitialized — before the block
+    // runs, which is what makes reading one
+    // early an error rather than a shrug.
+    mutating func parseLexicalDeclList() throws -> TBJSStmt {
+        let constant = peekIdent() == "const"
+        advance()  // the keyword itself
+        var names: [String] = []
+        var initials: [TBJSExpr?] = []
+        while true {
+            names.append(try expectIdent())
+            if acceptPunct("=") {
+                initials.append(try parseAssign())
+            } else {
+                initials.append(nil)
+            }
+            if !acceptPunct(",") { break }
+        }
+        return .lexicalDecl(names, initials, constant)
+    }
+
+    // The one road for parameter lists (0.39):
+    // declarations, function expressions, and
+    // arrows all read their parameters here —
+    // plain names, names with defaults whose
+    // expressions are read whole (commas inside
+    // them belong to the expression, so the
+    // default is read at the ternary's level),
+    // and a closing rest that gathers the rest.
+    mutating func parseParams() throws -> [TBJSParam] {
         try expectPunct("(")
-        var params: [String] = []
+        var params: [TBJSParam] = []
         if peekPunct() != ")" {
             while true {
-                params.append(try expectIdent())
+                if acceptPunct("...") {
+                    params.append(TBJSParam(
+                        name: try expectIdent(), isRest: true))
+                    break
+                }
+                let name = try expectIdent()
+                var fallback: TBJSExpr? = nil
+                if acceptPunct("=") {
+                    fallback = try parseTernary()
+                }
+                params.append(TBJSParam(name: name, default: fallback))
                 if !acceptPunct(",") { break }
+                if peekPunct() == ")" { break }
             }
         }
         try expectPunct(")")
+        return params
+    }
+
+    mutating func parseFunctionTail() throws
+        -> ([TBJSParam], [TBJSStmt]) {
+        let params = try parseParams()
         let body = try parseBlock()
         return (params, body)
+    }
+
+    // A class declaration (0.39): the name, an
+    // optional `extends` naming one other
+    // class, and a body of methods — the one
+    // named constructor, and the rest by name.
+    // Static methods, getters and setters are
+    // named plainly as not in this stage when
+    // their shape appears, rather than read as
+    // something they are not.
+    mutating func parseClassDecl() throws -> TBJSStmt {
+        advance()  // the word class itself
+        let name = try expectIdent()
+        var parentName: String? = nil
+        if acceptIdent("extends") {
+            parentName = try expectIdent()
+        }
+        try expectPunct("{")
+        var ctor: ([TBJSParam], [TBJSStmt])? = nil
+        var methods: [(String, [TBJSParam], [TBJSStmt])] = []
+        while peekPunct() != "}" {
+            if case .eof = peek() {
+                throw TBJSFlow.error("unterminated class body")
+            }
+            skipSemicolons()
+            if peekPunct() == "}" { break }
+            if let word = peekIdent(),
+               word == "static" || word == "get" || word == "set" {
+                // A modifier only when another
+                // name follows it; a method that
+                // merely bears one of these names
+                // (the name, then its parameters)
+                // is an ordinary method.
+                let ahead = tokens[min(pos + 1, tokens.count - 1)]
+                if case .ident = ahead {
+                    throw TBJSFlow.error(
+                        "class statics, getters and setters"
+                        + " are not in this stage")
+                }
+            }
+            let memberName = try expectIdent()
+            let (params, body) = try parseFunctionTail()
+            if memberName == "constructor" {
+                if ctor != nil {
+                    throw TBJSFlow.error(
+                        "a class holds one constructor")
+                }
+                ctor = (params, body)
+            } else {
+                methods.append((memberName, params, body))
+            }
+            skipSemicolons()
+        }
+        try expectPunct("}")
+        return .classDecl(name, parentName, ctor, methods)
     }
 
     mutating func parseStatement() throws -> TBJSStmt {
@@ -4780,15 +5340,28 @@ struct TBJSParser {
         }
         if let word = peekIdent() {
             switch word {
-            case "var", "let", "const":
+            case "var":
                 let decls = try parseDeclList()
                 skipSemicolons()
                 return decls.count == 1 ? decls[0] : .block(decls)
+            case "let", "const":
+                // JavaScript third stage (0.39):
+                // one statement carrying the whole
+                // list, so the room can plant every
+                // name before anything runs.
+                let stmt = try parseLexicalDeclList()
+                skipSemicolons()
+                return stmt
             case "function":
                 advance()
                 let name = try expectIdent()
                 let (params, body) = try parseFunctionTail()
                 return .funcDecl(name, params, body)
+            case "class":
+                // JavaScript third stage (0.39).
+                let stmt = try parseClassDecl()
+                skipSemicolons()
+                return stmt
             case "if":
                 advance()
                 try expectPunct("(")
@@ -4820,15 +5393,104 @@ struct TBJSParser {
             case "for":
                 advance()
                 try expectPunct("(")
+                // JavaScript third stage (0.39):
+                // for-of, first in its let/const
+                // dress — one name, no first
+                // value, and the word `of` right
+                // behind it, where the counted
+                // loop would ask for a semicolon.
+                if let w = peekIdent(), w == "let" || w == "const" {
+                    let nameToken = tokens[min(pos + 1,
+                                                tokens.count - 1)]
+                    let ofToken = tokens[min(pos + 2,
+                                              tokens.count - 1)]
+                    if case .ident(let oneName) = nameToken,
+                       case .ident(let ofWord) = ofToken,
+                       ofWord == "of" {
+                        let constant = w == "const"
+                        advance()  // let or const
+                        advance()  // the name
+                        advance()  // of
+                        let walked = try parseExpr()
+                        try expectPunct(")")
+                        return .forOfLexical(
+                            oneName, constant, walked,
+                            try parseStatement())
+                    }
+                }
+                // The same walk in its var dress.
+                if peekIdent() == "var" {
+                    let nameToken = tokens[min(pos + 1,
+                                                tokens.count - 1)]
+                    let ofToken = tokens[min(pos + 2,
+                                              tokens.count - 1)]
+                    if case .ident(let oneName) = nameToken,
+                       case .ident(let ofWord) = ofToken,
+                       ofWord == "of" {
+                        advance()  // var
+                        advance()  // the name
+                        advance()  // of
+                        let walked = try parseExpr()
+                        try expectPunct(")")
+                        return .forOf(.ident(oneName), walked,
+                                      try parseStatement(), true)
+                    }
+                }
+                // JavaScript third stage (0.39): a
+                // let or const in the head makes
+                // the loop keep its own bindings,
+                // fresh for every round.
+                if let w = peekIdent(), w == "let" || w == "const" {
+                    guard case .lexicalDecl(let names, let initials,
+                                             let constant)
+                        = try parseLexicalDeclList() else {
+                        throw TBJSFlow.error("bad for head")
+                    }
+                    try expectPunct(";")
+                    var lexCond: TBJSExpr? = nil
+                    if peekPunct() != ";" {
+                        lexCond = try parseExpr()
+                    }
+                    try expectPunct(";")
+                    var lexStep: TBJSExpr? = nil
+                    if peekPunct() != ")" {
+                        lexStep = try parseExpr()
+                    }
+                    try expectPunct(")")
+                    return .forLexical(names, initials, constant,
+                                       lexCond, lexStep,
+                                       try parseStatement())
+                }
                 var initial: TBJSStmt? = nil
                 if peekPunct() != ";" {
-                    if let w = peekIdent(),
-                       w == "var" || w == "let" || w == "const" {
+                    if peekIdent() == "var" {
                         let decls = try parseDeclList()
                         initial = decls.count == 1 ? decls[0]
                             : .block(decls)
                     } else {
-                        initial = .expr(try parseExpr())
+                        // JavaScript third stage
+                        // (0.39): the head may be a
+                        // for-of over an existing
+                        // name, member or index —
+                        // the word `of` where the
+                        // counted loop asks for its
+                        // first semicolon.
+                        let target = try parseExpr()
+                        if acceptIdent("of") {
+                            switch target {
+                            case .ident, .member, .index:
+                                let walked = try parseExpr()
+                                try expectPunct(")")
+                                return .forOf(
+                                    target, walked,
+                                    try parseStatement(), false)
+                            default:
+                                throw TBJSFlow.error(
+                                    "for-of walks into a name,"
+                                    + " a member or an index")
+                            }
+                        }
+                        initial = .expr(target)
                     }
                 }
                 try expectPunct(";")
@@ -4923,7 +5585,82 @@ struct TBJSParser {
         return try parseAssign()
     }
 
+    // An arrow function, tried on a copy of the
+    // reader (0.39). The tent reads a parameter
+    // list — or one bare name — and demands the
+    // arrow right behind; if the shape is not an
+    // arrow the main reader simply never heard
+    // of it, so grouped sums, calls, and plain
+    // parentheses walk their old roads untouched.
+    mutating func tryParseArrow() -> TBJSExpr? {
+        // One bare name: `a => …`.
+        if case .ident(let one) = tokens[pos] {
+            if case .punct(let p) = tokens[min(pos + 1, tokens.count - 1)],
+               p == "=>" {
+                let saved = pos
+                pos += 2
+                if let arrow = parseArrowBody(
+                    params: [TBJSParam(name: one)]) {
+                    return arrow
+                }
+                pos = saved
+                return nil
+            }
+            return nil
+        }
+        guard peekPunct() == "(" else { return nil }
+        var depth = 0
+        var scan = pos
+        while scan < tokens.count {
+            if case .punct(let p) = tokens[scan] {
+                if p == "(" { depth += 1 }
+                if p == ")" {
+                    depth -= 1
+                    if depth == 0 { break }
+                }
+            }
+            scan += 1
+        }
+        guard depth == 0, scan + 1 < tokens.count,
+              case .punct(let next) = tokens[scan + 1], next == "=>"
+        else { return nil }
+        let saved = pos
+        do {
+            let params = try parseParams()
+            pos += 1  // the arrow itself
+            if let arrow = parseArrowBody(params: params) {
+                return arrow
+            }
+        } catch {
+            // Not an arrow after all — the main
+            // reader walks its own road.
+        }
+        pos = saved
+        return nil
+    }
+
+    // The arrow's body, once the parameters and
+    // the arrow are behind us: a block of
+    // statements, or one expression carried as
+    // a lone expression statement with its flag.
+    mutating func parseArrowBody(params: [TBJSParam]) -> TBJSExpr? {
+        if peekPunct() == "{" {
+            guard let body = try? parseBlock() else {
+                return nil
+            }
+            return .arrowExpr(params, body, false)
+        }
+        guard let body = try? parseAssign() else {
+            return nil
+        }
+        return .arrowExpr(params, [.expr(body)], true)
+    }
+
     mutating func parseAssign() throws -> TBJSExpr {
+        // JavaScript third stage (0.39): an
+        // arrow may stand where an assignment
+        // stands — tried first, on a copy.
+        if let arrow = tryParseArrow() { return arrow }
         let lhs = try parseTernary()
         if acceptPunct("=") {
             return .assign(lhs, try parseAssign())
@@ -4973,9 +5710,30 @@ struct TBJSParser {
         }
     }
     mutating func parseRelational() throws -> TBJSExpr {
-        return try parseBinaryLevel(["<", "<=", ">", ">="]) {
-            try $0.parseAdditive()
+        // JavaScript third stage (0.39): the
+        // comparison strokes, and the two word
+        // operators — instanceof and in — which
+        // ride at this same level, read as
+        // identifiers rather than strokes.
+        var lhs = try parseAdditive()
+        while true {
+            if let p = peekPunct(),
+               ["<", "<=", ">", ">="].contains(p) {
+                advance()
+                let rhs = try parseAdditive()
+                lhs = .binary(p, lhs, rhs)
+                continue
+            }
+            if let word = peekIdent(),
+               word == "instanceof" || word == "in" {
+                advance()
+                let rhs = try parseAdditive()
+                lhs = .binary(word, lhs, rhs)
+                continue
+            }
+            break
         }
+        return lhs
     }
     mutating func parseAdditive() throws -> TBJSExpr {
         return try parseBinaryLevel(["+", "-"]) {
@@ -5028,7 +5786,14 @@ struct TBJSParser {
                 var args: [TBJSExpr] = []
                 if peekPunct() != ")" {
                     while true {
-                        args.append(try parseAssign())
+                        // Spread (0.39): an opened
+                        // list standing among the
+                        // arguments.
+                        if acceptPunct("...") {
+                            args.append(.spread(try parseAssign()))
+                        } else {
+                            args.append(try parseAssign())
+                        }
                         if !acceptPunct(",") { break }
                     }
                 }
@@ -5068,6 +5833,36 @@ struct TBJSParser {
                 if peekIdent() != nil { advance() }  // a name, unused
                 let (params, body) = try parseFunctionTail()
                 return .funcExpr(params, body)
+            case "super":
+                // JavaScript third stage (0.39):
+                // a constructor call of the
+                // parent class, or a name read on
+                // the parent class. Anything else
+                // `super` might stand for is not
+                // in this stage.
+                advance()
+                if acceptPunct("(") {
+                    var args: [TBJSExpr] = []
+                    if peekPunct() != ")" {
+                        while true {
+                            if acceptPunct("...") {
+                                args.append(
+                                    .spread(try parseAssign()))
+                            } else {
+                                args.append(try parseAssign())
+                            }
+                            if !acceptPunct(",") { break }
+                        }
+                    }
+                    try expectPunct(")")
+                    return .superCall(args)
+                }
+                if acceptPunct(".") {
+                    return .superMember(try expectIdent())
+                }
+                throw TBJSFlow.error(
+                    "super stands only as super(...)"
+                    + " or super.name in this stage")
             case "new":
                 // JavaScript second stage (0.38):
                 // what is built is a primary with
@@ -5093,7 +5888,14 @@ struct TBJSParser {
                 if acceptPunct("(") {
                     if peekPunct() != ")" {
                         while true {
-                            args.append(try parseAssign())
+                            // Spread (0.39): the
+                            // building's arguments
+                            // open lists too.
+                            if acceptPunct("...") {
+                                args.append(.spread(try parseAssign()))
+                            } else {
+                                args.append(try parseAssign())
+                            }
                             if !acceptPunct(",") { break }
                         }
                     }
@@ -5147,7 +5949,13 @@ struct TBJSParser {
             var elements: [TBJSExpr] = []
             if peekPunct() != "]" {
                 while true {
-                    if peekPunct() == "," {
+                    // JavaScript third stage (0.39):
+                    // spread is gathered here too —
+                    // an opened array's values land
+                    // in this one, in order.
+                    if acceptPunct("...") {
+                        elements.append(.spread(try parseAssign()))
+                    } else if peekPunct() == "," {
                         elements.append(.literal(.undefined))
                     } else {
                         elements.append(try parseAssign())
@@ -5218,6 +6026,13 @@ func tbJSExec(_ stmts: [TBJSStmt], _ env: TBJSEnv,
                                                 body: body, env: env))
         }
     }
+    // JavaScript third stage (0.39): the list's
+    // let and const names are planted in this
+    // room — present but uninitialized — before
+    // anything runs. That planting is the whole
+    // of the temporal dead zone: the name is
+    // found, and the error is honest.
+    env.hoistLexical(stmts)
     for stmt in stmts {
         try tbJSCheckBudget(ctx)
         try tbJSExecStmt(stmt, env, ctx)
@@ -5232,13 +6047,47 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
     case .expr(let expr):
         _ = try tbJSEval(expr, env, ctx)
     case .decl(let name, let initial):
+        // JavaScript third stage (0.39): var
+        // belongs to the nearest function or
+        // global room, however deep in blocks the
+        // declaration stands — the old flexible
+        // behavior, kept whole.
+        let home = env.varScope()
         if let initial = initial {
-            env.vars[name] = try tbJSEval(initial, env, ctx)
-        } else if env.vars[name] == nil {
-            env.vars[name] = .undefined
+            home.vars[name] = try tbJSEval(initial, env, ctx)
+        } else if home.vars[name] == nil {
+            home.vars[name] = .undefined
+        }
+    case .lexicalDecl(let names, let initials, let constant):
+        // JavaScript third stage (0.39): the
+        // names stand planted in this room by the
+        // list's opening; each declarator now
+        // gives its name its value, in order, so
+        // a later declarator may read an earlier
+        // one — and may NOT read its own name or
+        // a later one, which are still planted
+        // and uninitialized. A const declaration
+        // must carry a value, as the standard
+        // requires.
+        for index in names.indices {
+            let value: TBJSValue
+            if let initial = initials[index] {
+                value = try tbJSEval(initial, env, ctx)
+            } else if constant {
+                throw TBJSFlow.error(
+                    "a constant '"
+                    + names[index]
+                    + "' must be given a value")
+            } else {
+                value = .undefined
+            }
+            env.initializeLexical(names[index], value)
         }
     case .block(let stmts):
-        try tbJSExec(stmts, TBJSEnv(parent: env), ctx)
+        // JavaScript third stage (0.39): a block
+        // is a room of its own — its let and
+        // const live and die inside it.
+        try tbJSExec(stmts, env.childBlock(), ctx)
     case .funcDecl:
         return  // Hoisted by tbJSExec.
     case .ifElse(let cond, let thenBranch, let elseBranch):
@@ -5301,6 +6150,171 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
                 _ = try tbJSEval(step, env, ctx)
             }
         }
+    case .forLexical(let names, let initials, let constant,
+                     let cond, let step, let body):
+        // JavaScript third stage (0.39): the
+        // head's declarations live in their own
+        // room under the loop's room. The head
+        // runs once there; then, for every round,
+        // the bindings are copied into a fresh
+        // room — the standard's own dance — so a
+        // closure made in one round keeps that
+        // round's counter, while the step belongs
+        // to the round to come. A const head
+        // whose step writes to it fails honestly,
+        // as the standard says it must.
+        let head = env.childBlock()
+        head.hoistLexical([.lexicalDecl(names, initials, constant)])
+        try tbJSExecStmt(.lexicalDecl(names, initials, constant),
+                         head, ctx)
+        // The first round gets a fresh room of
+        // its own, copied from the head — never
+        // the head itself — and every later
+        // round is copied from the round before
+        // it before the step runs in the new
+        // room. No room a body ran in is ever
+        // written again, so a closure made in a
+        // round keeps that round's values whole.
+        func freshRound(from source: TBJSEnv) -> TBJSEnv {
+            let room = env.childBlock()
+            for name in names {
+                room.declareLexical(name, constant: constant)
+                if let value = try? source.lookup(name) {
+                    room.initializeLexical(name, value)
+                }
+            }
+            return room
+        }
+        var roundEnv = freshRound(from: head)
+        while true {
+            try tbJSCheckBudget(ctx)
+            if let cond = cond,
+               !tbJSTruthy(try tbJSEval(cond, roundEnv, ctx)) {
+                break
+            }
+            do {
+                try tbJSExecStmt(body, roundEnv, ctx)
+            } catch let flow as TBJSFlow {
+                switch flow {
+                case .breakLoop: return
+                case .continueLoop: break
+                default: throw flow
+                }
+            }
+            // The bindings' present values ride
+            // into the next round's fresh room,
+            // and the step belongs to that room.
+            let next = freshRound(from: roundEnv)
+            if let step = step {
+                _ = try tbJSEval(step, next, ctx)
+            }
+            roundEnv = next
+        }
+    case .forOf(let target, let walked, let body, let declaresVar):
+        // JavaScript third stage (0.39): walk
+        // an array's values, or a string's
+        // letters, handing each to the target
+        // in turn. Anything else is not walked
+        // in this stage, and says so.
+        let iterable = try tbJSEval(walked, env, ctx)
+        let items: [TBJSValue]
+        switch iterable {
+        case .array(let values):
+            items = values
+        case .string(let s):
+            items = s.map { .string(String($0)) }
+        default:
+            throw TBJSFlow.error(
+                "for-of can only walk an array or a string"
+                + " in this stage")
+        }
+        if declaresVar, case .ident(let name) = target {
+            let home = env.varScope()
+            if home.vars[name] == nil {
+                home.vars[name] = .undefined
+            }
+        }
+        for item in items {
+            try tbJSCheckBudget(ctx)
+            try tbJSAssign(target, item, env, ctx)
+            do {
+                try tbJSExecStmt(body, env, ctx)
+            } catch let flow as TBJSFlow {
+                switch flow {
+                case .breakLoop: return
+                case .continueLoop: continue
+                default: throw flow
+                }
+            }
+        }
+    case .forOfLexical(let name, let constant, let walked,
+                       let body):
+        // JavaScript third stage (0.39): the
+        // same walk, with a let or const name —
+        // a fresh room for every round, so a
+        // closure made in one round keeps that
+        // round's piece, as the language has it.
+        let iterable = try tbJSEval(walked, env, ctx)
+        let items: [TBJSValue]
+        switch iterable {
+        case .array(let values):
+            items = values
+        case .string(let s):
+            items = s.map { .string(String($0)) }
+        default:
+            throw TBJSFlow.error(
+                "for-of can only walk an array or a string"
+                + " in this stage")
+        }
+        for item in items {
+            try tbJSCheckBudget(ctx)
+            let round = env.childBlock()
+            round.declareLexical(name, constant: constant)
+            round.initializeLexical(name, item)
+            do {
+                try tbJSExecStmt(body, round, ctx)
+            } catch let flow as TBJSFlow {
+                switch flow {
+                case .breakLoop: return
+                case .continueLoop: continue
+                default: throw flow
+                }
+            }
+        }
+    case .classDecl(let name, let parentName, let ctor,
+                    let methods):
+        // JavaScript third stage (0.39): the
+        // class is made where its declaration
+        // stands — a box holding its name, its
+        // parent, its constructor and methods —
+        // and the name is bound in this room.
+        // The functions are made in this room,
+        // so a class declared inside a function
+        // closes over that function's world. The
+        // box's stored functions keep no road
+        // back to the box; the road is written
+        // onto the copies handed out at a build
+        // or a member read.
+        var parent: TBJSClassBox? = nil
+        if let parentName = parentName {
+            let found = try env.lookup(parentName) ?? .undefined
+            guard case .classDef(let parentBox) = found else {
+                throw TBJSFlow.error(
+                    "class " + name + " extends something"
+                    + " that is not a class")
+            }
+            parent = parentBox
+        }
+        let box = TBJSClassBox(name: name, parent: parent)
+        if let ctor = ctor {
+            box.ctor = TBJSFunc(params: ctor.0, body: ctor.1,
+                                env: env)
+        }
+        for (methodName, params, body) in methods {
+            box.methods[methodName] = TBJSFunc(
+                params: params, body: body, env: env)
+        }
+        env.vars[name] = .classDef(box)
     case .returnStmt(let value):
         if let value = value {
             throw TBJSFlow.returnValue(try tbJSEval(value, env, ctx))
@@ -5332,12 +6346,12 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
         // early itself, and that leaving wins.
         var pending: TBJSFlow? = nil
         do {
-            try tbJSExec(guarded, TBJSEnv(parent: env), ctx)
+            try tbJSExec(guarded, env.childBlock(), ctx)
         } catch let flow as TBJSFlow {
             switch flow {
             case .error(let message):
                 if let catchName = catchName, let catchBody = catchBody {
-                    let catchEnv = TBJSEnv(parent: env)
+                    let catchEnv = env.childBlock()
                     catchEnv.vars[catchName] = .string(message)
                     do {
                         try tbJSExec(catchBody, catchEnv, ctx)
@@ -5349,7 +6363,7 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
                 }
             case .thrown(let value):
                 if let catchName = catchName, let catchBody = catchBody {
-                    let catchEnv = TBJSEnv(parent: env)
+                    let catchEnv = env.childBlock()
                     catchEnv.vars[catchName] = value
                     do {
                         try tbJSExec(catchBody, catchEnv, ctx)
@@ -5365,12 +6379,43 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
         }
         if let finallyBody = finallyBody {
             do {
-                try tbJSExec(finallyBody, TBJSEnv(parent: env), ctx)
+                try tbJSExec(finallyBody, env.childBlock(), ctx)
             } catch let inner as TBJSFlow {
                 pending = inner
             }
         }
         if let pending = pending { throw pending }
+    }
+}
+
+// JavaScript third stage (0.39): carries a renewed
+// value back to the name its walk bottomed out at.
+// The value is threaded down the member/index chain
+// by re-entering the setters with the chain's own
+// nested values, and lands in the name's room
+// directly — a renewal of what the binding holds,
+// never a rebinding of the name itself. Returns
+// false when the chain bottoms out at something
+// that is not a name, leaving the caller its old
+// road.
+func tbJSStoreValue(_ target: TBJSExpr, _ value: TBJSValue,
+                    _ env: TBJSEnv, _ ctx: TBJSContext) -> Bool {
+    switch target {
+    case .ident(let name):
+        guard env.get(name) != nil else { return false }
+        env.vars[name] = value
+        return true
+    case .member(let baseExpr, let name):
+        let base = (try? tbJSEval(baseExpr, env, ctx)) ?? .undefined
+        let renewed = tbJSSetMember(base, name, value, ctx)
+        return tbJSStoreValue(baseExpr, renewed, env, ctx)
+    case .index(let baseExpr, let indexExpr):
+        let base = (try? tbJSEval(baseExpr, env, ctx)) ?? .undefined
+        let index = (try? tbJSEval(indexExpr, env, ctx)) ?? .undefined
+        let renewed = tbJSSetIndex(base, index, value, ctx)
+        return tbJSStoreValue(baseExpr, renewed, env, ctx)
+    default:
+        return false
     }
 }
 
@@ -5389,10 +6434,26 @@ func tbJSAssign(_ target: TBJSExpr, _ value: TBJSValue, _ env: TBJSEnv,
             ctx.requestNavigation(value)
             return
         }
-        env.set(name, value)
+        try env.set(name, value)
     case .member(let baseExpr, let name):
         let base = try tbJSEval(baseExpr, env, ctx)
         let newBase = tbJSSetMember(base, name, value, ctx)
+        // JavaScript third stage (0.39): when the
+        // chain bottoms out at a name, the whole
+        // renewed value is carried back through the
+        // tree and stored by this function's own
+        // road — straight into the name's room —
+        // never through env.set. A member write is
+        // a renewal of what the binding holds, not
+        // a rebinding of the name, so it never asks
+        // the const question; env.set remains the
+        // road, and stays strict, only for true
+        // rebindings. Element and document writes
+        // already landed in place and never reach
+        // this road at all.
+        if tbJSStoreValue(baseExpr, newBase, env, ctx) {
+            return
+        }
         switch baseExpr {
         case .ident, .member, .index:
             try tbJSAssign(baseExpr, newBase, env, ctx)
@@ -5403,6 +6464,14 @@ func tbJSAssign(_ target: TBJSExpr, _ value: TBJSValue, _ env: TBJSEnv,
         let base = try tbJSEval(baseExpr, env, ctx)
         let index = try tbJSEval(indexExpr, env, ctx)
         let newBase = tbJSSetIndex(base, index, value, ctx)
+        // JavaScript third stage (0.39): an index
+        // write into a name-held value is the same
+        // renewal as a member write — carried back
+        // through tbJSStoreValue, never through the
+        // rebinding road.
+        if tbJSStoreValue(baseExpr, newBase, env, ctx) {
+            return
+        }
         switch baseExpr {
         case .ident, .member, .index:
             try tbJSAssign(baseExpr, newBase, env, ctx)
@@ -5420,15 +6489,28 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
     case .literal(let value):
         return value
     case .ident(let name):
-        // A name nobody defined reads as undefined
-        // rather than halting the page — a leniency
-        // real pages lean on (feature tests), taken
-        // knowingly in this slice.
-        return env.get(name) ?? .undefined
+        // JavaScript third stage (0.39): a name
+        // planted in this block but not yet
+        // declared reads as an error — the
+        // temporal dead zone — never as silence.
+        // A name nobody planted anywhere keeps
+        // the old leniency: undefined, not a halt.
+        return try env.lookup(name) ?? .undefined
     case .arrayLit(let elements):
         var values: [TBJSValue] = []
         for element in elements {
-            values.append(try tbJSEval(element, env, ctx))
+            // Spread (0.39): an opened list lays
+            // its values into this one, in order.
+            if case .spread(let inner) = element {
+                let opened = try tbJSEval(inner, env, ctx)
+                guard case .array(let items) = opened else {
+                    throw TBJSFlow.error(
+                        "only an array can be spread here")
+                }
+                values.append(contentsOf: items)
+            } else {
+                values.append(try tbJSEval(element, env, ctx))
+            }
         }
         return .array(values)
     case .objectLit(let pairs):
@@ -5447,7 +6529,19 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
     case .call(let callee, let argExprs):
         var args: [TBJSValue] = []
         for argExpr in argExprs {
-            args.append(try tbJSEval(argExpr, env, ctx))
+            // Spread (0.39): an opened list
+            // gives its values into the call,
+            // in order.
+            if case .spread(let inner) = argExpr {
+                let opened = try tbJSEval(inner, env, ctx)
+                guard case .array(let items) = opened else {
+                    throw TBJSFlow.error(
+                        "only an array can be spread here")
+                }
+                args.append(contentsOf: items)
+            } else {
+                args.append(try tbJSEval(argExpr, env, ctx))
+            }
         }
         switch callee {
         case .member(let baseExpr, let name):
@@ -5470,6 +6564,15 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
             let index = try tbJSEval(indexExpr, env, ctx)
             let fn = tbJSGetIndex(base, index, ctx)
             return try tbJSCall(fn, args, this: base, ctx)
+        case .superMember:
+            // JavaScript third stage (0.39): a
+            // parent class's method, called with
+            // this very `this` — the road
+            // super.method() walks.
+            let fn = try tbJSEval(callee, env, ctx)
+            return try tbJSCall(fn, args,
+                                this: env.get("this") ?? .undefined,
+                                ctx)
         default:
             let fn = try tbJSEval(callee, env, ctx)
             return try tbJSCall(fn, args, this: .undefined, ctx)
@@ -5527,6 +6630,13 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
         case "!=": return .boolean(!tbJSLooseEqual(left, right))
         case "===": return .boolean(tbJSStrictEqual(left, right))
         case "!==": return .boolean(!tbJSStrictEqual(left, right))
+        case "instanceof":
+            // JavaScript third stage (0.39).
+            return .boolean(tbJSInstanceOf(left, right, ctx))
+        case "in":
+            // JavaScript third stage (0.39).
+            return .boolean(tbJSHasProperty(right, tbJSString(left),
+                                            ctx))
         case "<", "<=", ">", ">=":
             if case .string(let a) = left, case .string(let b) = right {
                 switch op {
@@ -5585,6 +6695,83 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
         return try tbJSEval(no, env, ctx)
     case .funcExpr(let params, let body):
         return .function(TBJSFunc(params: params, body: body, env: env))
+    case .arrowExpr(let params, let body, let isExpression):
+        // JavaScript third stage (0.39): the
+        // arrow is born holding two things from
+        // the room where it stands — its scope,
+        // and that room's `this`, which no later
+        // call can take from it.
+        return .function(TBJSFunc(
+            params: params, body: body, env: env,
+            capturedThis: TBJSBoxedValue(
+                env.get("this") ?? .undefined),
+            expressionBody: isExpression))
+    case .superCall(let argExprs):
+        // JavaScript third stage (0.39): build
+        // this instance through the parent
+        // class's constructor. Only a class
+        // constructor may stand here, and only
+        // one whose class has a parent. The
+        // fresh instance rides in the frame the
+        // constructor's call laid down, because
+        // the constructor's own `this` reads
+        // unbound until this call binds it.
+        guard let frame = ctx.classFrames.last,
+              frame.isConstructor else {
+            throw TBJSFlow.error(
+                "super(...) stands only in a class constructor")
+        }
+        guard let parent = frame.home.parent else {
+            throw TBJSFlow.error(
+                "this class has no parent to build through")
+        }
+        var args: [TBJSValue] = []
+        for argExpr in argExprs {
+            if case .spread(let inner) = argExpr {
+                let opened = try tbJSEval(inner, env, ctx)
+                guard case .array(let items) = opened else {
+                    throw TBJSFlow.error(
+                        "only an array can be spread here")
+                }
+                args.append(contentsOf: items)
+            } else {
+                args.append(try tbJSEval(argExpr, env, ctx))
+            }
+        }
+        let startThis = frame.pendingThis
+            ?? (env.get("this") ?? .undefined)
+        let boundThis = try tbJSInvokeClassConstructor(
+            parent, args, this: startThis, ctx)
+        try env.set("this", boundThis)
+        return boundThis
+    case .superMember(let name):
+        // JavaScript third stage (0.39): a name
+        // read on the parent of the class the
+        // standing method was written in. The
+        // method is handed out carrying the
+        // class it was found on, so a `super`
+        // inside it looks one road further up.
+        guard let frame = ctx.classFrames.last else {
+            throw TBJSFlow.error(
+                "super stands only in a class method"
+                + " or constructor")
+        }
+        var cursor = frame.home.parent
+        while let current = cursor {
+            if let stored = current.methods[name] {
+                var method = stored
+                method.classHome = current
+                return .function(method)
+            }
+            cursor = current.parent
+        }
+        return .undefined
+    case .spread:
+        // Spread (0.39) is opened where it
+        // stands — in a call's arguments, a
+        // building's arguments, or an array
+        // literal — and never read as a value.
+        throw TBJSFlow.error("spread outside its place")
     case .newExpr(let target, let argExprs):
         // JavaScript second stage (0.38):
         // building. RegExp is the one native
@@ -5603,13 +6790,40 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
         // thing is that binding at the end.
         var args: [TBJSValue] = []
         for argExpr in argExprs {
-            args.append(try tbJSEval(argExpr, env, ctx))
+            // Spread (0.39): an opened list
+            // gives its values into the building,
+            // in order; anything else that is
+            // spread here is an honest error.
+            if case .spread(let inner) = argExpr {
+                let opened = try tbJSEval(inner, env, ctx)
+                guard case .array(let items) = opened else {
+                    throw TBJSFlow.error(
+                        "only an array can be spread here")
+                }
+                args.append(contentsOf: items)
+            } else {
+                args.append(try tbJSEval(argExpr, env, ctx))
+            }
         }
         let built = try tbJSEval(target, env, ctx)
         switch built {
         case .native(let name) where name == "global.RegExp":
             return try tbJSNative(name, args, this: .undefined, ctx)
+        case .classDef(let box):
+            // JavaScript third stage (0.39): a
+            // class builds an instance of its
+            // own — fields in a fresh box, the
+            // class riding with it.
+            return try tbJSConstructClass(box, args, ctx)
         case .function:
+            // JavaScript third stage (0.39): an
+            // arrow cannot be built with — the
+            // standard says so plainly, and the
+            // error is catchable like any throw.
+            if case .function(let fn) = built, fn.capturedThis != nil {
+                throw TBJSFlow.error(
+                    "an arrow function cannot be used with new")
+            }
             let fresh = TBJSValue.object([:])
             ctx.mutatedThis = nil
             let result = try tbJSCall(built, args, this: fresh, ctx)
@@ -5617,7 +6831,7 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
             ctx.mutatedThis = nil
             switch result {
             case .object, .array, .function, .native, .regex,
-                 .element:
+                 .element, .instance, .classDef:
                 return result
             default:
                 return finalThis
@@ -5630,15 +6844,133 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
     }
 }
 
+// JavaScript third stage (0.39): building an
+// instance of a class. A fresh box is made,
+// the class's constructor runs with the box as
+// its `this`, and the box is the result —
+// unless a constructor returns an
+// object-shaped value of its own, which wins,
+// as the language has it.
+func tbJSConstructClass(_ box: TBJSClassBox, _ args: [TBJSValue],
+                        _ ctx: TBJSContext) throws -> TBJSValue {
+    let fresh = TBJSValue.instance(TBJSInstanceBox(klass: box))
+    return try tbJSInvokeClassConstructor(box, args, this: fresh,
+                                          ctx)
+}
+
+// Run one class's constructor on an instance
+// already in hand (0.39) — the road both `new`
+// and `super(...)` walk. A class with no
+// written constructor hands the building to
+// its parent with the same arguments, the
+// language's default; a root class with none
+// simply gives the instance back. A derived
+// class's written constructor must call
+// super(...) before it ends — its `this`
+// reads unbound until it does, and ending
+// still unbound is an honest error.
+func tbJSInvokeClassConstructor(_ box: TBJSClassBox,
+                                _ args: [TBJSValue],
+                                this: TBJSValue,
+                                _ ctx: TBJSContext) throws
+    -> TBJSValue {
+    if let stored = box.ctor {
+        var fn = stored
+        fn.classHome = box
+        fn.isClassConstructor = true
+        ctx.mutatedThis = nil
+        let result = try tbJSCall(.function(fn), args, this: this,
+                                  ctx)
+        let finalThis = ctx.mutatedThis ?? this
+        ctx.mutatedThis = nil
+        switch result {
+        case .object, .array, .function, .native, .regex,
+             .element, .instance, .classDef:
+            return result
+        default:
+            if box.parent != nil, case .undefined = finalThis {
+                throw TBJSFlow.error(
+                    "a constructor for a class that extends"
+                    + " another must call super(...) first")
+            }
+            return finalThis
+        }
+    }
+    if let parent = box.parent {
+        return try tbJSInvokeClassConstructor(parent, args,
+                                              this: this, ctx)
+    }
+    return this
+}
+
 func tbJSCall(_ fn: TBJSValue, _ args: [TBJSValue], this: TBJSValue,
               _ ctx: TBJSContext) throws -> TBJSValue {
     switch fn {
     case .function(let fn):
+        // JavaScript third stage (0.39): the
+        // receiver is chosen honestly — an arrow
+        // keeps the `this` of the room where it
+        // was born, whatever it is called on; an
+        // ordinary function takes the call's own
+        // receiver, as it always has.
+        var receiver = fn.capturedThis?.value ?? this
+        // A class's method or constructor lays
+        // its frame on the context's stack for
+        // the length of the call, so `super`
+        // knows the class it was written in. A
+        // derived class's constructor starts
+        // with its `this` unbound: the fresh
+        // instance rides in the frame until
+        // super(...) binds it.
+        let pushedFrame = fn.classHome != nil
+        if let home = fn.classHome {
+            if fn.isClassConstructor, home.parent != nil {
+                ctx.classFrames.append(
+                    (home: home, isConstructor: true,
+                     pendingThis: receiver))
+                receiver = .undefined
+            } else {
+                ctx.classFrames.append(
+                    (home: home,
+                     isConstructor: fn.isClassConstructor,
+                     pendingThis: nil))
+            }
+        }
+        defer {
+            if pushedFrame { ctx.classFrames.removeLast() }
+        }
         let callEnv = TBJSEnv(parent: fn.env)
-        callEnv.vars["this"] = this
-        for (index, param) in fn.params.enumerated() {
-            callEnv.vars[param] = index < args.count
-                ? args[index] : .undefined
+        callEnv.vars["this"] = receiver
+        // The parameters bind in order (0.39):
+        // each takes its argument; an explicit
+        // undefined wakes a default just as a
+        // missing argument does; the defaults
+        // reckon in this very room, so a later
+        // one may read an earlier parameter; and
+        // a rest gathers whatever arguments
+        // remain into a true array.
+        var taken = 0
+        for param in fn.params {
+            if param.isRest {
+                callEnv.vars[param.name] =
+                    .array(Array(args.dropFirst(taken)))
+                continue
+            }
+            var value: TBJSValue = taken < args.count
+                ? args[taken] : .undefined
+            taken += 1
+            if case .undefined = value, let fallback = param.default {
+                value = try tbJSEval(fallback, callEnv, ctx)
+            }
+            callEnv.vars[param.name] = value
+        }
+        if fn.expressionBody {
+            // An arrow whose body is one
+            // expression: its value is the answer.
+            if case .expr(let bodyExpr)? = fn.body.first {
+                return try tbJSEval(bodyExpr, callEnv, ctx)
+            }
+            return .undefined
         }
         do {
             try tbJSExec(fn.body, callEnv, ctx)
@@ -5661,6 +6993,14 @@ func tbJSCall(_ fn: TBJSValue, _ args: [TBJSValue], this: TBJSValue,
         }
         ctx.mutatedThis = callEnv.vars["this"]
         return .undefined
+    case .classDef(let box):
+        // JavaScript third stage (0.39): a
+        // class is built with `new`, never
+        // called bare — the language says so,
+        // and the error is catchable.
+        throw TBJSFlow.error(
+            "class " + box.name + " cannot be called"
+            + " without new")
     case .native(let name):
         return try tbJSNative(name, args, this: this, ctx)
     default:
@@ -6319,6 +7659,16 @@ func tbJSInspect(_ value: TBJSValue) -> String {
             key + ": " + tbJSInspectShallow(obj[key] ?? .undefined)
         }
         return "{ " + parts.joined(separator: ", ") + " }"
+    case .instance(let box):
+        // JavaScript third stage (0.39): an
+        // instance opens like an object — its
+        // own fields, one level.
+        if box.fields.isEmpty { return "{}" }
+        let parts = box.fields.keys.sorted().map { key in
+            key + ": "
+                + tbJSInspectShallow(box.fields[key] ?? .undefined)
+        }
+        return "{ " + parts.joined(separator: ", ") + " }"
     case .element(let node):
         if let id = node.attrs["id"], !id.isEmpty {
             return "<" + node.tag + " id=\"" + id + "\">"
@@ -6333,6 +7683,7 @@ private func tbJSInspectShallow(_ value: TBJSValue) -> String {
     switch value {
     case .array: return "[...]"
     case .object: return "{...}"
+    case .instance: return "{...}"
     default: return tbJSInspect(value)
     }
 }

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chirpy JS Third Stage Drill</title>
+</head>
+<body>
+<h1 id="heading">Chirpy JavaScript Drill — Third Stage (0.39)</h1>
+<p>Ten numbered promises, each written into this page by its own
+scripts and repeated in the console. If a line below still reads
+"not yet", that piece did not run.</p>
+<p id="r1">1. let and const keep their block: not yet</p>
+<p id="r2">2. The dead zone and the constant's refusal: not yet</p>
+<p id="r3">3. A let in a for head belongs to its round: not yet</p>
+<p id="r4">4. Arrows, and the this an arrow keeps: not yet</p>
+<p id="r5">5. Defaults, and the rest gatherer: not yet</p>
+<p id="r6">6. Spread opens arrays and calls: not yet</p>
+<p id="r7">7. for-of walks arrays and strings: not yet</p>
+<p id="r8">8. A class builds, and its methods keep their this: not yet</p>
+<p id="r9">9. A child class — super builds, super speaks: not yet</p>
+<p id="r10">10. instanceof, in, and the whole shape at once: not yet</p>
+<script>
+// 1 — let and const live in their block and die there; var walks out.
+var walked = 0;
+{ let kept = 5; const fixed = 2; walked = kept + fixed; }
+var shadow = "outer";
+{ let shadow = "inner"; }
+var after = "unset";
+try { after = "" + kept; } catch (e) { after = "error"; }
+var ok1 = (walked === 7 && shadow === "outer" && after === "undefined");
+document.getElementById("r1").textContent =
+  "1. let and const keep their block: " + (ok1 ? "PASS" : "FAIL");
+console.log("1. let and const block scoping: " + (ok1 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 2 — reading a let before its line, and writing a const, are both
+// honest errors, and a catch can hold either.
+var word2 = "none";
+try { word2 = "" + late2; } catch (e) { word2 = e; }
+let late2 = 3;
+const cap2 = 1;
+var word2b = "none";
+try { cap2 = 2; } catch (e) { word2b = e; }
+var ok2 = (word2 === "cannot use 'late2' before its declaration"
+  && late2 === 3
+  && word2b === "assignment to a constant 'cap2'" && cap2 === 1);
+document.getElementById("r2").textContent =
+  "2. The dead zone and the constant's refusal: " + (ok2 ? "PASS" : "FAIL");
+console.log("2. dead zone and const errors: " + (ok2 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 3 — each round of a let-for keeps its own counter, even for
+// closures made inside the round and called after the loop.
+var fns3 = [];
+for (let i3 = 0; i3 < 3; i3++) {
+  fns3.push(function() { return i3; });
+}
+var ok3 = (fns3[0]() === 0 && fns3[1]() === 1 && fns3[2]() === 2);
+document.getElementById("r3").textContent =
+  "3. A let in a for head belongs to its round: " + (ok3 ? "PASS" : "FAIL");
+console.log("3. for-let rounds: " + (ok3 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 4 — arrows in their three dresses, and the this an arrow keeps
+// from the room it was written in.
+var add4 = (a, b) => a + b;
+var block4 = (a, b) => { var t = a * b; return t + 1; };
+var sq4 = a => a * a;
+var holder4 = { n: 7,
+  get: function() { var g = () => this.n; return g(); } };
+var ok4 = (add4(2, 3) === 5 && block4(3, 4) === 13 && sq4(6) === 36
+  && holder4.get() === 7);
+document.getElementById("r4").textContent =
+  "4. Arrows, and the this an arrow keeps: " + (ok4 ? "PASS" : "FAIL");
+console.log("4. arrows and lexical this: " + (ok4 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 5 — a default fills a missing argument (and an explicit
+// undefined), may read an earlier parameter; a rest gathers.
+function greet5(name, punct = "!") { return "hello " + name + punct; }
+function scale5(a, b = a * 2) { return b; }
+function gather5(first, ...rest) {
+  return first + ":" + rest.length + ":" + rest.join("-");
+}
+var ok5 = (greet5("Tyler") === "hello Tyler!"
+  && greet5("Tyler", "?") === "hello Tyler?"
+  && scale5(5) === 10 && scale5(5, undefined) === 10
+  && gather5(1, 2, 3, 4) === "1:3:2-3-4");
+document.getElementById("r5").textContent =
+  "5. Defaults, and the rest gatherer: " + (ok5 ? "PASS" : "FAIL");
+console.log("5. defaults and rest: " + (ok5 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 6 — spread opens an array into another, a call's arguments, and
+// a building's arguments.
+function sum6(a, b, c) { return a + b + c; }
+var base6 = [1, 2];
+var wide6 = [...base6, 3, ...[4, 5]];
+function Pair6(x, y) { this.x = x; this.y = y; }
+var p6 = new Pair6(...[3, 4]);
+var ok6 = (wide6.join(",") === "1,2,3,4,5" && wide6.length === 5
+  && sum6(...wide6.slice(0, 3)) === 6 && sum6(0, ...[4, 5]) === 9
+  && p6.x === 3 && p6.y === 4);
+document.getElementById("r6").textContent =
+  "6. Spread opens arrays and calls: " + (ok6 ? "PASS" : "FAIL");
+console.log("6. spread: " + (ok6 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 7 — for-of walks an array's values and a string's letters, in
+// its let, var, and bare-name dresses.
+var total7 = 0;
+for (let n7 of [1, 2, 3]) { total7 += n7; }
+var letters7 = "";
+for (const ch7 of "abc") { letters7 += ch7 + "."; }
+var last7 = 0;
+for (var v7 of [7, 8]) { last7 = v7; }
+var ok7 = (total7 === 6 && letters7 === "a.b.c." && last7 === 8);
+document.getElementById("r7").textContent =
+  "7. for-of walks arrays and strings: " + (ok7 ? "PASS" : "FAIL");
+console.log("7. for-of: " + (ok7 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 8 — a class builds an instance; its methods read and write the
+// instance's own fields through this.
+class Ledger8 {
+  constructor(owner) { this.owner = owner; this.entries = []; }
+  add(amount) { this.entries.push(amount); return this.entries.length; }
+  total() {
+    var s = 0;
+    for (let e of this.entries) { s += e; }
+    return s;
+  }
+}
+var led8 = new Ledger8("Tyler");
+var count8 = led8.add(3);
+led8.add(4);
+var alias8 = led8;
+alias8.owner = "Tyler K.";
+var ok8 = (count8 === 1 && led8.total() === 7
+  && led8.entries.length === 2 && led8.owner === "Tyler K."
+  && led8.constructor === Ledger8 && typeof Ledger8 === "function");
+document.getElementById("r8").textContent =
+  "8. A class builds, and its methods keep their this: "
+  + (ok8 ? "PASS" : "FAIL");
+console.log("8. classes: " + (ok8 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 9 — a child class: super(...) builds the parent part, a method
+// may lean on super's, and a child with no constructor of its own
+// forwards its arguments to the parent's.
+class Animal9 {
+  constructor(name) { this.name = name; }
+  speak() { return this.name + " makes a sound"; }
+}
+class Dog9 extends Animal9 {
+  constructor(name) { super(name); this.good = true; }
+  speak() { return super.speak() + " — woof"; }
+}
+class Puppy9 extends Dog9 { }
+var rex9 = new Dog9("Rex");
+var pip9 = new Puppy9("Pip");
+var ok9 = (rex9.speak() === "Rex makes a sound — woof"
+  && rex9.good === true && pip9.name === "Pip"
+  && pip9.speak() === "Pip makes a sound — woof");
+document.getElementById("r9").textContent =
+  "9. A child class — super builds, super speaks: "
+  + (ok9 ? "PASS" : "FAIL");
+console.log("9. extends and super: " + (ok9 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 10 — instanceof and in answer honestly, and the whole modern
+// shape stands together the way a small library is written:
+// classes, arrows, templates, defaults, rest, spread, for-of,
+// and a catch standing guard.
+class Shelf10 {
+  constructor(name = "shelf") { this.name = name; this.books = []; }
+  add(...titles) {
+    for (const t of titles) { this.books.push(t); }
+    return this.books.length;
+  }
+  describe() { return `${this.name}:${this.books.join(",")}`; }
+}
+class LoudShelf10 extends Shelf10 {
+  describe() { return super.describe().toUpperCase(); }
+}
+var shelf10 = new LoudShelf10("books");
+var n10 = 0;
+var note10 = "";
+try {
+  n10 = shelf10.add("Genesis", ...["Exodus", "Psalms"]);
+  note10 = shelf10.describe();
+} catch (e) {
+  note10 = "failed: " + e;
+}
+var peek10 = () => shelf10.books.length;
+var ok10 = (n10 === 3 && note10 === "BOOKS:GENESIS,EXODUS,PSALMS"
+  && peek10() === 3
+  && (shelf10 instanceof Shelf10) && (shelf10 instanceof Object)
+  && !(shelf10 instanceof Ledger8)
+  && ("books" in shelf10) && ("describe" in shelf10)
+  && !("zzz" in shelf10));
+document.getElementById("r10").textContent =
+  "10. instanceof, in, and the whole shape at once: "
+  + (ok10 ? "PASS" : "FAIL");
+console.log("10. instanceof, in, integration: " + (ok10 ? "PASS" : "FAIL"));
+</script>
+</body>
+</html>

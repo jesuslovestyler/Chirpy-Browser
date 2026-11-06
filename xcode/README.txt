@@ -7,6 +7,208 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.39 — JAVASCRIPT, THIRD STAGE:
+MODERN SHAPES
+------------------------------------------------------
+The second stage (0.38) taught the language
+patterns, templates, and guarding. This stage
+teaches the shapes modern scripts are actually
+written in: let and const, arrow functions,
+classes — and the small companions that travel
+with them: default and rest parameters, spread,
+for-of, instanceof, and the `in` operator.
+
+BINDINGS. let and const are block-scoped. A
+block is a room of its own: the names a let or
+const declares are planted in the room when it
+opens, uninitialized, and given their values
+when their own lines run. Reading one before
+its line is the temporal-dead-zone error —
+"cannot use 'x' before its declaration" — and
+writing a constant after its line is a refusal
+— "assignment to a constant 'x'". Both are
+ordinary engine errors, so a try can catch
+either. var keeps every road it had: it belongs
+to the nearest function or global room however
+deep in blocks it stands. A for head wearing
+let or const keeps a fresh binding for every
+round — the round a body ran in is never
+written again — so closures made in a round
+keep that round's counter: 0, 1, 2, as the
+language promises.
+
+ARROWS. (a, b) => expr, (a) => { ... }, and
+a => expr all stand where an assignment can.
+An arrow is born holding two things from the
+room it was written in: its scope, and that
+room's `this`, which no later call can take
+from it — the lexical this a method's callback
+has always needed. An arrow cannot be built
+with `new`; the error says so and a try can
+catch it.
+
+PARAMETERS AND SPREAD. A parameter may carry a
+default, read whole at the ternary's level so
+commas inside it belong to the expression; a
+missing argument wakes it, and so does an
+explicit undefined. Defaults reckon in the
+call's own room, so a later one may read an
+earlier parameter. A closing rest parameter
+gathers whatever arguments remain into a true
+array. Spread opens an array's values into an
+array literal, into a call's arguments, and
+into a building's arguments; spreading anything
+else is an honest error.
+
+FOR-OF. for (let x of ...), const, var, a bare
+name, or a member or index target walks an
+array's values or a string's letters. The
+lexical forms bind fresh each round, like the
+counted loop's. Anything else — a number, a
+plain object — is not walked in this stage and
+says so in an error a try can catch.
+
+CLASSES. class Name { ... } with an optional
+extends, a constructor, and methods. The
+representation is honest about this engine's
+value model: a class is a box holding its name,
+its parent class, its constructor, and its
+methods; an instance is a value carrying a box
+of its own fields, held by reference — so two
+hands on one instance see the same fields,
+which is how objects in the language behave and
+how this engine's plain dictionary objects,
+being copies, do not. A member read walks the
+instance's fields, then its class's methods,
+then the parent class's, up the road; a member
+write lands in the instance's box. Methods are
+looked up at every read, never copied into the
+instance. super(...) — standing only in a
+constructor — builds the parent part into the
+same instance: a derived constructor's `this`
+reads unbound until super(...) binds it, and a
+derived constructor that ends still unbound
+fails with a plain error. A child class with no
+constructor of its own forwards its arguments
+to the parent's, the language's default.
+super.method() calls the parent class's method
+with the child's `this`, and a method found
+halfway up the road carries its own class with
+it, so a super inside it looks one road further
+up — three levels answer ABC, in order. A class
+called without `new` refuses, catchably; a
+class extending something that is not a class
+refuses, catchably. instance.constructor names
+its class; typeof a class is "function".
+
+INSTANCEOF AND IN. instanceof against a class
+walks the value's class road looking for the
+very class on the right; the root Object —
+standing in the globals like any class — crowns
+every object-shaped value and no primitive. The
+`in` operator asks whether a name stands on a
+value: a field, or for an instance a field or a
+method anywhere on its class road, or an
+array's length or a standing index.
+
+VERIFICATION. The interpreter's extracted
+section was typechecked whole (swiftc
+-typecheck, not a parse) and executed under the
+Linux Swift harness: 127 checks, 127 passing.
+The standing 58 are unharmed — the 0.33 drill's
+twelve (its eleven promises and the helper's
+arrival), the 0.38 battery's thirty, and
+js2-test.html's eight scripts verbatim, two
+checks apiece. Forty-eight new checks cover
+this stage: block scoping and shadowing, the
+dead zone read and written, const refusal,
+for-let rounds plain and nested, arrows in
+every dress and their kept this, defaults plain
+and reading earlier parameters, rests on
+functions and arrows, spread into calls, array
+literals and buildings, classes building and
+writing through this, two hands on one
+instance, extends with super building and
+super speaking, inherited methods, default
+constructors forwarding, instanceof true and
+false and Object's crown, three-level super,
+the class-call and bad-extends refusals, the
+unbound-derived-constructor error, for-of in
+every dress over arrays and strings, for-of
+closures, the unwalkable error, `in` on fields,
+methods, arrays and strings, and one modern
+library shape mixing all of it. Twenty-one more
+checks run js3-test.html's ten scripts verbatim
+against a hand-built page, each writing PASS
+into it. Both app files parse clean as well;
+Tyler's Xcode build remains the final witness.
+
+NAMED LIMITS, on purpose. Static methods and
+getters and setters are not here: the reader
+refuses their shape by name — "class statics,
+getters and setters are not in this stage" —
+rather than reading them as something they are
+not. Classes are declarations, not expressions;
+a class expression is 0.40 evidence, with
+destructuring, which the parser does not take
+yet either. instanceof against a plain function
+constructor answers false: its products are
+dictionary objects and carry no class stamp to
+walk — named here rather than papered over with
+a hidden key. A derived constructor's `this`
+before super(...) reads as undefined where the
+language would raise; ending still unbound is
+the error, and that part is exact. super
+resolves against the innermost class method or
+constructor on the call stack; a plain function
+written inside a method has no super of its own
+in the language, and here it would borrow the
+outer one. for-of walks arrays and strings
+only. Carried from 0.38, still true: an exec
+result carries no .index or .input; replace
+takes no function; and the 0.37 suite's broken
+extraction remains untouched and still owed,
+exactly as stated there.
+
+THE DRILL IS A SUITE NOW, AND STAYS ONE.
+Tyler's word, this stage: every JavaScript
+stage ships its own numbered test page, every
+earlier page stays in the tree, and the whole
+suite is re-run at every stage. js-suite.html
+is the suite's door — one plain page linking
+every drill in stage order, each with its
+stage's name beside it. From here on, each
+future JavaScript stage adds its own
+jsN-test.html and a line on js-suite.html, and
+no stage is done until the whole suite passes
+on Tyler's Mac.
+
+The drill: build and run — the status line
+should read "Chirpy Engine 0.39 (Swift)".
+Open js-suite.html and walk the suite:
+js-test.html (0.33, eleven promises),
+js2-test.html (0.38, eight promises), and
+js3-test.html — ten numbered promises, each
+written into the page by its own scripts and
+repeated to the console: let and const keeping
+their block; the dead zone and the constant's
+refusal, both caught; a for-let's rounds kept;
+arrows and the this an arrow keeps; defaults
+and the rest gatherer; spread opening arrays
+and calls; for-of walking arrays and strings;
+a class building, its methods keeping their
+this; a child class with super building and
+super speaking; and instanceof, `in`, and the
+whole modern shape standing at once. That is
+twenty-nine promises across the suite. Then
+open Wikipedia's "Jesus" article and read the
+console, and try google.com/search?q=jesus and
+report what the console shows: the gate is a
+test its served scripts run, and each stage of
+this language growth is measured against it
+honestly — no shortcut, no borrowed engine, no
+spoofed identity.
+
 0.38 — JAVASCRIPT, SECOND STAGE:
 PATTERNS, TEMPLATES, GUARDING
 ------------------------------------------------------
