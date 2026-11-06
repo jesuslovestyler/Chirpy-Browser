@@ -1,6 +1,6 @@
 //
 //  ChirpyJS.swift
-//  Chirpy Browser — engine 0.39.1 (Swift)
+//  Chirpy Browser — engine 0.40 (Swift)
 //
 //  Chirpy's JavaScript interpreter: its values
 //  and rooms, its lexer, its parser, its
@@ -166,10 +166,88 @@ final class TBJSInstanceBox {
 // caller may leave unwritten, and whether it
 // gathers the road's remaining arguments into
 // an array (a rest parameter, always last).
+// JavaScript fourth stage (0.40): a parameter
+// may instead carry a destructuring pattern,
+// which the argument is opened into — the
+// name then stands empty and is never read.
 struct TBJSParam {
-    var name: String
+    var name: String = ""
+    var pattern: TBJSPattern? = nil
     var `default`: TBJSExpr? = nil
     var isRest = false
+}
+
+// JavaScript fourth stage (0.40): a
+// destructuring pattern — the shape a value is
+// opened into, in a declaration, an assignment,
+// a parameter, or a for-of head. A name binds;
+// a target writes through a member or index
+// road (assignments only — a declaration that
+// tries to write a member is refused when it
+// runs); the two bracket shapes open an array
+// or an object piece by piece; and a defaulted
+// pattern fills an undefined piece from its
+// expression, reckoned where the pattern
+// stands, so earlier pieces may be read in it.
+indirect enum TBJSPattern {
+    case name(String)
+    case target(TBJSExpr)
+    case array([TBJSPatternItem])
+    case object([TBJSPatternProp])
+    case defaulted(TBJSPattern, TBJSExpr)
+}
+
+// One piece of an array pattern (0.40): a hole
+// skips its place, an item opens its piece, and
+// a rest — always last — gathers what remains
+// into a fresh array for its own pattern.
+enum TBJSPatternItem {
+    case hole
+    case item(TBJSPattern)
+    case rest(TBJSPattern)
+}
+
+// One piece of an object pattern (0.40): a
+// named piece reads that property into its
+// pattern, and a rest — always last — gathers
+// the properties no named piece took into a
+// fresh object for its own pattern.
+enum TBJSPatternProp {
+    case prop(String, TBJSPattern)
+    case rest(TBJSPattern)
+}
+
+// One declarator of a let/const list (0.40): a
+// plain name with its first value, or a whole
+// pattern with the expression it opens — the
+// two dresses a lexical list may mix.
+enum TBJSLexicalItem {
+    case name(String, TBJSExpr?)
+    case pattern(TBJSPattern, TBJSExpr)
+}
+
+// A for-of head wearing a pattern (0.40): how
+// each round's piece is handed out — written
+// into bindings that already stand, declared
+// with var in the loop's function room, or
+// declared with let/const in a fresh room for
+// every round, as the plain-name heads do.
+enum TBJSForOfKind {
+    case assign, declareVar, declareLet, declareConst
+}
+
+// How a pattern's names are planted (0.40): an
+// assignment writes where the names already
+// live; a var declaration plants them in the
+// nearest function room; a parameter plants
+// them in the call's room; and a let/const
+// declaration initializes the bindings its
+// room planted when the room opened.
+enum TBJSBindMode {
+    case assign
+    case declareVar
+    case declareParam
+    case declareLexical(Bool)
 }
 
 final class TBJSEnv {
@@ -265,6 +343,25 @@ final class TBJSEnv {
         for stmt in stmts {
             if case .lexicalDecl(let names, _, let constant) = stmt {
                 for name in names where kinds[name] == nil {
+                    declareLexical(name, constant: constant)
+                }
+            }
+            // JavaScript fourth stage (0.40): a
+            // list carrying patterns plants every
+            // name its patterns bind, alongside
+            // its plain names.
+            if case .lexicalPattern(let items, let constant) = stmt {
+                var planted: [String] = []
+                for item in items {
+                    switch item {
+                    case .name(let name, _):
+                        planted.append(name)
+                    case .pattern(let pattern, _):
+                        planted.append(
+                            contentsOf: tbJSPatternNames(pattern))
+                    }
+                }
+                for name in planted where kinds[name] == nil {
                     declareLexical(name, constant: constant)
                 }
             }
@@ -1423,6 +1520,14 @@ indirect enum TBJSExpr {
     case binary(String, TBJSExpr, TBJSExpr)
     case assign(TBJSExpr, TBJSExpr)
     case opAssign(String, TBJSExpr, TBJSExpr)
+    // JavaScript fourth stage (0.40): a
+    // destructuring assignment — the pattern
+    // the value is opened into, and the
+    // expression the value comes from. The
+    // value is reckoned whole before any
+    // piece is handed out, which is what
+    // makes [a, b] = [b, a] a swap.
+    case patternAssign(TBJSPattern, TBJSExpr)
     case ternary(TBJSExpr, TBJSExpr, TBJSExpr)
     case funcExpr([TBJSParam], [TBJSStmt])
     // JavaScript second stage (0.38): building
@@ -1460,6 +1565,19 @@ indirect enum TBJSStmt {
     // names are planted in whatever room the
     // list stands in when that room opens.
     case lexicalDecl([String], [TBJSExpr?], Bool)
+    // JavaScript fourth stage (0.40): a let or
+    // const list that carries at least one
+    // destructuring pattern — every declarator
+    // as an item, plain names and patterns
+    // mixed, so the room can plant every name
+    // the list binds before the block runs.
+    case lexicalPattern([TBJSLexicalItem], Bool)
+    // JavaScript fourth stage (0.40): a var
+    // declaration wearing a pattern — the
+    // pattern and the expression it opens.
+    // (A pattern declaration always carries a
+    // value; the reader refuses one without.)
+    case patternVar(TBJSPattern, TBJSExpr)
     // A for head wearing let/const (0.39): the
     // head runs in a room of its own, and the
     // loop copies the head's bindings into a
@@ -1482,6 +1600,12 @@ indirect enum TBJSStmt {
     // every round is a fresh binding.
     case forOf(TBJSExpr, TBJSExpr, TBJSStmt, Bool)
     case forOfLexical(String, Bool, TBJSExpr, TBJSStmt)
+    // JavaScript fourth stage (0.40): for-of
+    // with a pattern in its head — the pattern,
+    // how each round's piece is handed out,
+    // the thing walked, and the body.
+    case forOfPattern(TBJSPattern, TBJSForOfKind,
+                      TBJSExpr, TBJSStmt)
     // JavaScript third stage (0.39): a class
     // declaration — its name, the name of the
     // class it extends if it names one, its
@@ -1568,6 +1692,22 @@ struct TBJSParser {
         advance()  // the keyword itself
         var stmts: [TBJSStmt] = []
         while true {
+            // JavaScript fourth stage (0.40): a
+            // declarator may wear a pattern; a
+            // pattern declaration must carry the
+            // value it opens.
+            if peekPunct() == "[" || peekPunct() == "{" {
+                let pattern = try parsePattern()
+                guard acceptPunct("=") else {
+                    throw TBJSFlow.error(
+                        "a destructuring declaration needs"
+                        + " a value to open")
+                }
+                stmts.append(.patternVar(pattern,
+                                         try parseAssign()))
+                if !acceptPunct(",") { break }
+                continue
+            }
             let name = try expectIdent()
             var initial: TBJSExpr? = nil
             if acceptPunct("=") { initial = try parseAssign() }
@@ -1589,16 +1729,174 @@ struct TBJSParser {
         advance()  // the keyword itself
         var names: [String] = []
         var initials: [TBJSExpr?] = []
+        // JavaScript fourth stage (0.40): the
+        // list may carry patterns among its
+        // names; then the whole list rides as
+        // items, so every name — plain or
+        // patterned — is planted before the
+        // block runs, and the dead zone covers
+        // them all alike.
+        var items: [TBJSLexicalItem] = []
+        var sawPattern = false
         while true {
-            names.append(try expectIdent())
-            if acceptPunct("=") {
-                initials.append(try parseAssign())
+            if peekPunct() == "[" || peekPunct() == "{" {
+                sawPattern = true
+                let pattern = try parsePattern()
+                guard acceptPunct("=") else {
+                    throw TBJSFlow.error(
+                        "a destructuring declaration needs"
+                        + " a value to open")
+                }
+                items.append(.pattern(pattern,
+                                      try parseAssign()))
             } else {
-                initials.append(nil)
+                let name = try expectIdent()
+                var initial: TBJSExpr? = nil
+                if acceptPunct("=") {
+                    initial = try parseAssign()
+                }
+                names.append(name)
+                initials.append(initial)
+                items.append(.name(name, initial))
             }
             if !acceptPunct(",") { break }
         }
+        if sawPattern {
+            return .lexicalPattern(items, constant)
+        }
         return .lexicalDecl(names, initials, constant)
+    }
+
+    // JavaScript fourth stage (0.40): a
+    // destructuring pattern. The bracket shapes
+    // open piece by piece; anything else is a
+    // target — a plain name, or a road into a
+    // held thing (o.x, arr[0]) that only an
+    // assignment may write through. A computed
+    // key in an object pattern is refused by
+    // name, here at the reading, rather than
+    // read as something it is not.
+    mutating func parsePattern() throws -> TBJSPattern {
+        if peekPunct() == "[" { return try parseArrayPattern() }
+        if peekPunct() == "{" { return try parseObjectPattern() }
+        return try parsePatternTarget()
+    }
+
+    mutating func parsePatternTarget() throws -> TBJSPattern {
+        let name = try expectIdent()
+        var expr: TBJSExpr = .ident(name)
+        var chained = false
+        while true {
+            if acceptPunct(".") {
+                expr = .member(expr, try expectIdent())
+                chained = true
+            } else if acceptPunct("[") {
+                let index = try parseExpr()
+                try expectPunct("]")
+                expr = .index(expr, index)
+                chained = true
+            } else {
+                break
+            }
+        }
+        return chained ? .target(expr) : .name(name)
+    }
+
+    mutating func parseArrayPattern() throws -> TBJSPattern {
+        advance()  // the opening bracket
+        var items: [TBJSPatternItem] = []
+        if !acceptPunct("]") {
+            while true {
+                if peekPunct() == "]" { break }
+                if acceptPunct(",") {
+                    items.append(.hole)
+                    continue
+                }
+                if acceptPunct("...") {
+                    let inner = try parsePattern()
+                    if peekPunct() == "=" {
+                        throw TBJSFlow.error(
+                            "a rest element takes no default")
+                    }
+                    items.append(.rest(inner))
+                    try expectPunct("]")
+                    return .array(items)
+                }
+                var item = try parsePattern()
+                if acceptPunct("=") {
+                    item = .defaulted(item, try parseAssign())
+                }
+                items.append(.item(item))
+                if !acceptPunct(",") { break }
+                if peekPunct() == "]" { break }
+            }
+            try expectPunct("]")
+        }
+        return .array(items)
+    }
+
+    mutating func parseObjectPattern() throws -> TBJSPattern {
+        advance()  // the opening brace
+        var props: [TBJSPatternProp] = []
+        if !acceptPunct("}") {
+            while true {
+                if peekPunct() == "}" { break }
+                if acceptPunct("...") {
+                    // A rest gathers into a name or
+                    // a member road — never a
+                    // bracket shape of its own.
+                    let inner = try parsePatternTarget()
+                    if peekPunct() == "=" {
+                        throw TBJSFlow.error(
+                            "an object rest takes no default")
+                    }
+                    props.append(.rest(inner))
+                    try expectPunct("}")
+                    return .object(props)
+                }
+                if peekPunct() == "[" {
+                    throw TBJSFlow.error(
+                        "computed keys in a destructuring"
+                        + " pattern are not in this stage")
+                }
+                let key: String
+                var plainName = false
+                switch peek() {
+                case .ident(let name):
+                    key = name
+                    plainName = true
+                    advance()
+                case .string(let s):
+                    key = s
+                    advance()
+                case .number(let d):
+                    key = tbJSNumberString(d)
+                    advance()
+                default:
+                    throw TBJSFlow.error(
+                        "bad name in a destructuring pattern")
+                }
+                var value: TBJSPattern
+                if acceptPunct(":") {
+                    value = try parsePattern()
+                } else {
+                    guard plainName else {
+                        throw TBJSFlow.error(
+                            "a destructuring shorthand"
+                            + " must be a plain name")
+                    }
+                    value = .name(key)
+                }
+                if acceptPunct("=") {
+                    value = .defaulted(value, try parseAssign())
+                }
+                props.append(.prop(key, value))
+                if !acceptPunct(",") { break }
+                if peekPunct() == "}" { break }
+            }
+            try expectPunct("}")
+        }
+        return .object(props)
     }
 
     // The one road for parameter lists (0.39):
@@ -1615,9 +1913,38 @@ struct TBJSParser {
         if peekPunct() != ")" {
             while true {
                 if acceptPunct("...") {
-                    params.append(TBJSParam(
-                        name: try expectIdent(), isRest: true))
+                    // JavaScript fourth stage
+                    // (0.40): the gathered rest may
+                    // itself be opened by a pattern.
+                    if peekPunct() == "[" || peekPunct() == "{" {
+                        params.append(TBJSParam(
+                            pattern: try parsePattern(),
+                            isRest: true))
+                    } else {
+                        params.append(TBJSParam(
+                            name: try expectIdent(), isRest: true))
+                    }
                     break
+                }
+                // JavaScript fourth stage (0.40):
+                // a parameter may be a pattern,
+                // opened from its argument when
+                // the call is made; a default
+                // behind the whole pattern fills a
+                // missing or undefined argument,
+                // read at the ternary's level like
+                // every default on this road.
+                if peekPunct() == "[" || peekPunct() == "{" {
+                    let pattern = try parsePattern()
+                    var fallback: TBJSExpr? = nil
+                    if acceptPunct("=") {
+                        fallback = try parseTernary()
+                    }
+                    params.append(TBJSParam(
+                        pattern: pattern, default: fallback))
+                    if !acceptPunct(",") { break }
+                    if peekPunct() == ")" { break }
+                    continue
                 }
                 let name = try expectIdent()
                 var fallback: TBJSExpr? = nil
@@ -1779,6 +2106,32 @@ struct TBJSParser {
                             oneName, constant, walked,
                             try parseStatement())
                     }
+                    // JavaScript fourth stage
+                    // (0.40): the same walk with a
+                    // pattern in the head — told
+                    // apart by the bracket behind
+                    // the keyword.
+                    let headToken = tokens[min(pos + 1,
+                                               tokens.count - 1)]
+                    if case .punct(let bracket) = headToken,
+                       bracket == "[" || bracket == "{" {
+                        let constant = w == "const"
+                        advance()  // let or const
+                        let pattern = try parsePattern()
+                        guard acceptIdent("of") else {
+                            throw TBJSFlow.error(
+                                "destructuring in a counted"
+                                + " for-loop head is not in"
+                                + " this stage")
+                        }
+                        let walked = try parseExpr()
+                        try expectPunct(")")
+                        return .forOfPattern(
+                            pattern,
+                            constant ? .declareConst
+                                : .declareLet,
+                            walked, try parseStatement())
+                    }
                 }
                 // The same walk in its var dress.
                 if peekIdent() == "var" {
@@ -1797,16 +2150,47 @@ struct TBJSParser {
                         return .forOf(.ident(oneName), walked,
                                       try parseStatement(), true)
                     }
+                    // JavaScript fourth stage
+                    // (0.40): the var walk with a
+                    // pattern in its head.
+                    let headToken = tokens[min(pos + 1,
+                                               tokens.count - 1)]
+                    if case .punct(let bracket) = headToken,
+                       bracket == "[" || bracket == "{" {
+                        advance()  // var
+                        let pattern = try parsePattern()
+                        guard acceptIdent("of") else {
+                            throw TBJSFlow.error(
+                                "destructuring in a counted"
+                                + " for-loop head is not in"
+                                + " this stage")
+                        }
+                        let walked = try parseExpr()
+                        try expectPunct(")")
+                        return .forOfPattern(
+                            pattern, .declareVar, walked,
+                            try parseStatement())
+                    }
                 }
                 // JavaScript third stage (0.39): a
                 // let or const in the head makes
                 // the loop keep its own bindings,
                 // fresh for every round.
                 if let w = peekIdent(), w == "let" || w == "const" {
+                    let headDecl = try parseLexicalDeclList()
                     guard case .lexicalDecl(let names, let initials,
-                                             let constant)
-                        = try parseLexicalDeclList() else {
-                        throw TBJSFlow.error("bad for head")
+                                             let constant) = headDecl
+                    else {
+                        // JavaScript fourth stage
+                        // (0.40): a pattern in a
+                        // counted head is refused by
+                        // name — patterns stand in
+                        // for-of heads and plain
+                        // declarations in this stage.
+                        throw TBJSFlow.error(
+                            "destructuring in a counted"
+                            + " for-loop head is not in"
+                            + " this stage")
                     }
                     try expectPunct(";")
                     var lexCond: TBJSExpr? = nil
@@ -1830,6 +2214,26 @@ struct TBJSParser {
                         initial = decls.count == 1 ? decls[0]
                             : .block(decls)
                     } else {
+                        // JavaScript fourth stage
+                        // (0.40): the head may be a
+                        // for-of over a pattern —
+                        // tried on a copy of the
+                        // reader, since the same
+                        // brackets open an array
+                        // literal on the counted road.
+                        if peekPunct() == "["
+                            || peekPunct() == "{" {
+                            let saved = pos
+                            if let pattern = try? parsePattern(),
+                               acceptIdent("of") {
+                                let walked = try parseExpr()
+                                try expectPunct(")")
+                                return .forOfPattern(
+                                    pattern, .assign, walked,
+                                    try parseStatement())
+                            }
+                            pos = saved
+                        }
                         // JavaScript third stage
                         // (0.39): the head may be a
                         // for-of over an existing
@@ -2023,6 +2427,25 @@ struct TBJSParser {
         // arrow may stand where an assignment
         // stands — tried first, on a copy.
         if let arrow = tryParseArrow() { return arrow }
+        // JavaScript fourth stage (0.40): a
+        // pattern may stand on an assignment's
+        // left — tried on a copy of the reader,
+        // since the same brackets open an array
+        // or object literal everywhere else. The
+        // shape is a pattern only when a lone
+        // equals sign stands right behind it;
+        // otherwise the reader never heard of
+        // it, and literals walk their old road.
+        if peekPunct() == "[" || peekPunct() == "{" {
+            let saved = pos
+            if let pattern = try? parsePattern(),
+               peekPunct() == "=" {
+                advance()
+                return .patternAssign(pattern,
+                                      try parseAssign())
+            }
+            pos = saved
+        }
         let lhs = try parseTernary()
         if acceptPunct("=") {
             return .assign(lhs, try parseAssign())
@@ -2445,6 +2868,46 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
             }
             env.initializeLexical(names[index], value)
         }
+    case .patternVar(let pattern, let source):
+        // JavaScript fourth stage (0.40): a var
+        // declaration wearing a pattern — the
+        // value is reckoned whole, then opened
+        // into the nearest function room.
+        let value = try tbJSEval(source, env, ctx)
+        try tbJSBindPattern(pattern, value, env,
+                            .declareVar, ctx)
+    case .lexicalPattern(let items, let constant):
+        // JavaScript fourth stage (0.40): a let
+        // or const list carrying patterns. The
+        // names stand planted in this room by
+        // the list's opening — patterns' names
+        // alongside plain ones — and each
+        // declarator now gives its names their
+        // values, in order, so a later one may
+        // read an earlier, and none may read a
+        // name still waiting, its own included.
+        for item in items {
+            switch item {
+            case .name(let name, let initial):
+                let value: TBJSValue
+                if let initial = initial {
+                    value = try tbJSEval(initial, env, ctx)
+                } else if constant {
+                    throw TBJSFlow.error(
+                        "a constant '"
+                        + name
+                        + "' must be given a value")
+                } else {
+                    value = .undefined
+                }
+                env.initializeLexical(name, value)
+            case .pattern(let pattern, let source):
+                let value = try tbJSEval(source, env, ctx)
+                try tbJSBindPattern(
+                    pattern, value, env,
+                    .declareLexical(constant), ctx)
+            }
+        }
     case .block(let stmts):
         // JavaScript third stage (0.39): a block
         // is a room of its own — its let and
@@ -2643,6 +3106,78 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
                 }
             }
         }
+    case .forOfPattern(let pattern, let kind, let walked,
+                       let body):
+        // JavaScript fourth stage (0.40): the
+        // same walk, with a pattern in the
+        // head. Each round's piece is opened
+        // into the pattern by the head's own
+        // dress: written into bindings that
+        // stand, declared with var in the
+        // function room, or — let and const —
+        // declared in a fresh room for the
+        // round, so a closure made in one round
+        // keeps that round's pieces.
+        let iterable = try tbJSEval(walked, env, ctx)
+        let items: [TBJSValue]
+        switch iterable {
+        case .array(let values):
+            items = values
+        case .string(let s):
+            items = s.map { .string(String($0)) }
+        default:
+            throw TBJSFlow.error(
+                "for-of can only walk an array or a string"
+                + " in this stage")
+        }
+        for item in items {
+            try tbJSCheckBudget(ctx)
+            switch kind {
+            case .assign:
+                try tbJSBindPattern(pattern, item, env,
+                                    .assign, ctx)
+                do {
+                    try tbJSExecStmt(body, env, ctx)
+                } catch let flow as TBJSFlow {
+                    switch flow {
+                    case .breakLoop: return
+                    case .continueLoop: continue
+                    default: throw flow
+                    }
+                }
+            case .declareVar:
+                try tbJSBindPattern(pattern, item, env,
+                                    .declareVar, ctx)
+                do {
+                    try tbJSExecStmt(body, env, ctx)
+                } catch let flow as TBJSFlow {
+                    switch flow {
+                    case .breakLoop: return
+                    case .continueLoop: continue
+                    default: throw flow
+                    }
+                }
+            case .declareLet, .declareConst:
+                let constant = kind == .declareConst
+                let round = env.childBlock()
+                for name in tbJSPatternNames(pattern) {
+                    round.declareLexical(name,
+                                         constant: constant)
+                }
+                try tbJSBindPattern(
+                    pattern, item, round,
+                    .declareLexical(constant), ctx)
+                do {
+                    try tbJSExecStmt(body, round, ctx)
+                } catch let flow as TBJSFlow {
+                    switch flow {
+                    case .breakLoop: return
+                    case .continueLoop: continue
+                    default: throw flow
+                    }
+                }
+            }
+        }
     case .classDecl(let name, let parentName, let ctor,
                     let methods):
         // JavaScript third stage (0.39): the
@@ -2778,6 +3313,181 @@ func tbJSStoreValue(_ target: TBJSExpr, _ value: TBJSValue,
         return tbJSStoreValue(baseExpr, renewed, env, ctx)
     default:
         return false
+    }
+}
+
+// JavaScript fourth stage (0.40): every name a
+// pattern binds, in the order it binds them —
+// the rooms plant these before a list runs, and
+// a for-of head plants them for every round.
+func tbJSPatternNames(_ pattern: TBJSPattern) -> [String] {
+    switch pattern {
+    case .name(let name):
+        return [name]
+    case .target:
+        return []
+    case .defaulted(let inner, _):
+        return tbJSPatternNames(inner)
+    case .array(let items):
+        var names: [String] = []
+        for item in items {
+            switch item {
+            case .hole:
+                continue
+            case .item(let inner), .rest(let inner):
+                names.append(contentsOf: tbJSPatternNames(inner))
+            }
+        }
+        return names
+    case .object(let props):
+        var names: [String] = []
+        for prop in props {
+            switch prop {
+            case .prop(_, let inner):
+                names.append(contentsOf: tbJSPatternNames(inner))
+            case .rest(let inner):
+                names.append(contentsOf: tbJSPatternNames(inner))
+            }
+        }
+        return names
+    }
+}
+
+// JavaScript fourth stage (0.40): plant one
+// name with its value, by the road the
+// pattern's home prescribes.
+func tbJSBindName(_ name: String, _ value: TBJSValue,
+                  _ env: TBJSEnv, _ mode: TBJSBindMode,
+                  _ ctx: TBJSContext) throws {
+    switch mode {
+    case .assign:
+        try tbJSAssign(.ident(name), value, env, ctx)
+    case .declareVar:
+        // A var declarator's own road: the name
+        // takes its value in the function room.
+        env.varScope().vars[name] = value
+    case .declareParam:
+        env.vars[name] = value
+    case .declareLexical:
+        env.initializeLexical(name, value)
+    }
+}
+
+// JavaScript fourth stage (0.40): open a value
+// into a pattern. Pieces are handed out left
+// to right; a default fills only an undefined
+// piece, reckoned where the pattern stands, so
+// it may read the pieces already handed out.
+// Null and undefined cannot be opened at all —
+// the error is an ordinary script error, and a
+// catch can hold it. An array pattern opens an
+// array or a string, as for-of walks them; an
+// object pattern reads its pieces through the
+// same member road every read walks.
+func tbJSBindPattern(_ pattern: TBJSPattern, _ value: TBJSValue,
+                     _ env: TBJSEnv, _ mode: TBJSBindMode,
+                     _ ctx: TBJSContext) throws {
+    switch pattern {
+    case .name(let name):
+        try tbJSBindName(name, value, env, mode, ctx)
+    case .target(let expr):
+        // A member road may only be written by
+        // an assignment; a declaration wearing
+        // one is refused honestly, here where
+        // it runs.
+        guard case .assign = mode else {
+            throw TBJSFlow.error(
+                "a destructuring declaration cannot"
+                + " write a member")
+        }
+        try tbJSAssign(expr, value, env, ctx)
+    case .defaulted(let inner, let fallback):
+        if case .undefined = value {
+            let filled = try tbJSEval(fallback, env, ctx)
+            try tbJSBindPattern(inner, filled, env, mode, ctx)
+        } else {
+            try tbJSBindPattern(inner, value, env, mode, ctx)
+        }
+    case .array(let items):
+        let values: [TBJSValue]
+        switch value {
+        case .array(let opened):
+            values = opened
+        case .string(let s):
+            values = s.map { .string(String($0)) }
+        case .null, .undefined:
+            throw TBJSFlow.error(
+                "cannot destructure null or undefined")
+        default:
+            throw TBJSFlow.error(
+                "an array pattern can only open an array"
+                + " or a string in this stage")
+        }
+        for (index, item) in items.enumerated() {
+            switch item {
+            case .hole:
+                continue
+            case .item(let inner):
+                let piece = index < values.count
+                    ? values[index] : .undefined
+                try tbJSBindPattern(inner, piece, env, mode, ctx)
+            case .rest(let inner):
+                let remaining = Array(values.dropFirst(index))
+                try tbJSBindPattern(inner, .array(remaining),
+                                    env, mode, ctx)
+            }
+        }
+    case .object(let props):
+        if case .null = value {
+            throw TBJSFlow.error(
+                "cannot destructure null or undefined")
+        }
+        if case .undefined = value {
+            throw TBJSFlow.error(
+                "cannot destructure null or undefined")
+        }
+        var taken: Set<String> = []
+        var restTarget: TBJSPattern? = nil
+        for prop in props {
+            switch prop {
+            case .prop(let key, let inner):
+                taken.insert(key)
+                let piece = tbJSGetMember(value, key, ctx)
+                try tbJSBindPattern(inner, piece, env, mode, ctx)
+            case .rest(let inner):
+                restTarget = inner
+            }
+        }
+        if let restTarget = restTarget {
+            // The rest gathers what no named
+            // piece took, from a plain object's
+            // own properties or an instance's own
+            // fields — the two shapes whose whole
+            // contents this engine can honestly
+            // enumerate.
+            let gathered: TBJSValue
+            switch value {
+            case .object(let obj):
+                var rest: [String: TBJSValue] = [:]
+                for (key, held) in obj where !taken.contains(key) {
+                    rest[key] = held
+                }
+                gathered = .object(rest)
+            case .instance(let box):
+                var rest: [String: TBJSValue] = [:]
+                for (key, held) in box.fields
+                where !taken.contains(key) {
+                    rest[key] = held
+                }
+                gathered = .object(rest)
+            default:
+                throw TBJSFlow.error(
+                    "an object rest can only gather an"
+                    + " object in this stage")
+            }
+            try tbJSBindPattern(restTarget, gathered,
+                                env, mode, ctx)
+        }
     }
 }
 
@@ -3022,6 +3732,16 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
     case .assign(let target, let valueExpr):
         let value = try tbJSEval(valueExpr, env, ctx)
         try tbJSAssign(target, value, env, ctx)
+        return value
+    case .patternAssign(let pattern, let valueExpr):
+        // JavaScript fourth stage (0.40): the
+        // value is reckoned whole before any
+        // piece is handed out — the reckoning
+        // is what makes a swap a swap — and the
+        // assignment answers the value, like
+        // every assignment here.
+        let value = try tbJSEval(valueExpr, env, ctx)
+        try tbJSBindPattern(pattern, value, env, .assign, ctx)
         return value
     case .opAssign(let op, let target, let valueExpr):
         let current = try tbJSEval(target, env, ctx)
@@ -3310,12 +4030,24 @@ func tbJSCall(_ fn: TBJSValue, _ args: [TBJSValue], this: TBJSValue,
         // reckon in this very room, so a later
         // one may read an earlier parameter; and
         // a rest gathers whatever arguments
-        // remain into a true array.
+        // remain into a true array. A pattern
+        // parameter (0.40) is opened from its
+        // argument — after its own default, if
+        // it carries one, has filled an
+        // undefined — and its names plant in
+        // this room like any parameter's.
         var taken = 0
         for param in fn.params {
             if param.isRest {
-                callEnv.vars[param.name] =
+                let gathered: TBJSValue =
                     .array(Array(args.dropFirst(taken)))
+                if let pattern = param.pattern {
+                    try tbJSBindPattern(pattern, gathered,
+                                        callEnv, .declareParam,
+                                        ctx)
+                } else {
+                    callEnv.vars[param.name] = gathered
+                }
                 continue
             }
             var value: TBJSValue = taken < args.count
@@ -3324,7 +4056,12 @@ func tbJSCall(_ fn: TBJSValue, _ args: [TBJSValue], this: TBJSValue,
             if case .undefined = value, let fallback = param.default {
                 value = try tbJSEval(fallback, callEnv, ctx)
             }
-            callEnv.vars[param.name] = value
+            if let pattern = param.pattern {
+                try tbJSBindPattern(pattern, value, callEnv,
+                                    .declareParam, ctx)
+            } else {
+                callEnv.vars[param.name] = value
+            }
         }
         if fn.expressionBody {
             // An arrow whose body is one

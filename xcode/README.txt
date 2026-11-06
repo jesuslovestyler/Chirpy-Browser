@@ -7,6 +7,105 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.40 — JAVASCRIPT'S FOURTH STAGE: DESTRUCTURING
+------------------------------------------------------
+JavaScript learns to open a value into
+names in one breath — destructuring, the
+stage the 0.39 sections named as not yet
+in. A pattern now stands everywhere the
+language already had a surrounding form:
+in declarations (var, let, and const,
+mixed freely with plain names in one
+list), in assignments, in the parameter
+lists of functions, arrows, methods, and
+constructors (they all share the one
+parameter road), and in the heads of
+for-of loops in all four dresses —
+const, let, var, and bare bindings
+already standing.
+
+An array pattern takes its pieces in
+order: a hole skips its place, a default
+fills a missing or undefined piece, a
+rest gathers what remains into a fresh
+array, and a pattern inside a pattern
+opens the nested piece. A string opens
+by its letters, the way for-of walks it.
+An object pattern reads its pieces
+through the member road: a shorthand
+takes the property of its own name, a
+colon renames it, a default fills what
+is absent, and a rest gathers the
+properties no named piece took into a
+fresh object — from a plain object's own
+properties, or a class instance's own
+fields, the two shapes whose whole
+contents this engine can honestly count.
+
+An assignment opens too: the value is
+reckoned whole before any piece is
+handed out, which is what makes
+[a, b] = [b, a] a swap, and pieces may be
+written through member and index roads
+([o.x, arr[0]] = ...) down the same
+renewal road every member write walks.
+Defaults are reckoned where the pattern
+stands — an array default may read the
+piece handed out just before it, an
+object default likewise — and only
+undefined wakes them; a present zero or
+empty string stands.
+
+Pattern names keep the law of their
+dress exactly, because they are planted
+by the same machinery: a let/const
+pattern's names stand planted,
+uninitialized, when their room opens —
+the dead zone covers them, a const
+pattern's name refuses a later write,
+and a block's pattern names die with
+their block. A var pattern's names land
+in the function room; a parameter
+pattern's in the call's room.
+
+The errors are honest, and catchable:
+opening null or undefined answers
+"cannot destructure null or undefined",
+and an array pattern asked to open
+anything but an array or a string names
+this stage as its limit. What is still
+refused, by name, at the reading: a
+computed key in a pattern, a pattern in
+a counted for-loop's head (patterns
+stand in for-of heads and plain
+declarations), a pattern declaration
+with no value to open, and a default on
+a rest. A member road inside a
+declaration pattern ([o.x] = ...) is
+refused when it runs — a declaration
+plants names; it does not write through
+roads. Catch-binding patterns
+(catch ({ ... })) are not in this stage;
+the catch name is still a plain name.
+
+THE DRILL.
+Build and run — the status line should
+read "Chirpy Engine 0.40 (Swift)". Open
+js-suite.html and walk the whole suite:
+the count is 39 promises now — js-test's
+11, js2-test's 8, js3-test's 10, and the
+new js4-test.html's 10, each PASS in page
+and console. Then shield-test.html and
+its six promises. The pages by eye must
+look exactly as they did at 0.39.6 —
+this stage touched only the
+interpreter's reading and binding, no
+paint. Then the standing evidence:
+Wikipedia's Jesus article in its
+~7.5-second family, and
+google.com/search?q=jesus — whatever its
+console says names the next stage.
+
 0.39.6 — THE SPLIT, STEP SIX (final)
 ------------------------------------------------------
 No new behavior, no new feature: the code

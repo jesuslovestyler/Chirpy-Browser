@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chirpy JS Fourth Stage Drill</title>
+</head>
+<body>
+<h1 id="heading">Chirpy JavaScript Drill — Fourth Stage (0.40)</h1>
+<p>Ten numbered promises, each written into this page by its own
+scripts and repeated in the console. If a line below still reads
+"not yet", that piece did not run.</p>
+<p id="r1">1. Array patterns open a declaration: not yet</p>
+<p id="r2">2. Object patterns — shorthand, renaming, nesting: not yet</p>
+<p id="r3">3. Rests gather what is left: not yet</p>
+<p id="r4">4. Assignment opens too — the swap, and member roads: not yet</p>
+<p id="r5">5. Patterns stand in parameters: not yet</p>
+<p id="r6">6. for-of walks into patterns: not yet</p>
+<p id="r7">7. Pattern names keep the let and const law: not yet</p>
+<p id="r8">8. What cannot be opened says so, catchably: not yet</p>
+<p id="r9">9. Defaults reckon where they stand: not yet</p>
+<p id="r10">10. The whole shape at once: not yet</p>
+<script>
+// 1 — an array pattern in each declaration dress: positions are
+// taken in order, a hole skips its place, and a default fills a
+// missing piece (or an undefined one) but never a present value.
+const [a1, , c1, d1 = 40] = [1, 2, 3];
+let [e1, f1] = [5, 6];
+var [g1] = [7];
+const [h1 = 9] = [3];
+const [i1 = 9] = [];
+var ok1 = (a1 === 1 && c1 === 3 && d1 === 40 && e1 + f1 === 11
+  && g1 === 7 && h1 === 3 && i1 === 9);
+document.getElementById("r1").textContent =
+  "1. Array patterns open a declaration: " + (ok1 ? "PASS" : "FAIL");
+console.log("1. array patterns in declarations: " + (ok1 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 2 — an object pattern: a shorthand takes the property of its
+// own name, a colon renames, a default fills what is absent, and
+// a pattern inside a pattern opens the nested piece.
+const person2 = { name: "Tyler", age: 29,
+  home: { town: "Washington" } };
+const { name: n2, age, home: { town }, missing2 = "none" } = person2;
+var ok2 = (n2 === "Tyler" && age === 29 && town === "Washington"
+  && missing2 === "none");
+document.getElementById("r2").textContent =
+  "2. Object patterns — shorthand, renaming, nesting: "
+  + (ok2 ? "PASS" : "FAIL");
+console.log("2. object patterns: " + (ok2 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 3 — a rest gathers what the named pieces left: the tail of an
+// array into a fresh array, the untaken properties of an object
+// into a fresh object — and patterns nest inside patterns.
+const [head3, ...tail3] = [1, 2, 3, 4];
+const bag3 = { a: 1, b: 2, c: 3 };
+const { a: a3, ...rest3 } = bag3;
+const [[x3, y3], z3] = [[1, 2], 3];
+var ok3 = (head3 === 1 && tail3.join(",") === "2,3,4"
+  && tail3.length === 3 && a3 === 1 && rest3.b === 2 && rest3.c === 3
+  && rest3.a === undefined && x3 + y3 + z3 === 6);
+document.getElementById("r3").textContent =
+  "3. Rests gather what is left: " + (ok3 ? "PASS" : "FAIL");
+console.log("3. rests and nesting: " + (ok3 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 4 — assignment destructuring: the value is reckoned whole
+// before any piece is handed out, which makes the swap a swap;
+// and pieces may be written through member and index roads.
+let a4 = 1, b4 = 2;
+[a4, b4] = [b4, a4];
+const o4 = { x: 0 };
+const arr4 = [0];
+[o4.x, arr4[0]] = [10, 20];
+let c4, d4;
+({ c4, d4 } = { c4: 3, d4: 4 });
+var ok4 = (a4 === 2 && b4 === 1 && o4.x === 10 && arr4[0] === 20
+  && c4 === 3 && d4 === 4);
+document.getElementById("r4").textContent =
+  "4. Assignment opens too — the swap, and member roads: "
+  + (ok4 ? "PASS" : "FAIL");
+console.log("4. assignment destructuring: " + (ok4 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 5 — patterns stand where parameters stand, in a function's
+// list and an arrow's alike, with their own defaults — and a
+// default behind the whole pattern fills a missing argument.
+function add5([x, y]) { return x + y; }
+function greet5({ name, punct = "!" }) {
+  return "hello " + name + punct;
+}
+const first5 = ([h, ...t]) => h + ":" + t.length;
+function def5({ v = 8 } = {}) { return v; }
+var ok5 = (add5([1, 2]) === 3
+  && greet5({ name: "Tyler" }) === "hello Tyler!"
+  && first5([7, 8, 9]) === "7:2"
+  && def5() === 8 && def5({ v: 1 }) === 1);
+document.getElementById("r5").textContent =
+  "5. Patterns stand in parameters: " + (ok5 ? "PASS" : "FAIL");
+console.log("5. parameter patterns: " + (ok5 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 6 — for-of walks into a pattern in its head: const rounds,
+// bare names already standing, each round opening its piece.
+const pairs6 = [[1, "one"], [2, "two"]];
+let sum6 = 0, words6 = "";
+for (const [n6, w6] of pairs6) { sum6 += n6; words6 += w6; }
+let keys6 = "";
+for (const { id } of [{ id: "a" }, { id: "b" }]) { keys6 += id; }
+let bare6 = 0;
+let bx6, by6;
+for ([bx6, by6] of [[1, 2], [3, 4]]) { bare6 += bx6 * by6; }
+var ok6 = (sum6 === 3 && words6 === "onetwo" && keys6 === "ab"
+  && bare6 === 14);
+document.getElementById("r6").textContent =
+  "6. for-of walks into patterns: " + (ok6 ? "PASS" : "FAIL");
+console.log("6. for-of pattern heads: " + (ok6 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 7 — names a pattern plants keep the law of their dress: a
+// const pattern's name refuses a later write, a name read before
+// its line stands in the dead zone, and a block's pattern names
+// die with their block — all exactly as plain let and const do.
+var word7 = "none";
+try { word7 = "" + lateA7; } catch (e) { word7 = e; }
+const { lateA7 } = { lateA7: 5 };
+const [cap7] = [1];
+var word7b = "none";
+try { cap7 = 2; } catch (e) { word7b = e; }
+let [free7] = [1];
+free7 = 2;
+{ const [inBlock7] = [9]; }
+var after7 = "unset";
+try { after7 = "" + inBlock7; } catch (e) { after7 = "error"; }
+var ok7 = (word7 === "cannot use 'lateA7' before its declaration"
+  && lateA7 === 5
+  && word7b === "assignment to a constant 'cap7'" && cap7 === 1
+  && free7 === 2 && after7 === "undefined");
+document.getElementById("r7").textContent =
+  "7. Pattern names keep the let and const law: "
+  + (ok7 ? "PASS" : "FAIL");
+console.log("7. pattern TDZ and const law: " + (ok7 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 8 — what cannot be opened says so, and the saying is an
+// ordinary catchable error: null and undefined open for no
+// pattern, and an array pattern opens no plain object.
+var caught8 = "";
+try { const [x8] = null; } catch (e) { caught8 = e; }
+var caught8b = "";
+try { const { y8 } = undefined; } catch (e) { caught8b = e; }
+var caught8c = "";
+try { const [z8] = { not: "a list" }; } catch (e) { caught8c = e; }
+var ok8 = (caught8 === "cannot destructure null or undefined"
+  && caught8b === "cannot destructure null or undefined"
+  && caught8c === "an array pattern can only open an array"
+       + " or a string in this stage");
+document.getElementById("r8").textContent =
+  "8. What cannot be opened says so, catchably: "
+  + (ok8 ? "PASS" : "FAIL");
+console.log("8. honest destructure errors: " + (ok8 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 9 — a default is reckoned where the pattern stands: it may
+// read a piece already handed out, in an array pattern and an
+// object pattern alike; and only undefined wakes it — a present
+// zero stands.
+const [p9, q9 = p9 * 10] = [4];
+const { m9 = 1, n9 = m9 + 1 } = {};
+const [z9 = 7] = [0];
+let [w9 = 7] = [undefined];
+var ok9 = (p9 === 4 && q9 === 40 && m9 === 1 && n9 === 2
+  && z9 === 0 && w9 === 7);
+document.getElementById("r9").textContent =
+  "9. Defaults reckon where they stand: " + (ok9 ? "PASS" : "FAIL");
+console.log("9. pattern defaults in place: " + (ok9 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 10 — the whole shape at once: a class hands back an array a
+// pattern opens; an arrow takes two patterns and answers an
+// array another pattern opens; and an object pattern reaches
+// through a property into the array it holds.
+class Pair10 {
+  constructor(a, b) { this.pair = [a, b]; }
+  both() { return this.pair; }
+}
+const [lo10, hi10] = new Pair10(3, 9).both();
+const move10 = ([x, y], { by }) => [x + by, y + by];
+const [mx10, my10] = move10([1, 2], { by: 10 });
+const { pair: [first10] } = new Pair10(7, 8);
+var ok10 = (lo10 === 3 && hi10 === 9 && mx10 === 11 && my10 === 12
+  && first10 === 7);
+document.getElementById("r10").textContent =
+  "10. The whole shape at once: " + (ok10 ? "PASS" : "FAIL");
+console.log("10. destructuring integration: " + (ok10 ? "PASS" : "FAIL"));
+</script>
+</body>
+</html>
