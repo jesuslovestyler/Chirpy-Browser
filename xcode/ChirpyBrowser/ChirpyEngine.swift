@@ -1,6 +1,6 @@
 //
 //  ChirpyEngine.swift
-//  Chirpy Browser — engine 0.37.3.1 (Swift)
+//  Chirpy Browser — engine 0.38 (Swift)
 //
 //  Our own browser engine, ported from the Python original.
 //  No WebKit, no Chromium: this file fetches pages itself,
@@ -909,6 +909,47 @@
 //  placeholders there — the seats are paint,
 //  not text (the hub's search field is one).
 //  And the outs named in the README.
+//  0.38 is JavaScript's second stage — the
+//  language core real pages' scripts reach
+//  for first, built from where the console
+//  showed them dying. Patterns: a regex
+//  literal is a value now (the lexer tells
+//  it from division by the token before it,
+//  as every small lexer does), backed by
+//  Foundation's NSRegularExpression — a
+//  regex library, not a borrowed JavaScript
+//  engine — with the RegExp constructor,
+//  test and exec (groups in an array;
+//  lastIndex walks under g and y), and a
+//  string's match, replace (the $ words
+//  expanded: $$, $&, $`, $', $1..$99), split
+//  and search keeping their company.
+//  Templates: backtick strings with ${…}
+//  workings woven in, nested templates
+//  included. Guarding: try, catch, finally
+//  and throw — a script's own thrown value
+//  travels as a value and a catch holds it
+//  as itself, while an engine error arrives
+//  in the catch as its message; finally
+//  runs on every road out, return, break
+//  and continue included; and a throw
+//  nothing catches now ends its script with
+//  a plain line instead of vanishing.
+//  Building: `new` — RegExp natively, and a
+//  reader's own function as a constructor
+//  over a plain object, a method's writes
+//  to `this` riding home the same road the
+//  array helpers opened. Named gaps, on
+//  purpose: an exec result carries no
+//  .index or .input of its own; replace
+//  will not take a function yet; a pattern
+//  inside a template's ${…} holding a "}"
+//  would end the working early; classes
+//  and arrow functions are not here; and
+//  the async world — timers, promises,
+//  fetch — is a later stage still. The
+//  drill page js2-test.html promises each
+//  piece, one numbered promise at a time.
 //
 
 import Foundation
@@ -3587,7 +3628,10 @@ func tbFetchText(urlString: String, pageURLString: String? = nil) async -> Strin
 // parser, and an evaluator, with a small bridge
 // to the parsed page. Its honest scope is in the
 // file header's 0.33 bullet; the drill page
-// js-test.html promises each piece of it.
+// js-test.html promises each piece of it. The
+// second stage (0.38) — patterns, templates,
+// try/catch, `new` — has its header bullet and
+// its own drill, js2-test.html.
 
 enum TBJSValue {
     case undefined
@@ -3604,6 +3648,11 @@ enum TBJSValue {
     case console
     case window
     case location
+    // JavaScript second stage (0.38): a regular
+    // expression — its pattern, its flags, and
+    // the index its next exec or test starts
+    // from under the g or y flag (its lastIndex).
+    case regex(String, String, Int)
 }
 
 struct TBJSFunc {
@@ -3635,6 +3684,14 @@ enum TBJSFlow: Error {
     case breakLoop
     case continueLoop
     case error(String)
+    // JavaScript second stage (0.38): a value the
+    // script itself threw. It rides separately
+    // from an engine error so a catch can tell
+    // "the page threw this" from "the engine
+    // failed" — though a catch can hold either:
+    // a thrown value arrives as itself, an engine
+    // error arrives as its message string.
+    case thrown(TBJSValue)
 }
 
 final class TBJSContext {
@@ -3708,6 +3765,11 @@ final class TBJSContext {
         globals.vars["isNaN"] = .native("global.isNaN")
         globals.vars["String"] = .native("global.String")
         globals.vars["Number"] = .native("global.Number")
+        // JavaScript second stage (0.38): the
+        // RegExp constructor — a call or a `new`
+        // with a pattern and optional flags makes
+        // a regex value (see tbJSRegexCompile).
+        globals.vars["RegExp"] = .native("global.RegExp")
     }
 }
 
@@ -3759,6 +3821,8 @@ func tbJSString(_ value: TBJSValue) -> String {
     case .console: return "[object Object]"
     case .window: return "[object Window]"
     case .location: return "[object Location]"
+    case .regex(let pattern, let flags, _):
+        return "/" + pattern + "/" + flags
     }
 }
 
@@ -3779,7 +3843,7 @@ func tbJSNumber(_ value: TBJSValue) -> Double {
         return Double.nan
     case .array(let items): return tbJSNumber(.string(tbJSString(.array(items))))
     case .object, .function, .native, .element, .document, .console, .window,
-         .location:
+         .location, .regex:
         return Double.nan
     }
 }
@@ -3814,6 +3878,10 @@ func tbJSStrictEqual(_ a: TBJSValue, _ b: TBJSValue) -> Bool {
     case (.string(let x), .string(let y)): return x == y
     case (.element(let x), .element(let y)): return x === y
     case (.location, .location): return true
+    case (.regex(let p1, let f1, _), .regex(let p2, let f2, _)):
+        // A copy of a pattern is this engine's
+        // stand-in for the same object (0.38).
+        return p1 == p2 && f1 == f2
     default: return false
     }
 }
@@ -3840,6 +3908,10 @@ let TBJSStringMethods: [String: String] = [
     "toLowerCase": "string.toLowerCase",
     "slice": "string.slice", "split": "string.split",
     "trim": "string.trim", "includes": "string.includes",
+    // JavaScript second stage (0.38): the regex
+    // companions — match, replace, search.
+    "match": "string.match", "replace": "string.replace",
+    "search": "string.search",
 ]
 let TBJSArrayMethods: [String: String] = [
     "push": "array.push", "pop": "array.pop",
@@ -3920,6 +3992,26 @@ func tbJSGetMember(_ base: TBJSValue, _ name: String,
         case "toString": return .native("location.toString")
         default: return .undefined
         }
+    case .regex(let pattern, let flags, let lastIndex):
+        // JavaScript second stage (0.38): a
+        // pattern's own face — where it came
+        // from, how it is flagged, where its
+        // next search starts — and its two
+        // working methods.
+        switch name {
+        case "source": return .string(pattern)
+        case "flags": return .string(flags)
+        case "lastIndex": return .number(Double(lastIndex))
+        case "global": return .boolean(flags.contains("g"))
+        case "ignoreCase": return .boolean(flags.contains("i"))
+        case "multiline": return .boolean(flags.contains("m"))
+        case "sticky": return .boolean(flags.contains("y"))
+        case "unicode": return .boolean(flags.contains("u"))
+        case "test": return .native("regex.test")
+        case "exec": return .native("regex.exec")
+        case "toString": return .native("regex.toString")
+        default: return .undefined
+        }
     default:
         return .undefined
     }
@@ -3985,6 +4077,14 @@ func tbJSSetMember(_ base: TBJSValue, _ name: String, _ value: TBJSValue,
             ctx.requestNavigation(value)
         }
         return base
+    case .regex(let pattern, let flags, _):
+        // JavaScript second stage (0.38): the
+        // one writable field a pattern carries.
+        if name == "lastIndex" {
+            return .regex(pattern, flags,
+                          max(0, Int(tbJSNumber(value))))
+        }
+        return base
     default:
         return base
     }
@@ -4012,7 +4112,8 @@ func tbJSGetIndex(_ base: TBJSValue, _ index: TBJSValue,
             return .undefined
         }
         return tbJSGetMember(base, tbJSString(index), ctx)
-    case .object, .element, .document, .console, .window, .location:
+    case .object, .element, .document, .console, .window, .location,
+         .regex:
         return tbJSGetMember(base, tbJSString(index), ctx)
     default:
         return .undefined
@@ -4040,11 +4141,181 @@ func tbJSSetIndex(_ base: TBJSValue, _ index: TBJSValue, _ value: TBJSValue,
     }
 }
 
+// JavaScript second stage (0.38): the regex
+// machinery. A pattern is compiled by
+// Foundation's NSRegularExpression — a regex
+// library, the same shelf String and URL come
+// from, not a borrowed JavaScript engine.
+// The spellings mostly agree (\d, \w, \s, the
+// anchors, the classes); the gaps this stage
+// knows about are named in the 0.38 header
+// bullet and the README.
+func tbJSRegexCompile(_ pattern: String, _ flags: String) throws
+    -> NSRegularExpression {
+    var options: NSRegularExpression.Options = []
+    if flags.contains("i") { options.insert(.caseInsensitive) }
+    if flags.contains("m") { options.insert(.anchorsMatchLines) }
+    if flags.contains("s") { options.insert(.dotMatchesLineSeparators) }
+    do {
+        return try NSRegularExpression(pattern: pattern,
+                                       options: options)
+    } catch {
+        throw TBJSFlow.error("invalid regular expression: /"
+                             + pattern + "/")
+    }
+}
+
+// One search of a string by a pattern, from a
+// starting character offset. Returns the match
+// as an array — the whole match, then each
+// group, an absent group reading undefined —
+// or null; and the lastIndex the pattern
+// carries away (only a g or y pattern keeps
+// one; a failed search resets it to zero, as
+// the language says). The result is a plain
+// array: this stage gives it no .index or
+// .input properties of its own.
+func tbJSRegexExec(_ pattern: String, _ flags: String,
+                   _ lastIndex: Int, _ text: String) throws
+    -> (TBJSValue, Int) {
+    let re = try tbJSRegexCompile(pattern, flags)
+    let ns = text as NSString
+    let keepsIndex = flags.contains("g") || flags.contains("y")
+    var start = keepsIndex ? lastIndex : 0
+    if start < 0 { start = 0 }
+    if start > ns.length {
+        return (.null, keepsIndex ? 0 : lastIndex)
+    }
+    let range = NSRange(location: start, length: ns.length - start)
+    guard let match = re.firstMatch(in: text, options: [],
+                                    range: range) else {
+        return (.null, keepsIndex ? 0 : lastIndex)
+    }
+    if flags.contains("y"), match.range.location != start {
+        return (.null, 0)
+    }
+    var items: [TBJSValue] = []
+    for group in 0..<match.numberOfRanges {
+        let groupRange = match.range(at: group)
+        if groupRange.location == NSNotFound {
+            items.append(.undefined)
+        } else {
+            items.append(.string(ns.substring(with: groupRange)))
+        }
+    }
+    var next = lastIndex
+    if keepsIndex {
+        next = match.range.location + match.range.length
+        if match.range.length == 0 { next += 1 }
+    }
+    return (.array(items), next)
+}
+
+// The replacement side of replace: a template
+// read against one match — $$ is a dollar,
+// $& the whole match, $` and $' the text
+// before and after it, $1..$99 a group (an
+// absent group reads empty, a number past the
+// last group stays literal). With no match in
+// hand (the plain-string form of replace),
+// $& is the needle itself and every $n stays
+// literal, as the language has it.
+func tbJSRegexExpandReplacement(_ template: String, _ text: NSString,
+                                _ match: NSTextCheckingResult?,
+                                _ needle: String) -> String {
+    let whole: String
+    let groupCount: Int
+    if let match = match {
+        whole = text.substring(with: match.range)
+        groupCount = match.numberOfRanges - 1
+    } else {
+        whole = needle
+        groupCount = 0
+    }
+    func groupText(_ index: Int) -> String? {
+        guard let match = match, index <= groupCount else {
+            return nil
+        }
+        let groupRange = match.range(at: index)
+        if groupRange.location == NSNotFound { return "" }
+        return text.substring(with: groupRange)
+    }
+    let chars = Array(template)
+    var out = ""
+    var i = 0
+    while i < chars.count {
+        let c = chars[i]
+        if c != "$" || i + 1 >= chars.count {
+            out.append(c)
+            i += 1
+            continue
+        }
+        let next = chars[i + 1]
+        switch next {
+        case "$":
+            out.append("$")
+            i += 2
+        case "&":
+            out.append(whole)
+            i += 2
+        case "`":
+            if let match = match {
+                out += text.substring(to: match.range.location)
+            } else {
+                out.append("$`")
+            }
+            i += 2
+        case "'":
+            if let match = match {
+                out += text.substring(
+                    from: match.range.location + match.range.length)
+            } else {
+                out.append("$'")
+            }
+            i += 2
+        default:
+            if next >= "1" && next <= "9" {
+                var digits = String(next)
+                var width = 1
+                if i + 2 < chars.count, chars[i + 2] >= "0",
+                   chars[i + 2] <= "9",
+                   let two = Int(digits + String(chars[i + 2])),
+                   two <= groupCount {
+                    digits = String(two)
+                    width = 2
+                }
+                if let group = groupText(Int(digits) ?? 0) {
+                    out.append(group)
+                    i += 1 + width
+                } else {
+                    out.append("$")
+                    i += 1
+                }
+            } else {
+                out.append("$")
+                i += 1
+            }
+        }
+    }
+    return out
+}
+
 // MARK: - JavaScript lexer and parser (0.33)
+
+enum TBJSTemplatePart {
+    // A template literal under construction
+    // (0.38): plain words, or the source of one
+    // ${…} interpolation, which the parser reads
+    // as an expression of its own.
+    case text(String)
+    case exprSource(String)
+}
 
 enum TBJSToken {
     case number(Double)
     case string(String)
+    case regex(String, String)
+    case template([TBJSTemplatePart])
     case ident(String)
     case punct(String)
     case eof
@@ -4062,6 +4333,31 @@ func tbJSLex(_ source: String) throws -> [TBJSToken] {
     func isIdentPart(_ c: Character) -> Bool {
         c.isLetter || c.isNumber || c == "_" || c == "$"
     }
+    // JavaScript second stage (0.38): whether a
+    // "/" here opens a pattern or divides. A
+    // pattern can only stand where a value can
+    // begin — at the start, after an operator or
+    // an opener, after a keyword that expects a
+    // value; after a value (a number, a string,
+    // a template, a pattern, a name, a closer)
+    // the same stroke is division. The keyword
+    // list is the honest heuristic every small
+    // lexer keeps.
+    func regexCanOpen() -> Bool {
+        guard let last = tokens.last else { return true }
+        switch last {
+        case .number, .string, .template, .regex:
+            return false
+        case .ident(let name):
+            return ["typeof", "return", "case", "in", "of",
+                    "new", "delete", "void", "throw",
+                    "instanceof", "else", "do"].contains(name)
+        case .punct(let p):
+            return p != ")" && p != "]" && p != "}"
+        case .eof:
+            return true
+        }
+    }
     while i < n {
         let c = chars[i]
         if c == " " || c == "\t" || c == "\n" || c == "\r" {
@@ -4078,6 +4374,165 @@ func tbJSLex(_ source: String) throws -> [TBJSToken] {
                 i += 1
             }
             i = min(i + 2, n)
+            continue
+        }
+        if c == "/" && regexCanOpen() {
+            // A pattern (0.38): read to the
+            // closing stroke, honoring backslash
+            // escapes and character classes (a
+            // "/" inside […] closes nothing), then
+            // the flag letters that follow. If no
+            // closing stroke stands on this line,
+            // it was division after all and the
+            // ordinary road below takes the "/".
+            var j = i + 1
+            var pattern = ""
+            var inClass = false
+            var closed = false
+            while j < n {
+                let ch = chars[j]
+                if ch == "\\" && j + 1 < n {
+                    pattern.append(ch)
+                    pattern.append(chars[j + 1])
+                    j += 2
+                    continue
+                }
+                if ch == "\n" { break }
+                if ch == "[" { inClass = true }
+                if ch == "]" { inClass = false }
+                if ch == "/" && !inClass { closed = true; break }
+                pattern.append(ch)
+                j += 1
+            }
+            if closed {
+                var flags = ""
+                var k = j + 1
+                while k < n && chars[k].isLetter {
+                    flags.append(chars[k])
+                    k += 1
+                }
+                tokens.append(.regex(pattern, flags))
+                i = k
+                continue
+            }
+        }
+        if c == "`" {
+            // A template literal (0.38): words
+            // and ${…} workings woven together.
+            // Each working's source is captured
+            // whole — braces counted, strings and
+            // nested templates stepped over, so
+            // the parser can read it as an
+            // expression. One known limit: a
+            // pattern inside ${…} whose text holds
+            // a "}" would end the working early.
+            var parts: [TBJSTemplatePart] = []
+            var words = ""
+            var j = i + 1
+            var closed = false
+            while j < n {
+                let ch = chars[j]
+                if ch == "\\" && j + 1 < n {
+                    let esc = chars[j + 1]
+                    switch esc {
+                    case "n": words.append("\n")
+                    case "t": words.append("\t")
+                    case "r": words.append("\r")
+                    case "`": words.append("`")
+                    case "$": words.append("$")
+                    case "\\": words.append("\\")
+                    default: words.append(esc)
+                    }
+                    j += 2
+                    continue
+                }
+                if ch == "`" { closed = true; j += 1; break }
+                if ch == "$" && j + 1 < n && chars[j + 1] == "{" {
+                    parts.append(.text(words))
+                    words = ""
+                    var depth = 1
+                    var k = j + 2
+                    var quote: Character? = nil
+                    var inTemplate = false
+                    // A stack of the modes this
+                    // working stepped out of, one
+                    // per open ${ — a nested
+                    // template's ${ returns to the
+                    // template, not to plain code,
+                    // when its brace closes.
+                    var modes: [Bool] = []
+                    while k < n && depth > 0 {
+                        let inner = chars[k]
+                        if let q = quote {
+                            if inner == "\\" { k += 2; continue }
+                            if inner == q { quote = nil }
+                            k += 1
+                            continue
+                        }
+                        if inTemplate {
+                            if inner == "\\" { k += 2; continue }
+                            if inner == "`" {
+                                inTemplate = false
+                                k += 1
+                                continue
+                            }
+                            if inner == "$" && k + 1 < n
+                                && chars[k + 1] == "{" {
+                                depth += 1
+                                modes.append(true)
+                                inTemplate = false
+                                k += 2
+                                continue
+                            }
+                            k += 1
+                            continue
+                        }
+                        if inner == "'" || inner == "\"" {
+                            quote = inner
+                            k += 1
+                            continue
+                        }
+                        if inner == "`" {
+                            inTemplate = true
+                            k += 1
+                            continue
+                        }
+                        if inner == "/" && k + 1 < n
+                            && chars[k + 1] == "/" {
+                            while k < n && chars[k] != "\n" {
+                                k += 1
+                            }
+                            continue
+                        }
+                        if inner == "{" { depth += 1 }
+                        if inner == "}" {
+                            depth -= 1
+                            if depth == 0 { break }
+                            if let wasTemplate = modes.popLast(),
+                               wasTemplate {
+                                inTemplate = true
+                            }
+                        }
+                        k += 1
+                    }
+                    if depth != 0 {
+                        throw TBJSFlow.error(
+                            "unterminated template literal")
+                    }
+                    parts.append(.exprSource(
+                        String(chars[(j + 2)..<k])))
+                    j = k + 1
+                    continue
+                }
+                words.append(ch)
+                j += 1
+            }
+            if !closed {
+                throw TBJSFlow.error("unterminated template literal")
+            }
+            parts.append(.text(words))
+            tokens.append(.template(parts))
+            i = j
             continue
         }
         if isDigit(c) || (c == "." && i + 1 < n && isDigit(chars[i + 1])) {
@@ -4203,6 +4658,10 @@ indirect enum TBJSExpr {
     case opAssign(String, TBJSExpr, TBJSExpr)
     case ternary(TBJSExpr, TBJSExpr, TBJSExpr)
     case funcExpr([String], [TBJSStmt])
+    // JavaScript second stage (0.38): building
+    // with `new` — the thing built, and the
+    // arguments it is built with.
+    case newExpr(TBJSExpr, [TBJSExpr])
 }
 
 indirect enum TBJSStmt {
@@ -4218,6 +4677,12 @@ indirect enum TBJSStmt {
     case returnStmt(TBJSExpr?)
     case breakStmt
     case continueStmt
+    // JavaScript second stage (0.38): throw,
+    // and try with its catch name and body and
+    // its finally body — either companion may
+    // be absent, never both.
+    case throwStmt(TBJSExpr)
+    case tryStmt([TBJSStmt], String?, [TBJSStmt]?, [TBJSStmt]?)
 }
 
 struct TBJSParser {
@@ -4412,6 +4877,39 @@ struct TBJSParser {
                 advance()
                 skipSemicolons()
                 return .continueStmt
+            case "throw":
+                // JavaScript second stage (0.38).
+                advance()
+                let value = try parseExpr()
+                skipSemicolons()
+                return .throwStmt(value)
+            case "try":
+                // JavaScript second stage (0.38):
+                // the guarded block, then a catch
+                // that names what it caught, a
+                // finally that always runs, or
+                // both — the language asks for at
+                // least one of the two.
+                advance()
+                let guarded = try parseBlock()
+                var catchName: String? = nil
+                var catchBody: [TBJSStmt]? = nil
+                var finallyBody: [TBJSStmt]? = nil
+                if acceptIdent("catch") {
+                    try expectPunct("(")
+                    catchName = try expectIdent()
+                    try expectPunct(")")
+                    catchBody = try parseBlock()
+                }
+                if acceptIdent("finally") {
+                    finallyBody = try parseBlock()
+                }
+                if catchBody == nil && finallyBody == nil {
+                    throw TBJSFlow.error(
+                        "try without catch or finally")
+                }
+                return .tryStmt(guarded, catchName, catchBody,
+                                finallyBody)
             default:
                 break
             }
@@ -4570,10 +5068,75 @@ struct TBJSParser {
                 if peekIdent() != nil { advance() }  // a name, unused
                 let (params, body) = try parseFunctionTail()
                 return .funcExpr(params, body)
+            case "new":
+                // JavaScript second stage (0.38):
+                // what is built is a primary with
+                // its member road (no calls — a
+                // call in the road belongs to the
+                // road, not the building), then
+                // the building's own arguments,
+                // which may be absent entirely.
+                advance()
+                var target = try parsePrimary()
+                while true {
+                    if acceptPunct(".") {
+                        target = .member(target, try expectIdent())
+                    } else if acceptPunct("[") {
+                        let index = try parseExpr()
+                        try expectPunct("]")
+                        target = .index(target, index)
+                    } else {
+                        break
+                    }
+                }
+                var args: [TBJSExpr] = []
+                if acceptPunct("(") {
+                    if peekPunct() != ")" {
+                        while true {
+                            args.append(try parseAssign())
+                            if !acceptPunct(",") { break }
+                        }
+                    }
+                    try expectPunct(")")
+                }
+                return .newExpr(target, args)
             default:
                 advance()
                 return .ident(name)
             }
+        case .regex(let pattern, let flags):
+            // JavaScript second stage (0.38): a
+            // pattern is a value from birth.
+            advance()
+            return .literal(.regex(pattern, flags, 0))
+        case .template(let parts):
+            // JavaScript second stage (0.38): a
+            // template is weaving — its words
+            // and workings folded together with
+            // +, left to right, which is exactly
+            // what the evaluator's + does to a
+            // string and a value. Each working's
+            // source is lexed and read on the
+            // spot as its own expression.
+            advance()
+            var woven: TBJSExpr? = nil
+            for part in parts {
+                let piece: TBJSExpr
+                switch part {
+                case .text(let words):
+                    piece = .literal(.string(words))
+                case .exprSource(let workings):
+                    var sub = TBJSParser(
+                        tokens: try tbJSLex(workings))
+                    piece = try sub.parseExpr()
+                }
+                if let soFar = woven {
+                    woven = .binary("+", soFar, piece)
+                } else {
+                    woven = piece
+                }
+            }
+            return woven ?? .literal(.string(""))
         case .punct("("):
             advance()
             let expr = try parseExpr()
@@ -4747,6 +5310,67 @@ func tbJSExecStmt(_ stmt: TBJSStmt, _ env: TBJSEnv,
         throw TBJSFlow.breakLoop
     case .continueStmt:
         throw TBJSFlow.continueLoop
+    case .throwStmt(let value):
+        // JavaScript second stage (0.38): what
+        // the script throws is a value, and it
+        // travels as one until a catch holds it.
+        throw TBJSFlow.thrown(try tbJSEval(value, env, ctx))
+    case .tryStmt(let guarded, let catchName, let catchBody,
+                  let finallyBody):
+        // JavaScript second stage (0.38). The
+        // guarded block runs in its own scope.
+        // Whatever leaves it early — a thrown
+        // value, an engine error, a return, a
+        // break, a continue — is set aside; the
+        // catch, if one stands and the leaving
+        // was a throw or an error, holds it (a
+        // thrown value as itself, an error as
+        // its message); the finally, if one
+        // stands, then runs on every road; and
+        // whatever was set aside rides on —
+        // unless the catch or the finally left
+        // early itself, and that leaving wins.
+        var pending: TBJSFlow? = nil
+        do {
+            try tbJSExec(guarded, TBJSEnv(parent: env), ctx)
+        } catch let flow as TBJSFlow {
+            switch flow {
+            case .error(let message):
+                if let catchName = catchName, let catchBody = catchBody {
+                    let catchEnv = TBJSEnv(parent: env)
+                    catchEnv.vars[catchName] = .string(message)
+                    do {
+                        try tbJSExec(catchBody, catchEnv, ctx)
+                    } catch let inner as TBJSFlow {
+                        pending = inner
+                    }
+                } else {
+                    pending = flow
+                }
+            case .thrown(let value):
+                if let catchName = catchName, let catchBody = catchBody {
+                    let catchEnv = TBJSEnv(parent: env)
+                    catchEnv.vars[catchName] = value
+                    do {
+                        try tbJSExec(catchBody, catchEnv, ctx)
+                    } catch let inner as TBJSFlow {
+                        pending = inner
+                    }
+                } else {
+                    pending = flow
+                }
+            case .returnValue, .breakLoop, .continueLoop:
+                pending = flow
+            }
+        }
+        if let finallyBody = finallyBody {
+            do {
+                try tbJSExec(finallyBody, TBJSEnv(parent: env), ctx)
+            } catch let inner as TBJSFlow {
+                pending = inner
+            }
+        }
+        if let pending = pending { throw pending }
     }
 }
 
@@ -4961,6 +5585,48 @@ func tbJSEval(_ expr: TBJSExpr, _ env: TBJSEnv,
         return try tbJSEval(no, env, ctx)
     case .funcExpr(let params, let body):
         return .function(TBJSFunc(params: params, body: body, env: env))
+    case .newExpr(let target, let argExprs):
+        // JavaScript second stage (0.38):
+        // building. RegExp is the one native
+        // constructor; a reader's own function
+        // builds a plain object, is called with
+        // the object as its `this`, and the
+        // object is the result — unless the
+        // function returns an object-shaped
+        // value of its own, which wins, as the
+        // language has it. The function's final
+        // `this` is read back through the same
+        // mutatedThis road the array helpers use,
+        // because here values are copies: a
+        // constructor's `this.x = …` writes land
+        // on its scope's binding, and the built
+        // thing is that binding at the end.
+        var args: [TBJSValue] = []
+        for argExpr in argExprs {
+            args.append(try tbJSEval(argExpr, env, ctx))
+        }
+        let built = try tbJSEval(target, env, ctx)
+        switch built {
+        case .native(let name) where name == "global.RegExp":
+            return try tbJSNative(name, args, this: .undefined, ctx)
+        case .function:
+            let fresh = TBJSValue.object([:])
+            ctx.mutatedThis = nil
+            let result = try tbJSCall(built, args, this: fresh, ctx)
+            let finalThis = ctx.mutatedThis ?? fresh
+            ctx.mutatedThis = nil
+            switch result {
+            case .object, .array, .function, .native, .regex,
+                 .element:
+                return result
+            default:
+                return finalThis
+            }
+        default:
+            throw TBJSFlow.error(
+                "tried to construct with something"
+                + " that is not a constructor")
+        }
     }
 }
 
@@ -4979,13 +5645,21 @@ func tbJSCall(_ fn: TBJSValue, _ args: [TBJSValue], this: TBJSValue,
         } catch let flow as TBJSFlow {
             switch flow {
             case .returnValue(let value):
+                // The function's last word on its
+                // `this` rides back (0.38): a
+                // method's — or a constructor's —
+                // writes to it are writes of copies
+                // here, and the call site restores
+                // them to the thing it called on.
+                ctx.mutatedThis = callEnv.vars["this"]
                 return value
             case .breakLoop, .continueLoop:
                 throw TBJSFlow.error("break or continue outside a loop")
-            case .error:
+            case .error, .thrown:
                 throw flow
             }
         }
+        ctx.mutatedThis = callEnv.vars["this"]
         return .undefined
     case .native(let name):
         return try tbJSNative(name, args, this: this, ctx)
@@ -5058,6 +5732,52 @@ func tbJSNative(_ name: String, _ args: [TBJSValue], this: TBJSValue,
         return .string(tbJSString(arg(0)))
     case "global.Number":
         return .number(tbJSNumber(arg(0)))
+    case "global.RegExp":
+        // JavaScript second stage (0.38): the
+        // RegExp constructor, by call or by
+        // `new` — the same making either way.
+        // A pattern in hand lends its own
+        // pattern (and its flags, unless new
+        // ones are named); a string is read as
+        // a pattern; the making validates the
+        // pattern now, as a constructor does.
+        if case .regex(let pattern, let flags, _) = arg(0) {
+            if args.count > 1 {
+                let newFlags = tbJSString(arg(1))
+                _ = try tbJSRegexCompile(pattern, newFlags)
+                return .regex(pattern, newFlags, 0)
+            }
+            return .regex(pattern, flags, 0)
+        }
+        let pattern = args.isEmpty ? "" : tbJSString(arg(0))
+        let flags = args.count > 1 ? tbJSString(arg(1)) : ""
+        _ = try tbJSRegexCompile(pattern, flags)
+        return .regex(pattern, flags, 0)
+    case "regex.test":
+        // JavaScript second stage (0.38).
+        guard case .regex(let pattern, let flags, let lastIndex) = this
+        else { return .boolean(false) }
+        let (result, next) = try tbJSRegexExec(
+            pattern, flags, lastIndex, tbJSString(arg(0)))
+        if flags.contains("g") || flags.contains("y") {
+            ctx.mutatedThis = .regex(pattern, flags, next)
+        }
+        if case .null = result { return .boolean(false) }
+        return .boolean(true)
+    case "regex.exec":
+        // JavaScript second stage (0.38).
+        guard case .regex(let pattern, let flags, let lastIndex) = this
+        else { return .null }
+        let (result, next) = try tbJSRegexExec(
+            pattern, flags, lastIndex, tbJSString(arg(0)))
+        if flags.contains("g") || flags.contains("y") {
+            ctx.mutatedThis = .regex(pattern, flags, next)
+        }
+        return result
+    case "regex.toString":
+        guard case .regex(let pattern, let flags, _) = this
+        else { return .string("") }
+        return .string("/" + pattern + "/" + flags)
     case "string.charAt":
         guard case .string(let s) = this else { return .string("") }
         let chars = Array(s)
@@ -5094,12 +5814,153 @@ func tbJSNative(_ name: String, _ args: [TBJSValue], this: TBJSValue,
     case "string.split":
         guard case .string(let s) = this else { return .undefined }
         if args.isEmpty { return .array([.string(s)]) }
+        // JavaScript second stage (0.38): a
+        // pattern splits where it matches, and
+        // its groups join the pieces, as the
+        // language has it; a limit, when one is
+        // named, trims the pieces for both forms.
+        if case .regex(let pattern, let flags, _) = arg(0) {
+            let re = try tbJSRegexCompile(pattern, flags)
+            let ns = s as NSString
+            let matches = re.matches(
+                in: s, options: [],
+                range: NSRange(location: 0, length: ns.length))
+            var pieces: [TBJSValue] = []
+            var cursor = 0
+            for match in matches {
+                pieces.append(.string(ns.substring(with: NSRange(
+                    location: cursor,
+                    length: match.range.location - cursor))))
+                for group in 1..<match.numberOfRanges {
+                    let groupRange = match.range(at: group)
+                    if groupRange.location == NSNotFound {
+                        pieces.append(.undefined)
+                    } else {
+                        pieces.append(
+                            .string(ns.substring(with: groupRange)))
+                    }
+                }
+                cursor = match.range.location + match.range.length
+            }
+            pieces.append(.string(ns.substring(from: cursor)))
+            if args.count > 1, case .number(let limit) = arg(1) {
+                pieces = Array(pieces.prefix(max(0, Int(limit))))
+            }
+            return .array(pieces)
+        }
         let sep = tbJSString(arg(0))
         if sep.isEmpty {
             return .array(s.map { .string(String($0)) })
         }
-        return .array(s.components(separatedBy: sep)
-            .map { .string($0) })
+        var pieces = s.components(separatedBy: sep)
+            .map { TBJSValue.string($0) }
+        if args.count > 1, case .number(let limit) = arg(1) {
+            pieces = Array(pieces.prefix(max(0, Int(limit))))
+        }
+        return .array(pieces)
+    case "string.match":
+        // JavaScript second stage (0.38). A
+        // pattern with the g flag gathers every
+        // match's whole text; without it, one
+        // exec — groups and all — or null. A
+        // plain string argument is read as a
+        // pattern, as the language reads it.
+        guard case .string(let s) = this else { return .undefined }
+        if case .regex(let pattern, let flags, _) = arg(0) {
+            if flags.contains("g") {
+                let re = try tbJSRegexCompile(pattern, flags)
+                let ns = s as NSString
+                let matches = re.matches(
+                    in: s, options: [],
+                    range: NSRange(location: 0, length: ns.length))
+                if matches.isEmpty { return .null }
+                return .array(matches.map {
+                    .string(ns.substring(with: $0.range))
+                })
+            }
+            let (result, _) = try tbJSRegexExec(pattern, flags, 0, s)
+            return result
+        }
+        let (result, _) = try tbJSRegexExec(
+            args.isEmpty ? "" : tbJSString(arg(0)), "", 0, s)
+        return result
+    case "string.search":
+        // JavaScript second stage (0.38): the
+        // character position of the first match,
+        // or -1. A plain string is a pattern here
+        // too.
+        guard case .string(let s) = this else { return .number(-1) }
+        let pattern: String
+        let flags: String
+        if case .regex(let p, let f, _) = arg(0) {
+            pattern = p
+            flags = f
+        } else {
+            pattern = args.isEmpty ? "" : tbJSString(arg(0))
+            flags = ""
+        }
+        let re = try tbJSRegexCompile(pattern, flags)
+        let ns = s as NSString
+        guard let match = re.firstMatch(
+            in: s, options: [],
+            range: NSRange(location: 0, length: ns.length)) else {
+            return .number(-1)
+        }
+        return .number(Double(ns.substring(
+            to: match.range.location).count))
+    case "string.replace":
+        // JavaScript second stage (0.38):
+        // replacing with a pattern (the first
+        // match, or every match under g) or with
+        // a plain string (its first standing).
+        // The replacement's $ words — $$, $&,
+        // $`, $', $1..$99 — are expanded against
+        // each match. A function for a
+        // replacement is not in this stage.
+        guard case .string(let s) = this else { return .undefined }
+        if args.count < 2 { return .string(s) }
+        if case .function = arg(1) {
+            throw TBJSFlow.error(
+                "replace with a function is not in this stage")
+        }
+        if case .native = arg(1) {
+            throw TBJSFlow.error(
+                "replace with a function is not in this stage")
+        }
+        let replacement = tbJSString(arg(1))
+        let ns = s as NSString
+        if case .regex(let pattern, let flags, _) = arg(0) {
+            let re = try tbJSRegexCompile(pattern, flags)
+            let all = re.matches(
+                in: s, options: [],
+                range: NSRange(location: 0, length: ns.length))
+            let chosen = flags.contains("g")
+                ? all : Array(all.prefix(1))
+            var out = ""
+            var cursor = 0
+            for match in chosen {
+                out += ns.substring(with: NSRange(
+                    location: cursor,
+                    length: match.range.location - cursor))
+                out += tbJSRegexExpandReplacement(
+                    replacement, ns, match, "")
+                cursor = match.range.location + match.range.length
+            }
+            out += ns.substring(from: cursor)
+            return .string(out)
+        }
+        let needle = tbJSString(arg(0))
+        if needle.isEmpty {
+            return .string(tbJSRegexExpandReplacement(
+                replacement, ns, nil, needle) + s)
+        }
+        let found = (s as NSString).range(of: needle)
+        if found.location == NSNotFound { return .string(s) }
+        let before = ns.substring(to: found.location)
+        let after = ns.substring(
+            from: found.location + found.length)
+        return .string(before + tbJSRegexExpandReplacement(
+            replacement, ns, nil, needle) + after)
     case "string.trim":
         guard case .string(let s) = this else { return .undefined }
         return .string(s.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -5322,6 +6183,12 @@ func tbRunScripts(session: TBPageSession) async -> TBJSRun {
             switch flow {
             case .error(let message):
                 ctx.logs.append("Script error: " + message)
+            case .thrown(let value):
+                // JavaScript second stage (0.38):
+                // a throw nothing caught ends this
+                // script, in its own words.
+                ctx.logs.append("Script error: uncaught throw: "
+                                + tbJSString(value))
             case .returnValue:
                 break  // A top-level return just ends the script.
             case .breakLoop, .continueLoop:
@@ -5406,6 +6273,13 @@ func tbConsoleEval(session: TBPageSession?,
         switch flow {
         case .error(let message):
             outcome.errorText = message
+        case .thrown(let value):
+            // JavaScript second stage (0.38): in
+            // the console a throw nothing caught
+            // is the run's error line, in the
+            // thrown value's own words.
+            outcome.errorText = "uncaught throw: "
+                + tbJSString(value)
         case .returnValue(let value):
             // A top-level return in console
             // code: its value is the answer, as

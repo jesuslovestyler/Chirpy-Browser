@@ -7,6 +7,168 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.38 — JAVASCRIPT, SECOND STAGE:
+PATTERNS, TEMPLATES, GUARDING
+------------------------------------------------------
+The first slice (0.33) ran scripts; this stage grows the
+language itself, aimed by the evidence of where real
+scripts die in Chirpy's console. MediaWiki's scripts
+died at the lexer on the character '^' — the opening of
+a pattern — before a single statement ran. Patterns are
+one of the four pieces of this stage; the others are
+template strings, guarding (try/catch/finally/throw),
+and, fallen out of the pattern work, `new`.
+
+PATTERNS. A regex literal is a value now: /^d+$/
+stands where any other value stands. The lexer tells a
+pattern from a division by the token before it, the
+same reading every small JavaScript lexer makes — after
+a value (a number, a name, a closing bracket) a '/' is
+division; anywhere a value can begin, it is a pattern.
+Escapes and character classes are scanned as one token,
+so /[/]/ and a\/b lex whole, and the flags g, i, m, s,
+u, y ride along. The matcher is Foundation's
+NSRegularExpression — a regex library, openly, not a
+borrowed JavaScript engine; it drives Swift on the Mac
+and in the Linux harness alike, and no code from
+anyone's browser or engine comes with it.
+
+On the value: .source, .flags, .lastIndex (the one
+writable field), .global, .ignoreCase, .multiline,
+.sticky, .unicode, and two working methods — test(str)
+answers yes or no, and exec(str) answers an array
+holding the whole match and then one slot per group,
+an absent group reading undefined, or null when
+nothing matches. Under the g or y flag, exec and test
+begin at lastIndex and leave it past the match, as the
+language asks; a failed search under g sets it back
+to 0, and an empty match advances it by one, so a
+walk over empty ground still ends. The RegExp
+constructor takes a pattern and flags as strings —
+new RegExp("^a", "i") — takes a literal and keeps it,
+and behaves the same called plainly as with `new`.
+
+On strings, the four roads: match(pat) answers the
+exec array, or, under g, an array of the whole matches
+(null when there are none); replace(needle, repl)
+takes a string or a pattern, plain (first match) or
+global (all matches), and expands the replacement's
+$ words — $$ is a dollar, $& the whole match, $` what
+came before, $' what comes after, $1..$99 the groups;
+split(pat) takes a pattern as well as a string now,
+group values standing among the pieces, and both forms
+honor a limit; search(pat) answers the position of the
+first match, or -1.
+
+TEMPLATES. A backtick string is a value: `sum: ${a+b}`
+weaves its workings in, each ${…} folded into the same
+joining the '+' operator already performs, so numbers,
+booleans and undefined print exactly as they do beside
+a '+'. Workings may themselves hold templates —
+`outer ${`inner ${x}`} end` — and may hold objects,
+calls, and ternaries; a literal newline inside a
+template is a newline in the string, as the language
+promises.
+
+GUARDING. try, catch, finally and throw are statements
+now, and a script's errors stop being fatal to the
+whole run by default only when a catch stands in the
+way — throw still ends an unguarded script, with one
+plain console line naming what was thrown. The design,
+stated once: a value the script itself throws travels
+as a value, and the catch holds it as itself — throw
+"halt" is caught holding the string "halt", throw {…}
+holding that object. An engine error (an unknown
+method, a bad pattern) arrives in the catch as its
+message, a string. finally runs on every road out of
+its try — the plain road, the caught road, and under
+return, break and continue passing through — and a
+throw from inside a catch or a finally is the road
+that wins, as in the language. A throw crosses
+function boundaries until a catch holds it.
+
+BUILDING. `new` arrived with the RegExp work and is
+general: new F(args) asks a reader's own function to
+build — a fresh plain object stands as `this` while
+the function runs, its writes to this.x ride home (the
+same write-back road the array helpers opened for
+their methods, now kept by every call), and an
+object-shaped return value, if the function returns
+one, is the result instead of the built object.
+
+VERIFICATION. The interpreter's extracted section was
+typechecked whole (swiftc -typecheck, not a parse) and
+executed under the Linux Swift harness against a
+standing battery of 42 checks: 42/42. The first twelve
+are the 0.33 drill itself — js-test.html's inline
+script and js-test-helper.js against a hand-built page,
+all eleven promises kept and the helper's arrival line
+read — so the first slice is unharmed. The thirty new
+checks cover each piece above: division and a pattern
+on one line in both orders; division after
+parentheses; a pattern after return; classes and
+escaped slashes; exec's groups and its null; lastIndex
+walking under g; the constructor from strings and from
+a literal; match in both shapes and none; replace in
+string form, pattern form with $1, $& and $$; split by
+pattern with a limit, and string split unharmed; search
+hit and miss; templates plain, nested, and holding a
+newline; a thrown string caught as itself; a thrown
+object caught whole; an engine error caught as its
+message; finally on the plain, return and break roads;
+finally without catch letting a throw pass outward; an
+uncaught throw ending the run as a throw, not a
+silence; a pattern as an argument and inside a
+ternary; the i and m flags; `new` with a reader's own
+constructor, its methods keeping their `this`; a throw
+crossing a function boundary into the catch; and the
+MediaWiki shape that opened this stage — a script
+whose first working line is an anchored pattern —
+running clean. Both app files parse clean in the
+harness as well; Tyler's Xcode build remains the final
+witness, as it has been since 0.36 taught us the parse
+is not a typecheck.
+
+NAMED LIMITS, on purpose. An exec result is a plain
+array: it carries no .index or .input of its own yet.
+replace will not take a replacement FUNCTION yet — it
+says so in an error, plainly, rather than pretending.
+A pattern inside a template's ${…} holding a "}" of
+its own would end the working early (patterns inside
+workings are rare; the limit is named in the code).
+The y (sticky) flag is honored through lastIndex like
+g but does not yet demand the match begin exactly at
+lastIndex. The u flag rides along in a pattern's flags
+and is legality-checked; Unicode-mode pattern rules
+are not separately enforced. Classes and arrow
+functions are not here. Timers, promises and fetch —
+the async world — are a later stage still. The 0.37
+suite's broken extraction (named in 0.37.3) remains
+untouched and still owed, exactly as stated there;
+this stage's battery is the new harness, not that
+suite repaired.
+
+The drill: build and run — the status line should read
+"Chirpy Engine 0.38 (Swift)". Open js-test.html: all
+eleven promises, as always. Then open js2-test.html —
+eight numbered promises, each written into the page by
+its own scripts and repeated to the console: patterns
+beside division on one line; exec and its groups;
+replace with $1; split and search; the constructor;
+a template with a template inside it; try/catch
+catching a thrown word and finally running on the
+return road; and `new` building a small cart whose
+method adds its own prices. Then open Wikipedia's
+"Jesus" article and read the console: the MediaWiki
+scripts died at the lexer with "unexpected character
+'^'" before this stage; what they meet now — a later
+wall, named plainly, or silence — is the evidence for
+the next stage. Finally, try google.com/search?q=jesus
+and report what the console shows: Google's gate is a
+test its served scripts run, and each stage of this
+language growth is measured against it honestly — no
+shortcut, no borrowed engine, no spoofed identity.
+
 0.37.3.1 — ERRATUM: THE BUILD
 REPAIR
 ------------------------------------------------------

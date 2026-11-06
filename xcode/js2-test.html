@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chirpy JS Second Stage Drill</title>
+</head>
+<body>
+<h1 id="heading">Chirpy JavaScript Drill — Second Stage (0.38)</h1>
+<p>Eight numbered promises, each written into this page by its own
+scripts and repeated in the console. If a line below still reads
+"not yet", that piece did not run.</p>
+<p id="r1">1. Patterns beside division: not yet</p>
+<p id="r2">2. exec and its groups: not yet</p>
+<p id="r3">3. replace with $1: not yet</p>
+<p id="r4">4. split and search: not yet</p>
+<p id="r5">5. The RegExp constructor: not yet</p>
+<p id="r6">6. A template inside a template: not yet</p>
+<p id="r7">7. try, catch, and finally on the return road: not yet</p>
+<p id="r8">8. new builds an object: not yet</p>
+<script>
+// 1 — a pattern and a division share one line, in both orders.
+var pat = /^\d+$/;
+var half = 100 / 4;
+var ok1 = (pat.test("12345") === true && half === 25
+  && (100 / 4 / 5) === 5 && (/x{2}/.test("xx") === true));
+document.getElementById("r1").textContent =
+  "1. Patterns beside division: " + (ok1 ? "PASS" : "FAIL");
+console.log("1. patterns beside division: " + (ok1 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 2 — exec answers the whole match and then one slot per group.
+var m = /(\w+)@(\w+)\.(\w+)/.exec("write to noki@chirpy.example today");
+var ok2 = (m !== null && m.length === 4 && m[0] === "noki@chirpy.example"
+  && m[1] === "noki" && m[2] === "chirpy" && m[3] === "example"
+  && /z+/.exec("abc") === null);
+// split with a pattern, and search, ride along in promise 4.
+var ok2b = ("one1two22three".split(/\d+/).join("|") === "one|two|three");
+document.getElementById("r2").textContent =
+  "2. exec and its groups: " + ((ok2 && ok2b) ? "PASS" : "FAIL");
+console.log("2. exec and its groups: " + ((ok2 && ok2b) ? "PASS" : "FAIL"));
+</script>
+<script>
+// 3 — replace with group substitution, string and pattern forms.
+var swapped = "Kovalevich, Tyler".replace(/^(\w+), (\w+)$/, "$2 $1");
+var allNums = "a1b2c3".replace(/\d/g, "#");
+var plainSwap = "hello world".replace("world", "chirpy");
+var ok3 = (swapped === "Tyler Kovalevich" && allNums === "a#b#c#"
+  && plainSwap === "hello chirpy");
+document.getElementById("r3").textContent =
+  "3. replace with $1: " + (ok3 ? "PASS" : "FAIL");
+console.log("3. replace with $1: " + (ok3 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 4 — split by a pattern with a limit; search hit and miss.
+var parts = "a,b;c d".split(/[,; ]/, 3);
+var hit = "Jesus loves Tyler".search(/loves/);
+var miss = "calm".search(/storm/);
+var ok4 = (parts.length === 3 && parts[0] === "a" && parts[2] === "c"
+  && hit === 6 && miss === -1);
+document.getElementById("r4").textContent =
+  "4. split and search: " + (ok4 ? "PASS" : "FAIL");
+console.log("4. split and search: " + (ok4 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 5 — the constructor, from strings and from a literal, with `new`.
+var built = new RegExp("^a.c$", "i");
+var fromLit = new RegExp(/b+$/);
+var ok5 = (built.test("AbC") === true && built.source === "^a.c$"
+  && built.ignoreCase === true && fromLit.test("abbb") === true
+  && RegExp("z").test("zoo") === true);
+document.getElementById("r5").textContent =
+  "5. The RegExp constructor: " + (ok5 ? "PASS" : "FAIL");
+console.log("5. the RegExp constructor: " + (ok5 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 6 — templates weave workings in; a template may hold a template.
+var who = "Tyler";
+var outer = `outer: ${`inner ${who}`} — sum ${2 + 3}, flag ${/^\d+$/.test("42")}`;
+var ok6 = (outer === "outer: inner Tyler — sum 5, flag true");
+document.getElementById("r6").textContent =
+  "6. A template inside a template: " + (ok6 ? "PASS" : "FAIL");
+console.log("6. template inside template: " + (ok6 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 7 — a thrown word is caught as itself; finally runs on the return road.
+var trail = "";
+function guarded() {
+  try {
+    throw "halt now";
+  } catch (e) {
+    trail += "caught:" + e;
+  } finally {
+    trail += "|finally";
+  }
+  try {
+    return "returned";
+  } finally {
+    trail += "|finally-on-return";
+  }
+}
+var got = guarded();
+var ok7 = (got === "returned"
+  && trail === "caught:halt now|finally|finally-on-return");
+document.getElementById("r7").textContent =
+  "7. try, catch, and finally on the return road: " + (ok7 ? "PASS" : "FAIL");
+console.log("7. try/catch/finally: " + (ok7 ? "PASS" : "FAIL"));
+</script>
+<script>
+// 8 — `new` asks a function to build; its methods keep their `this`.
+function Cart() {
+  this.items = [];
+  this.add = function(x) { this.items.push(x); };
+  this.total = function() {
+    var s = 0;
+    for (var i = 0; i < this.items.length; i++) { s = s + this.items[i]; }
+    return s;
+  };
+}
+var cart = new Cart();
+cart.add(3); cart.add(4);
+var ok8 = (cart.total() === 7 && cart.items.length === 2);
+document.getElementById("r8").textContent =
+  "8. new builds an object: " + (ok8 ? "PASS" : "FAIL");
+console.log("8. new builds an object: " + (ok8 ? "PASS" : "FAIL"));
+</script>
+</body>
+</html>
