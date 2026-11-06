@@ -7,6 +7,56 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.39.1 — THE SPLIT, STEP ONE
+------------------------------------------------------
+No new behavior, no new feature: the code
+moved house. The JavaScript interpreter —
+everything in ChirpyEngine.swift from
+TBJSValue down to the end of tbConsoleEval:
+the values and rooms, the lexer, the parser,
+the evaluator, the page bridge, the runner
+and its session, and the console's road in —
+now lives in its own file, ChirpyJS.swift,
+word for word. One step at a time, at
+Tyler's direction, so each part of the
+codebase can be fixed and built quicker.
+
+THE FILE MAP, as of 0.39.1.
+ChirpyBrowserApp.swift — the app shell.
+ContentView.swift — the window: the browser
+model, the page view, the console drawer,
+the inspector, settings.
+ChirpyEngine.swift — the engine: fetching,
+the Shield, the cache, HTML parsing, CSS,
+layout, paint, and the home page.
+ChirpyJS.swift — the JavaScript
+interpreter (0.33–0.39's work), with the
+session the scripts run in.
+A marker in ChirpyEngine.swift stands where
+the interpreter lived and points at its new
+home; ChirpyJS.swift's header points back.
+
+ONE THING TO DO BY HAND. ChirpyJS.swift is
+a new file, so add it to the Xcode project
+once: put it in the ChirpyBrowser folder
+beside ChirpyEngine.swift, then drag it
+into the project (or File > Add Files) so
+it stands in the list with the other
+sources. After that it travels like any
+other file. (The project file in the repo
+already lists it.)
+
+THE DRILL IS UNCHANGED. Build and run —
+the status line should read "Chirpy Engine
+0.39.1 (Swift)". Open js-suite.html and
+walk the whole suite: js-test.html,
+js2-test.html, js3-test.html — 29 promises,
+all PASS in page and console. Then the
+standing evidence: Wikipedia's Jesus
+article, and google.com/search?q=jesus —
+whatever its console says names the next
+stage.
+
 0.39 — JAVASCRIPT, THIRD STAGE:
 MODERN SHAPES
 ------------------------------------------------------
