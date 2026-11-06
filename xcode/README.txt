@@ -7,6 +7,98 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.39.4 — THE SPLIT, STEP FOUR
+------------------------------------------------------
+No new behavior, no new feature: the code
+moved house a fourth time. The whole layout
+system — the box and length helpers that
+stood under the engine's layout mark, and
+the renderer's own layout regions:
+positioned layout in both its passes,
+multi-column, flexbox, and grid — now
+lives in its own file, ChirpyLayout.swift.
+The helpers moved whole; the renderer's
+regions moved as extensions of TBRenderer
+in the new file, word for word under one
+added level of indentation. One honest
+difference from the earlier steps: a
+renderer method in one file cannot reach a
+private member declared in another file,
+so sixty of the renderer's private
+members — exactly the ones the two files
+now share — stand internal instead of
+private. That is the only change inside
+the moved words; no declaration moved,
+merged, or vanished. The split's fourth
+step, at Tyler's direction, one step at a
+time. (The sections below say the layout
+lives in the engine; that was true when
+they were written — read them as the record
+of their day.)
+
+THE FILE MAP, as of 0.39.4.
+ChirpyBrowserApp.swift — the app shell.
+ContentView.swift — the window: the browser
+model, the page view, the console drawer,
+the inspector, settings.
+ChirpyEngine.swift — the engine: fetching,
+the cache, HTML parsing, paint, the walk,
+and the home page.
+ChirpyJS.swift — the JavaScript
+interpreter, with the session the scripts
+run in.
+ChirpyShield.swift — the Shield: the two
+domain lists, the category and the match,
+the block page, and the privacy dressing.
+ChirpyCSS.swift — the CSS and style
+system: the parsers, the selectors, the
+cascade, and the style helpers.
+ChirpyLayout.swift — the layout system:
+the box and length helpers, and the
+renderer's layout regions — positioned,
+multi-column, flexbox, and grid — as
+extensions of TBRenderer.
+Markers in ChirpyEngine.swift stand where
+the layout lived and point at its new
+home; ChirpyLayout.swift's header points
+back.
+
+ONE THING TO DO BY HAND. ChirpyLayout.swift
+is a new file, so add it to the Xcode
+project once: put it in the ChirpyBrowser
+folder beside the other sources, then
+drag it into the project (or File > Add
+Files) so it stands in the list with them.
+After that it travels like any other file.
+(The project file in the repo already
+lists it, the same drag-and-drop way the
+earlier split files arrived.)
+
+THE DRILL, PLUS THE LAYOUT PAGES.
+Build and run — the status line should
+read "Chirpy Engine 0.39.4 (Swift)". Open
+js-suite.html and walk the whole suite:
+29 promises, all PASS in page and console.
+Then shield-test.html and its six promises.
+Then the pages that carry the layout
+system: multicolumn-test.html,
+positioning-test.html, grid-test.html,
+floats-test.html, flex-test.html — each
+must LOOK exactly as it did at 0.39.3, the
+same page, the same paint, nothing moved.
+One honesty note: scrolling the
+multicolumn page has a known crash that
+was already there before this step — it is
+not this step's subject, and scrolling
+that page is not part of this drill; a
+separate hunt will take it up at Tyler's
+call. Then the standing evidence:
+Wikipedia's Jesus article — identical
+face, Timing in the same ~7.5-second
+family. And google.com/search?q=jesus —
+whatever its console says names the next
+stage.
+
 0.39.3 — THE SPLIT, STEP THREE
 ------------------------------------------------------
 No new behavior, no new feature: the code
