@@ -7,6 +7,82 @@ the page itself. No WebKit anywhere in it. Public domain
 (Unlicense); the source lives in the Chirpy-Browser GitHub
 repo (renamed from Turtle-Browser).
 
+0.39.3 — THE SPLIT, STEP THREE
+------------------------------------------------------
+No new behavior, no new feature: the code
+moved house a third time. The whole CSS and
+style system — everything that stood in
+ChirpyEngine.swift between its CSS mark and
+the layout mark: the CSS text parser, the
+selector parser and matcher, the cascade
+with its variable environments and
+resolved-style computation, and the style
+helpers for colors, fonts, and hover and
+sticky paint — now lives in its own file,
+ChirpyCSS.swift, word for word. The split's
+third step, at Tyler's direction, one step
+at a time. (The sections below say the CSS
+lives in the engine; that was true when
+they were written — read them as the record
+of their day.)
+
+THE FILE MAP, as of 0.39.3.
+ChirpyBrowserApp.swift — the app shell.
+ContentView.swift — the window: the browser
+model, the page view, the console drawer,
+the inspector, settings.
+ChirpyEngine.swift — the engine: fetching,
+the cache, HTML parsing, layout, paint,
+and the home page.
+ChirpyJS.swift — the JavaScript
+interpreter, with the session the scripts
+run in.
+ChirpyShield.swift — the Shield: the two
+domain lists, the category and the match,
+the block page, and the privacy dressing.
+ChirpyCSS.swift — the CSS and style
+system: the parsers, the selectors, the
+cascade, and the style helpers.
+A marker in ChirpyEngine.swift stands
+where the CSS lived and points at its new
+home; ChirpyCSS.swift's header points
+back.
+
+ONE THING TO DO BY HAND. ChirpyCSS.swift
+is a new file, so add it to the Xcode
+project once: put it in the ChirpyBrowser
+folder beside the other sources, then
+drag it into the project (or File > Add
+Files) so it stands in the list with them.
+After that it travels like any other file.
+(The project file in the repo already
+lists it, the same drag-and-drop way
+ChirpyJS.swift and ChirpyShield.swift
+arrived.)
+
+THE DRILL, PLUS THE CSS PAGES.
+Build and run — the status line should
+read "Chirpy Engine 0.39.3 (Swift)". Open
+js-suite.html and walk the whole suite:
+js-test.html, js2-test.html, js3-test.html
+— 29 promises, all PASS in page and
+console. Then open shield-test.html and
+hold the Shield to its six promises. Then
+walk the CSS drill pages and hold each
+one to how it looked at 0.39.2 — the same
+page, the same paint, nothing moved:
+multicolumn-test.html, positioning-test
+.html, and grid-test.html carry the most
+of the style system; floats-test.html and
+flex-test.html stand behind them. Then
+the standing evidence: Wikipedia's Jesus
+article — it must look identical, and the
+console's Timing line should sit in the
+same ~7.5-second family as 0.37.3.1's
+7.49. And google.com/search?q=jesus —
+whatever its console says names the next
+stage.
+
 0.39.2 — THE SPLIT, STEP TWO
 ------------------------------------------------------
 No new behavior, no new feature: the code
